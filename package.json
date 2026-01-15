@@ -1,0 +1,35 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@zxing/browser": "^0.1.5",
+    "chart.js": "^4.5.1",
+    "cmdk": "^1.1.1",
+    "jsbarcode": "^3.11.6",
+    "next": "16.1.1",
+    "next-intl": "^4.6.1",
+    "react": "19.2.3",
+    "react-chartjs-2": "^5.3.1",
+    "react-day-picker": "^9.13.0",
+    "react-dom": "19.2.3",
+    "react-select": "^5.10.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/jsbarcode": "^3.11.4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
