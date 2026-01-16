@@ -105,6 +105,11 @@
     "verifyEmailFailed": "Uthibitisho umeshindwa. Angalia tokeni yako.",
     "verifyEmailProcessing": "Inathibitisha",
     "verifyEmailButton": "Thibitisha barua pepe",
+    "verifyEmailResendButton": "Tuma upya barua pepe ya uthibitisho",
+    "verifyEmailResendProcessing": "Inatuma barua pepe",
+    "verifyEmailResendSent": "Barua pepe ya uthibitisho imetumwa. Angalia kikasha chako.",
+    "verifyEmailResendFailed": "Imeshindikana kutuma upya barua pepe ya uthibitisho.",
+    "verifyEmailResendMissing": "Barua pepe au kitambulisho cha biashara hakipo."
     "token": "Tokeni",
     "verify": "Thibitisha",
     "passwordResetTitle": "Weka upya nenosiri",

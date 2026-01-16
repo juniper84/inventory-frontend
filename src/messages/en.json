@@ -105,6 +105,11 @@
     "verifyEmailFailed": "Verification failed. Check your token.",
     "verifyEmailProcessing": "Verifying",
     "verifyEmailButton": "Verify email",
+    "verifyEmailResendButton": "Resend verification email",
+    "verifyEmailResendProcessing": "Sending email",
+    "verifyEmailResendSent": "Verification email sent. Check your inbox.",
+    "verifyEmailResendFailed": "Unable to resend verification email.",
+    "verifyEmailResendMissing": "Missing email or business ID."
     "token": "Token",
     "verify": "Verify",
     "passwordResetTitle": "Reset password",

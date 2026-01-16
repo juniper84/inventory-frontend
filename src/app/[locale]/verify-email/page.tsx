@@ -19,6 +19,7 @@ export default function VerifyEmailPage() {
   const [token, setToken] = useState(initialToken);
   const [message, setMessage] = useToastState();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
 
   const verify = async () => {
     setMessage(null);
@@ -85,6 +86,26 @@ export default function VerifyEmailPage() {
     await verify();
   };
 
+  const resend = async () => {
+    if (!email || !businessId) {
+      setMessage({ action: 'auth', outcome: 'failure', message: t('verifyEmailResendMissing') });
+      return;
+    }
+    setMessage(null);
+    setIsResending(true);
+    try {
+      await apiFetch('/auth/email-verification/request', {
+        method: 'POST',
+        body: JSON.stringify({ email, businessId }),
+      });
+      setMessage({ action: 'auth', outcome: 'success', message: t('verifyEmailResendSent') });
+    } catch (err) {
+      setMessage({ action: 'auth', outcome: 'failure', message: t('verifyEmailResendFailed') });
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   return (
     <div className="space-y-6 nvi-reveal">
       <div>
@@ -117,6 +138,17 @@ export default function VerifyEmailPage() {
           <span className="inline-flex items-center justify-center gap-2">
             {isSubmitting ? <Spinner variant="bars" size="xs" /> : null}
             {isSubmitting ? t('verifyEmailProcessing') : t('verifyEmailButton')}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={resend}
+          disabled={isResending}
+          className="w-full rounded border border-gold-700/50 bg-black/30 px-4 py-2 text-sm font-semibold text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          <span className="inline-flex items-center justify-center gap-2">
+            {isResending ? <Spinner variant="bars" size="xs" /> : null}
+            {isResending ? t('verifyEmailResendProcessing') : t('verifyEmailResendButton')}
           </span>
         </button>
         {message ? <p className="text-sm text-gold-300">{message}</p> : null}
