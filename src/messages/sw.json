@@ -109,7 +109,7 @@
     "verifyEmailResendProcessing": "Inatuma barua pepe",
     "verifyEmailResendSent": "Barua pepe ya uthibitisho imetumwa. Angalia kikasha chako.",
     "verifyEmailResendFailed": "Imeshindikana kutuma upya barua pepe ya uthibitisho.",
-    "verifyEmailResendMissing": "Barua pepe au kitambulisho cha biashara hakipo."
+    "verifyEmailResendMissing": "Barua pepe au kitambulisho cha biashara hakipo.",
     "token": "Tokeni",
     "verify": "Thibitisha",
     "passwordResetTitle": "Weka upya nenosiri",
