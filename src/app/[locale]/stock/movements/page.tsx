@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -181,8 +181,12 @@ export default function StockMovementsPage() {
         append ? [...prev, ...result.items] : result.items,
       );
       setNextCursor(result.nextCursor);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       if (append) {
         setIsLoadingMore(false);

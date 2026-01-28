@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { TypeaheadInput } from '@/components/TypeaheadInput';
@@ -51,8 +51,12 @@ export default function SearchPage() {
         { token },
       );
       setResults(data);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('searchFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('searchFailed')),
+      });
     } finally {
       setIsSearching(false);
     }
@@ -118,8 +122,13 @@ export default function SearchPage() {
           })),
         ];
         setSuggestions(next);
-      } catch {
+      } catch (err) {
         setSuggestions([]);
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('searchFailed')),
+        });
       }
     }, 250);
     return () => window.clearTimeout(timer);

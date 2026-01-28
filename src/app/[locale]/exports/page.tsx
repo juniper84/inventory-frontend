@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch, buildRequestHeaders } from '@/lib/api';
+import {
+  apiFetch,
+  buildRequestHeaders,
+  getApiErrorMessage,
+  getApiErrorMessageFromResponse,
+} from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -214,8 +219,12 @@ export default function ExportsPage() {
       }
       return nextState;
     });
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -231,7 +240,8 @@ export default function ExportsPage() {
         token,
       });
       setWorkerStatus(status);
-    } catch {
+    } catch (err) {
+      console.warn('Failed to load export worker status', err);
       setWorkerStatus(null);
     }
   };
@@ -276,8 +286,12 @@ export default function ExportsPage() {
       });
       await loadJobs();
       setMessage({ action: 'export', outcome: 'success', message: t('created') });
-    } catch {
-      setMessage({ action: 'export', outcome: 'failure', message: t('createFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'export',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -296,7 +310,11 @@ export default function ExportsPage() {
       headers,
     });
     if (!response.ok) {
-      setMessage({ action: 'export', outcome: 'failure', message: t('downloadFailed') });
+      const message = await getApiErrorMessageFromResponse(
+        response,
+        t('downloadFailed'),
+      );
+      setMessage({ action: 'export', outcome: 'failure', message });
       setIsDownloading((prev) => ({ ...prev, [jobId]: false }));
       return;
     }
@@ -360,8 +378,12 @@ export default function ExportsPage() {
       });
       setPreview(result);
       setMessage({ action: 'import', outcome: 'success', message: t('previewReady') });
-    } catch {
-      setMessage({ action: 'import', outcome: 'failure', message: t('previewFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'import',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('previewFailed')),
+      });
     } finally {
       setIsPreviewing(false);
     }
@@ -382,8 +404,12 @@ export default function ExportsPage() {
       });
       setPreview(result);
       setMessage({ action: 'import', outcome: 'success', message: t('applySuccess') });
-    } catch {
-      setMessage({ action: 'import', outcome: 'failure', message: t('applyFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'import',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('applyFailed')),
+      });
     } finally {
       setIsApplying(false);
     }

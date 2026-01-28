@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useToastState } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -82,8 +82,12 @@ export default function PriceListWizardPage() {
         ]);
         setLists(normalizePaginated(listData).items);
         setVariants(normalizePaginated(variantData).items);
-      } catch {
-        setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+      } catch (err) {
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
       } finally {
         setIsLoading(false);
       }
@@ -161,8 +165,12 @@ export default function PriceListWizardPage() {
         });
       }
       setMessage({ action: 'save', outcome: 'success', message: t('applied') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('applyFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('applyFailed')),
+      });
     } finally {
       setIsApplying(false);
     }

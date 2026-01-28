@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -147,8 +147,12 @@ export default function RolesPage() {
       });
       setPermissions(enriched);
       setNextCursor(rolesResult.nextCursor);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       if (append) {
         setIsLoadingMore(false);
@@ -159,7 +163,7 @@ export default function RolesPage() {
   };
 
   useEffect(() => {
-    load().catch(() => setMessage(t('loadFailed')));
+    load().catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
   }, [filters.search, filters.scope, filters.permissionCount]);
 
   const selectedRole = useMemo(
@@ -195,7 +199,11 @@ export default function RolesPage() {
       setName('');
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
     } catch (err) {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -274,7 +282,11 @@ export default function RolesPage() {
       });
       setMessage({ action: 'update', outcome: 'success', message: t('permissionsUpdated') });
     } catch (err) {
-      setMessage({ action: 'save', outcome: 'failure', message: t('permissionsFailed') });
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('permissionsFailed')),
+      });
     } finally {
       setIsSaving(false);
     }
@@ -356,8 +368,10 @@ export default function RolesPage() {
                   type="button"
                   onClick={() => {
                     setSelectedRoleId(role.id);
-                    loadRolePermissions(role.id).catch(() =>
-                      setMessage(t('loadPermissionsFailed')),
+                    loadRolePermissions(role.id).catch((err) =>
+                      setMessage(
+                        getApiErrorMessage(err, t('loadPermissionsFailed')),
+                      ),
                     );
                   }}
                   disabled={!canUpdate}

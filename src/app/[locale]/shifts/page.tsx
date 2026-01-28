@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -91,8 +91,12 @@ export default function ShiftsPage() {
         append ? [...prev, ...shiftResult.items] : shiftResult.items,
       );
       setNextCursor(shiftResult.nextCursor);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       if (append) {
         setIsLoadingMore(false);
@@ -132,8 +136,12 @@ export default function ShiftsPage() {
       setOpenForm({ branchId: '', openingCash: '', notes: '' });
       setMessage({ action: 'create', outcome: 'success', message: t('opened') });
       await load();
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('openFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('openFailed')),
+      });
     } finally {
       setIsOpening(false);
     }
@@ -166,8 +174,12 @@ export default function ShiftsPage() {
       setCloseForm({ shiftId: '', closingCash: '', varianceReason: '' });
       setMessage({ action: 'update', outcome: 'success', message: t('closed') });
       await load();
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('closeFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('closeFailed')),
+      });
     } finally {
       setIsClosing(false);
     }

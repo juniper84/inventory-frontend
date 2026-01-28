@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -96,7 +96,7 @@ export default function BranchesPage() {
   };
 
   useEffect(() => {
-    load().catch(() => setMessage(t('loadFailed')));
+    load().catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
   }, []);
 
   const createBranch = async () => {
@@ -120,8 +120,12 @@ export default function BranchesPage() {
       setForm({ name: '', address: '', phone: '', priceListId: '' });
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
       await load();
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -158,8 +162,12 @@ export default function BranchesPage() {
       setEditingId(null);
       setMessage({ action: 'update', outcome: 'success', message: t('updated') });
       await load();
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('updateFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
     } finally {
       setIsSaving(false);
     }

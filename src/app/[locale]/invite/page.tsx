@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 
 export default function AcceptInvitePage() {
@@ -41,7 +41,11 @@ export default function AcceptInvitePage() {
         router.replace(`/${params.locale}/login`);
       }, 700);
     } catch (err) {
-      setMessage({ action: 'save', outcome: 'failure', message: t('failed') });
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('failed')),
+      });
     } finally {
       setIsSubmitting(false);
     }

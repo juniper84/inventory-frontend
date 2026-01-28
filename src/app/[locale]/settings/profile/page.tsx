@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getStoredUser } from '@/lib/auth';
 import { useToastState } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -95,8 +95,12 @@ export default function ProfilePage() {
           token,
         });
         setProfile(data);
-      } catch {
-        setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+      } catch (err) {
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
       } finally {
         setIsLoading(false);
       }
@@ -123,8 +127,12 @@ export default function ProfilePage() {
       });
       setRequestForm({ permission: '', reason: '' });
       setMessage({ action: 'create', outcome: 'success', message: t('requestSent') });
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('requestFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('requestFailed')),
+      });
     } finally {
       setIsRequesting(false);
     }

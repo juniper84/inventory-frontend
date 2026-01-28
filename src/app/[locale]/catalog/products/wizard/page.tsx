@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -106,7 +106,7 @@ export default function ProductWizardPage() {
         setBranches(normalizePaginated(branchData).items);
         setUnits(unitList);
       })
-      .catch(() => setMessage(t('loadFailed')))
+      .catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -322,7 +322,11 @@ export default function ProductWizardPage() {
       setStep(0);
       setMessage({ action: 'save', outcome: 'success', message: t('completed') });
     } catch (err) {
-      setMessage({ action: 'save', outcome: 'failure', message: t('completeFailed') });
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('completeFailed')),
+      });
     } finally {
       setIsSubmitting(false);
     }

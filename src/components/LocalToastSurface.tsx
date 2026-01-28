@@ -61,7 +61,7 @@ export function LocalToastSurface() {
         message: detail.message,
         title: detail.title,
         variant: detail.variant ?? 'info',
-        durationMs: detail.durationMs ?? 4200,
+        durationMs: detail.durationMs ?? 6000,
       };
       setToasts((prev) => [...prev, item]);
       const timeout = window.setTimeout(() => {

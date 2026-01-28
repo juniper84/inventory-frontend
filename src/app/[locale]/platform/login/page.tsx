@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { setPlatformSession } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 
@@ -32,7 +32,7 @@ export default function PlatformLoginPage() {
       setPlatformSession(response.accessToken);
       router.replace(`/${params.locale}/platform/overview`);
     } catch (err) {
-      setError(t('loginFailed'));
+      setError(getApiErrorMessage(err, t('loginFailed')));
     } finally {
       setIsSubmitting(false);
     }

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { clearSession, getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { Skeleton } from '@/components/Skeleton';
@@ -218,12 +218,16 @@ export default function BusinessSettingsPage() {
           setSubscriptionRequests(
             normalizePaginated(subscriptionRequestsData).items,
           );
-        } catch {
+        } catch (err) {
           setSubscriptionRequests([]);
-          setMessage({ action: 'save', outcome: 'info', message: t('subscriptionRequestsUnavailable') });
+          setMessage({
+            action: 'save',
+            outcome: 'info',
+            message: getApiErrorMessage(err, t('subscriptionRequestsUnavailable')),
+          });
         }
       })
-      .catch(() => setMessage(t('loadFailed')))
+      .catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -352,7 +356,11 @@ export default function BusinessSettingsPage() {
       setIsEditing(false);
       setMessage({ action: 'update', outcome: 'success', message: t('settingsSaved') });
     } catch (err) {
-      setMessage({ action: 'update', outcome: 'failure', message: t('settingsSaveFailed') });
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('settingsSaveFailed')),
+      });
     } finally {
       setIsSaving(false);
     }
@@ -392,8 +400,12 @@ export default function BusinessSettingsPage() {
       });
       clearSession();
       router.replace(`/${params.locale}/login`);
-    } catch {
-      setMessage({ action: 'delete', outcome: 'failure', message: t('deleteFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'delete',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('deleteFailed')),
+      });
     } finally {
       setIsDeletingBusiness(false);
     }
@@ -419,8 +431,12 @@ export default function BusinessSettingsPage() {
       setUnits((prev) => [...prev, created]);
       setUnitForm({ label: '', code: '', unitType: 'COUNT' });
       setMessage({ action: 'create', outcome: 'success', message: t('unitCreated') });
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('unitCreateFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('unitCreateFailed')),
+      });
     } finally {
       setIsCreatingUnit(false);
     }
@@ -445,7 +461,11 @@ export default function BusinessSettingsPage() {
       );
       setSupportRequests(updated);
     } catch (err) {
-      setMessage({ action: 'save', outcome: 'failure', message: t('supportRequestFailed') });
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('supportRequestFailed')),
+      });
     }
   };
 
@@ -478,8 +498,12 @@ export default function BusinessSettingsPage() {
         reason: '',
       });
       setMessage({ action: 'save', outcome: 'success', message: t('subscriptionRequestSent') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('subscriptionRequestFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('subscriptionRequestFailed')),
+      });
     } finally {
       setIsSubmittingRequest(false);
     }

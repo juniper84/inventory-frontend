@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -331,8 +331,12 @@ export default function AuditLogsPage() {
       setBranches(normalizePaginated(branchData).items);
       setRoles(normalizePaginated(roleData).items);
       setUsers(normalizePaginated(userData).items);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     }
   };
 
@@ -391,8 +395,12 @@ export default function AuditLogsPage() {
         }
         return nextState;
       });
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsPaging(false);
       setIsLoading(false);
@@ -419,8 +427,12 @@ export default function AuditLogsPage() {
       );
       const result = normalizePaginated(data);
       setChainLogs(result.items);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('chainLoadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('chainLoadFailed')),
+      });
     } finally {
       setIsLoadingChain(false);
     }
@@ -435,7 +447,7 @@ export default function AuditLogsPage() {
         setTotal(null);
         return loadLogs(1);
       })
-      .catch(() => setMessage(t('loadFailed')));
+      .catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
   }, []);
 
   useEffect(() => {

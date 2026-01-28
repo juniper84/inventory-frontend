@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { promptAction, useToastState } from '@/lib/app-notifications';
 import JsBarcode from 'jsbarcode';
 import { BrowserMultiFormatReader } from '@zxing/browser';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -257,7 +257,7 @@ export default function VariantsPage() {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
-    load(1).catch(() => setMessage(t('loadFailed')));
+    load(1).catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
   }, [filters.search, filters.status, filters.branchId, filters.availability]);
 
   useEffect(() => {
@@ -327,7 +327,11 @@ export default function VariantsPage() {
       await load(1);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
     } catch (err) {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -455,29 +459,35 @@ export default function VariantsPage() {
       return;
     }
     setUploadingVariantId(variantId);
-    const presign = await apiFetch<{
-      url: string;
-      publicUrl: string;
-      key: string;
-    }>(`/variants/${variantId}/image/presign`, {
-      token,
-      method: 'POST',
-      body: JSON.stringify({ filename: file.name, contentType: file.type }),
-    });
+    try {
+      const presign = await apiFetch<{
+        url: string;
+        publicUrl: string;
+        key: string;
+      }>(`/variants/${variantId}/image/presign`, {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ filename: file.name, contentType: file.type }),
+      });
 
-    await fetch(presign.url, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type },
-      body: file,
-    });
+      const uploadResponse = await fetch(presign.url, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(t('variantImageFailed'));
+      }
 
-    await apiFetch(`/variants/${variantId}/image`, {
-      token,
-      method: 'POST',
-      body: JSON.stringify({ imageUrl: presign.publicUrl }),
-    });
-    await load(page);
-    setUploadingVariantId(null);
+      await apiFetch(`/variants/${variantId}/image`, {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ imageUrl: presign.publicUrl }),
+      });
+      await load(page);
+    } finally {
+      setUploadingVariantId(null);
+    }
   };
 
   const toggleLabelSelection = (variantId: string) => {
@@ -594,8 +604,8 @@ export default function VariantsPage() {
           barcode: data.code,
           price: data.variant?.defaultPrice ?? null,
         });
-      } catch {
-        setScanMessage(t('scanNotFound'));
+      } catch (err) {
+        setScanMessage(getApiErrorMessage(err, t('scanNotFound')));
       }
     },
     [common, t],
@@ -814,7 +824,9 @@ export default function VariantsPage() {
         </div>
         <button
           onClick={() =>
-            reassignBarcode().catch(() => setMessage(t('barcodeReassignFailed')))
+            reassignBarcode().catch((err) =>
+              setMessage(getApiErrorMessage(err, t('barcodeReassignFailed'))),
+            )
           }
           disabled={!canWrite || isReassigning}
           title={!canWrite ? noAccess('title') : undefined}
@@ -873,7 +885,9 @@ export default function VariantsPage() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() =>
-              printLabels('A4').catch(() => setMessage(t('labelsPrintFailed')))
+              printLabels('A4').catch((err) =>
+                setMessage(getApiErrorMessage(err, t('labelsPrintFailed'))),
+              )
             }
             disabled={isPrinting}
             className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-70"
@@ -885,7 +899,9 @@ export default function VariantsPage() {
           </button>
           <button
             onClick={() =>
-              printLabels('THERMAL').catch(() => setMessage(t('labelsPrintFailed')))
+              printLabels('THERMAL').catch((err) =>
+                setMessage(getApiErrorMessage(err, t('labelsPrintFailed'))),
+              )
             }
             disabled={isPrinting}
             className="rounded border border-gold-700/60 px-4 py-2 text-sm text-gold-100 disabled:opacity-70"
@@ -1041,8 +1057,10 @@ export default function VariantsPage() {
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (file) {
-                      uploadVariantImage(variant.id, file).catch(() =>
-                        setMessage(t('variantImageFailed')),
+                      uploadVariantImage(variant.id, file).catch((err) =>
+                        setMessage(
+                          getApiErrorMessage(err, t('variantImageFailed')),
+                        ),
                       );
                     }
                   }}
@@ -1066,7 +1084,9 @@ export default function VariantsPage() {
                   onChange={(event) =>
                     updateVariant(variant.id, {
                       trackStock: event.target.checked,
-                    }).catch(() => setMessage(t('updateFailed')))
+                    }).catch((err) =>
+                      setMessage(getApiErrorMessage(err, t('updateFailed'))),
+                    )
                   }
                 />
                 {t('trackStock')}
@@ -1078,7 +1098,9 @@ export default function VariantsPage() {
                   onChange={(value) =>
                     updateVariant(variant.id, {
                       status: value as Variant['status'],
-                    }).catch(() => setMessage(t('updateFailed')))
+                    }).catch((err) =>
+                      setMessage(getApiErrorMessage(err, t('updateFailed'))),
+                    )
                   }
                   options={[
                     { value: 'ACTIVE', label: t('statusActive') },
@@ -1103,7 +1125,9 @@ export default function VariantsPage() {
                           : value,
                       conversionFactor:
                         variant.sellUnitId === value ? 1 : variant.conversionFactor ?? 1,
-                    }).catch(() => setMessage(t('updateFailed')))
+                    }).catch((err) =>
+                      setMessage(getApiErrorMessage(err, t('updateFailed'))),
+                    )
                   }
                   options={unitOptions}
                   placeholder={t('baseUnit')}
@@ -1119,7 +1143,9 @@ export default function VariantsPage() {
                       sellUnitId: value,
                       conversionFactor:
                         value === variant.baseUnitId ? 1 : variant.conversionFactor ?? 1,
-                    }).catch(() => setMessage(t('updateFailed')))
+                    }).catch((err) =>
+                      setMessage(getApiErrorMessage(err, t('updateFailed'))),
+                    )
                   }
                   options={unitOptions}
                   placeholder={t('sellUnit')}
@@ -1133,7 +1159,9 @@ export default function VariantsPage() {
                   onChange={(event) =>
                     updateVariant(variant.id, {
                       conversionFactor: Number(event.target.value || 1),
-                    }).catch(() => setMessage(t('updateFailed')))
+                    }).catch((err) =>
+                      setMessage(getApiErrorMessage(err, t('updateFailed'))),
+                    )
                   }
                   disabled={(variant.sellUnitId ?? variant.baseUnitId) === variant.baseUnitId}
                   className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100 disabled:opacity-70"
@@ -1164,7 +1192,10 @@ export default function VariantsPage() {
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') {
                       addBarcode(variant.id, event.currentTarget.value).catch(
-                        () => setMessage(t('addBarcodeFailed')),
+                        (err) =>
+                          setMessage(
+                            getApiErrorMessage(err, t('addBarcodeFailed')),
+                          ),
                       );
                       event.currentTarget.value = '';
                     }
@@ -1208,8 +1239,10 @@ export default function VariantsPage() {
                           setMessage({ action: 'save', outcome: 'warning', message: t('skuReasonRequired') });
                           return;
                         }
-                        reassignSku(variant.id, sku, reason).catch(() =>
-                          setMessage(t('skuReassignFailed')),
+                        reassignSku(variant.id, sku, reason).catch((err) =>
+                          setMessage(
+                            getApiErrorMessage(err, t('skuReassignFailed')),
+                          ),
                         );
                       });
                       event.currentTarget.value = '';
@@ -1237,7 +1270,11 @@ export default function VariantsPage() {
                             variant.id,
                             branch.id,
                             event.target.checked,
-                          ).catch(() => setMessage(t('availabilityFailed')))
+                          ).catch((err) =>
+                            setMessage(
+                              getApiErrorMessage(err, t('availabilityFailed')),
+                            ),
+                          )
                         }
                         disabled={!canWrite}
                       />

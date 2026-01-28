@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getOrCreateDeviceId } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import {
@@ -223,8 +223,12 @@ export default function StockAdjustmentsPage() {
         setBranches(normalizePaginated(branchData).items);
         setVariants(normalizePaginated(variantData).items);
         setUnits(unitList);
-      } catch {
-        setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+      } catch (err) {
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
       } finally {
         setIsLoading(false);
       }
@@ -261,8 +265,13 @@ export default function StockAdjustmentsPage() {
           movement.movementType === 'ADJUSTMENT_NEGATIVE',
         );
         setRecentAdjustments(items);
-      } catch {
+      } catch (err) {
         setRecentAdjustments([]);
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
       } finally {
         setIsLoadingAdjustments(false);
       }
@@ -324,7 +333,14 @@ export default function StockAdjustmentsPage() {
       );
       setBatches(normalizePaginated(data).items);
     };
-    loadBatches().catch(() => setBatches([]));
+    loadBatches().catch((err) => {
+      setBatches([]);
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    });
   }, [form.branchId, form.variantId]);
 
   const submit = async () => {
@@ -420,7 +436,11 @@ export default function StockAdjustmentsPage() {
       });
       setMessage({ action: 'save', outcome: 'success', message: t('submitted') });
     } catch (err) {
-      setMessage({ action: 'save', outcome: 'failure', message: t('submitFailed') });
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('submitFailed')),
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -447,7 +467,11 @@ export default function StockAdjustmentsPage() {
       setBatchForm({ branchId: '', variantId: '', code: '', expiryDate: '' });
       setMessage({ action: 'create', outcome: 'success', message: t('batchCreated') });
     } catch (err) {
-      setMessage({ action: 'create', outcome: 'failure', message: t('batchCreateFailed') });
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('batchCreateFailed')),
+      });
     } finally {
       setIsCreatingBatch(false);
     }

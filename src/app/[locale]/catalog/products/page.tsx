@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { Spinner } from '@/components/Spinner';
@@ -196,7 +196,7 @@ export default function ProductsPage() {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
-    load(1).catch(() => setMessage(t('loadFailed')));
+    load(1).catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
   }, [
     filters.search,
     filters.status,
@@ -226,7 +226,11 @@ export default function ProductsPage() {
       await load(1);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
     } catch (err) {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -304,7 +308,7 @@ export default function ProductsPage() {
           movements: movementItems,
         },
       }));
-    } catch {
+    } catch (err) {
       setRelatedMap((prev) => ({
         ...prev,
         [productId]: {
@@ -313,7 +317,7 @@ export default function ProductsPage() {
           variants: [],
           stock: [],
           movements: [],
-          error: t('relatedLoadFailed'),
+          error: getApiErrorMessage(err, t('relatedLoadFailed')),
         },
       }));
     }
@@ -329,39 +333,45 @@ export default function ProductsPage() {
       return;
     }
     setUploadingProductId(productId);
-    const presign = await apiFetch<{
-      url: string;
-      publicUrl: string;
-      key: string;
-    }>(`/products/${productId}/images/presign`, {
-      token,
-      method: 'POST',
-      body: JSON.stringify({
-        filename: file.name,
-        contentType: file.type,
-      }),
-    });
+    try {
+      const presign = await apiFetch<{
+        url: string;
+        publicUrl: string;
+        key: string;
+      }>(`/products/${productId}/images/presign`, {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type,
+        }),
+      });
 
-    await fetch(presign.url, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type },
-      body: file,
-    });
+      const uploadResponse = await fetch(presign.url, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(t('uploadFailed'));
+      }
 
-    await apiFetch(`/products/${productId}/images`, {
-      token,
-      method: 'POST',
-      body: JSON.stringify({
-        url: presign.publicUrl,
-        filename: file.name,
-        mimeType: file.type,
-        sizeMb: Number((file.size / (1024 * 1024)).toFixed(2)),
-        isPrimary,
-      }),
-    });
+      await apiFetch(`/products/${productId}/images`, {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          url: presign.publicUrl,
+          filename: file.name,
+          mimeType: file.type,
+          sizeMb: Number((file.size / (1024 * 1024)).toFixed(2)),
+          isPrimary,
+        }),
+      });
 
-    await load(page);
-    setUploadingProductId(null);
+      await load(page);
+    } finally {
+      setUploadingProductId(null);
+    }
   };
 
   const setPrimary = async (productId: string, imageId: string) => {
@@ -690,8 +700,8 @@ export default function ProductsPage() {
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (file) {
-                      uploadProductImage(product.id, file, true).catch(() =>
-                        setMessage(t('uploadFailed')),
+                      uploadProductImage(product.id, file, true).catch((err) =>
+                        setMessage(getApiErrorMessage(err, t('uploadFailed'))),
                       );
                     }
                   }}
@@ -715,8 +725,8 @@ export default function ProductsPage() {
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (file) {
-                      uploadProductImage(product.id, file, false).catch(() =>
-                        setMessage(t('uploadFailed')),
+                      uploadProductImage(product.id, file, false).catch((err) =>
+                        setMessage(getApiErrorMessage(err, t('uploadFailed'))),
                       );
                     }
                   }}

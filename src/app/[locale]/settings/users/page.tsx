@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -164,7 +164,7 @@ export default function UsersPage() {
   };
 
   useEffect(() => {
-    load().catch(() => setMessage(t('loadFailed')));
+    load().catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
   }, [filters.search, filters.status, filters.roleId]);
 
   const invite = async () => {
@@ -187,7 +187,11 @@ export default function UsersPage() {
       });
       setEmail('');
     } catch (err) {
-      setMessage({ action: 'create', outcome: 'failure', message: t('inviteFailed') });
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('inviteFailed')),
+      });
     } finally {
       setIsInviting(false);
     }
@@ -246,7 +250,11 @@ export default function UsersPage() {
       setMessage({ action: 'update', outcome: 'success', message: t('updated') });
       await load();
     } catch (err) {
-      setMessage({ action: 'update', outcome: 'failure', message: t('updateFailed') });
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
     } finally {
       setIsSaving(false);
     }
@@ -262,8 +270,12 @@ export default function UsersPage() {
       await apiFetch(`/users/${userId}/deactivate`, { method: 'POST', token });
       setMessage({ action: 'update', outcome: 'success', message: t('deactivated') });
       await load();
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('deactivateFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('deactivateFailed')),
+      });
     }
   };
 
@@ -296,8 +308,12 @@ export default function UsersPage() {
       await openRoleManager(
         users.find((user) => user.id === roleTargetUserId) as User,
       );
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('roleAssignFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('roleAssignFailed')),
+      });
     } finally {
       setIsAssigning(false);
     }
@@ -319,8 +335,12 @@ export default function UsersPage() {
       await openRoleManager(
         users.find((user) => user.id === roleTargetUserId) as User,
       );
-    } catch {
-      setMessage({ action: 'delete', outcome: 'failure', message: t('roleRemoveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'delete',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('roleRemoveFailed')),
+      });
     } finally {
       setIsAssigning(false);
     }

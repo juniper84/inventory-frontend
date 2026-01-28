@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 import { getOrCreateDeviceId, setSession } from '@/lib/auth';
 
@@ -67,7 +67,11 @@ export default function VerifyEmailPage() {
         );
       }, 800);
     } catch (err) {
-      setMessage({ action: 'auth', outcome: 'failure', message: t('verifyEmailFailed') });
+      setMessage({
+        action: 'auth',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('verifyEmailFailed')),
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -100,7 +104,11 @@ export default function VerifyEmailPage() {
       });
       setMessage({ action: 'auth', outcome: 'success', message: t('verifyEmailResendSent') });
     } catch (err) {
-      setMessage({ action: 'auth', outcome: 'failure', message: t('verifyEmailResendFailed') });
+      setMessage({
+        action: 'auth',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('verifyEmailResendFailed')),
+      });
     } finally {
       setIsResending(false);
     }

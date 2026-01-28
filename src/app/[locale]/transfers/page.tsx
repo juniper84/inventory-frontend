@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -152,8 +152,12 @@ export default function TransfersPage() {
       if (!form.feeCurrency && settings.localeSettings?.currency) {
         setForm((prev) => ({ ...prev, feeCurrency: settings.localeSettings?.currency ?? '' }));
       }
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -244,7 +248,11 @@ export default function TransfersPage() {
       await load(1);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
     } catch (err) {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }

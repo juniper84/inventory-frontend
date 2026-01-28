@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -97,8 +97,12 @@ export default function StockCountsPage() {
         setVariants(normalizePaginated(variantData).items);
         setSnapshots(normalizePaginated(stockData).items);
         setUnits(unitList);
-      } catch {
-        setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+      } catch (err) {
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
       } finally {
         setIsLoading(false);
       }
@@ -125,7 +129,8 @@ export default function StockCountsPage() {
           (movement) => movement.movementType === 'STOCK_COUNT_VARIANCE',
         );
         setRecentCounts(items);
-      } catch {
+      } catch (err) {
+        console.warn('Failed to load stock counts', err);
         setRecentCounts([]);
       } finally {
         setIsLoadingCounts(false);
@@ -204,7 +209,11 @@ export default function StockCountsPage() {
       });
       setMessage({ action: 'save', outcome: 'success', message: t('submitted') });
     } catch (err) {
-      setMessage({ action: 'save', outcome: 'failure', message: t('submitFailed') });
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('submitFailed')),
+      });
     } finally {
       setIsSubmitting(false);
     }

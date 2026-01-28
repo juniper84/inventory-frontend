@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -234,8 +234,12 @@ export default function ReceiptsPage() {
       } else {
         setUsers([]);
       }
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -317,7 +321,8 @@ export default function ReceiptsPage() {
         if (lines) {
           try {
             await printEscPosLines(printer, lines);
-          } catch {
+          } catch (err) {
+            console.warn('Receipt print failed', err);
             setMessage({
               action: 'save',
               outcome: 'failure',
@@ -369,8 +374,12 @@ export default function ReceiptsPage() {
       setSettlement({ amount: '', method: 'CASH', reference: '', methodLabel: '' });
       await load(page);
       setMessage({ action: 'update', outcome: 'success', message: t('settlementRecorded') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('settlementFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('settlementFailed')),
+      });
     } finally {
       setIsSettling(false);
     }
@@ -436,8 +445,12 @@ export default function ReceiptsPage() {
       setReturnToStock(true);
       await load(page);
       setMessage({ action: 'save', outcome: 'success', message: t('returnRecorded') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('returnFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('returnFailed')),
+      });
     } finally {
       setIsReturning(false);
     }
@@ -474,8 +487,12 @@ export default function ReceiptsPage() {
       setRefundReturnToStock(true);
       await load(page);
       setMessage({ action: 'save', outcome: 'success', message: t('refundRecorded') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('refundFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('refundFailed')),
+      });
     } finally {
       setIsRefunding(false);
     }

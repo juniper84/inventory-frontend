@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { useToastState } from '@/lib/app-notifications';
@@ -104,8 +104,12 @@ export default function StockCountWizardPage() {
         setVariants(normalizePaginated(variantData).items);
         setSnapshots(normalizePaginated(stockData).items);
         setUnits(unitList);
-      } catch {
-        setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+      } catch (err) {
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
       } finally {
         setIsLoading(false);
       }
@@ -194,8 +198,12 @@ export default function StockCountWizardPage() {
         },
       ]);
       setMessage({ action: 'save', outcome: 'success', message: t('submitted') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('submitFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('submitFailed')),
+      });
     } finally {
       setIsSubmitting(false);
     }

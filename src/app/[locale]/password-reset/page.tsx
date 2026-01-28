@@ -3,7 +3,7 @@
 import { useToastState } from '@/lib/app-notifications';
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 
@@ -51,7 +51,11 @@ export default function PasswordResetRequestPage() {
 
       setMessage(t('resetRequestSuccess'));
     } catch (err) {
-      setMessage({ action: 'auth', outcome: 'failure', message: t('resetRequestFailed') });
+      setMessage({
+        action: 'auth',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('resetRequestFailed')),
+      });
     } finally {
       setIsSubmitting(false);
     }

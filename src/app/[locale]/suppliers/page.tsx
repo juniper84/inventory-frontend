@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -150,8 +150,12 @@ export default function SuppliersPage() {
         append ? [...prev, ...result.items] : result.items,
       );
       setNextCursor(result.nextCursor);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       if (append) {
         setIsLoadingMore(false);
@@ -195,8 +199,12 @@ export default function SuppliersPage() {
       });
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
       await load();
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -235,8 +243,12 @@ export default function SuppliersPage() {
       setEditing(null);
       setMessage({ action: 'update', outcome: 'success', message: t('updated') });
       await load();
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('updateFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
     } finally {
       setIsSaving(false);
     }
@@ -291,7 +303,7 @@ export default function SuppliersPage() {
           purchases: normalizePaginated(purchaseData).items,
         },
       }));
-    } catch {
+    } catch (err) {
       setRelatedMap((prev) => ({
         ...prev,
         [supplierId]: {
@@ -299,7 +311,7 @@ export default function SuppliersPage() {
           loading: false,
           purchaseOrders: [],
           purchases: [],
-          error: t('activityFailed'),
+          error: getApiErrorMessage(err, t('activityFailed')),
         },
       }));
     }

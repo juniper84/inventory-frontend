@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -167,15 +167,21 @@ export default function StockOnHandPage() {
       }
       return nextState;
     });
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadLookups().catch(() => setMessage(t('filtersFailed')));
+    loadLookups().catch((err) =>
+      setMessage(getApiErrorMessage(err, t('filtersFailed'))),
+    );
   }, []);
 
   useEffect(() => {
@@ -198,7 +204,7 @@ export default function StockOnHandPage() {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
-    load(1).catch(() => setMessage(t('loadFailed')));
+    load(1).catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
   }, [
     filters.branchId,
     filters.variantId,
@@ -235,7 +241,7 @@ export default function StockOnHandPage() {
         setReorderPoints(normalizePaginated(pointsData).items);
         setReorderSuggestions(suggestionData);
       })
-      .catch(() => setMessage(t('reorderLoadFailed')))
+      .catch((err) => setMessage(getApiErrorMessage(err, t('reorderLoadFailed'))))
       .finally(() => setIsLoadingReorder(false));
   }, [filters.branchId, reorderForm.branchId]);
 
@@ -357,8 +363,12 @@ export default function StockOnHandPage() {
       setReorderPoints(normalizePaginated(pointsData).items);
       setReorderSuggestions(suggestionData);
       setMessage({ action: 'update', outcome: 'success', message: t('reorderSaved') });
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('reorderSaveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('reorderSaveFailed')),
+      });
     } finally {
       setIsSavingReorder(false);
     }

@@ -5,7 +5,7 @@ import { useToastState } from '@/lib/app-notifications';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { getPendingCount } from '@/lib/offline-store';
@@ -368,8 +368,12 @@ export default function DashboardPage() {
         setTopLosses(null);
       }
       setFailedSyncs(0);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -392,7 +396,8 @@ export default function DashboardPage() {
         { token },
       );
       setSearchResults(data);
-    } catch {
+    } catch (err) {
+      console.warn('Dashboard search failed', err);
       setSearchResults(null);
     } finally {
       setIsSearching(false);
@@ -454,7 +459,8 @@ export default function DashboardPage() {
           })),
         ];
         setSearchSuggestions(next);
-      } catch {
+      } catch (err) {
+        console.warn('Dashboard search suggestions failed', err);
         setSearchSuggestions([]);
       }
     }, 250);

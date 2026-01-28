@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 
@@ -48,7 +48,7 @@ export default function SignupPage() {
         setError(t('signupTokenMissing'));
       }
     } catch (err) {
-      setError(t('signupFailed'));
+      setError(getApiErrorMessage(err, t('signupFailed')));
     } finally {
       setIsSubmitting(false);
     }

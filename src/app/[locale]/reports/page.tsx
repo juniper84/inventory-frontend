@@ -3,7 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
 import { useTranslations } from 'next-intl';
-import { apiFetch, buildRequestHeaders } from '@/lib/api';
+import {
+  apiFetch,
+  buildRequestHeaders,
+  getApiErrorMessage,
+  getApiErrorMessageFromResponse,
+} from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -333,8 +338,12 @@ export default function ReportsPage() {
       setExpiry(expiryData);
       setStockCountVariance(varianceData);
       setStaff(staffData);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -369,42 +378,54 @@ export default function ReportsPage() {
       return;
     }
     setIsExporting(true);
-    const exportParams = new URLSearchParams();
-    if (filters.branchId) {
-      exportParams.set('branchId', filters.branchId);
-    }
-    if (filters.startDate) {
-      exportParams.set('startDate', filters.startDate);
-    }
-    if (filters.endDate) {
-      exportParams.set('endDate', filters.endDate);
-    }
-    const base =
-      process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000/api/v1';
-    const { headers } = buildRequestHeaders(token);
-    const response = await fetch(
-      `${base}/reports/customers/export${
-        exportParams.toString() ? `?${exportParams.toString()}` : ''
-      }`,
-      {
-        headers,
-      },
-    );
-    if (!response.ok) {
-      setMessage({ action: 'export', outcome: 'failure', message: t('exportFailed') });
+    try {
+      const exportParams = new URLSearchParams();
+      if (filters.branchId) {
+        exportParams.set('branchId', filters.branchId);
+      }
+      if (filters.startDate) {
+        exportParams.set('startDate', filters.startDate);
+      }
+      if (filters.endDate) {
+        exportParams.set('endDate', filters.endDate);
+      }
+      const base =
+        process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000/api/v1';
+      const { headers } = buildRequestHeaders(token);
+      const response = await fetch(
+        `${base}/reports/customers/export${
+          exportParams.toString() ? `?${exportParams.toString()}` : ''
+        }`,
+        {
+          headers,
+        },
+      );
+      if (!response.ok) {
+        const message = await getApiErrorMessageFromResponse(
+          response,
+          t('exportFailed'),
+        );
+        setMessage({ action: 'export', outcome: 'failure', message });
+        return;
+      }
+      const data = await response.text();
+      const blob = new Blob([data], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'customer-sales-report.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage({ action: 'export', outcome: 'success', message: t('exported') });
+    } catch (err) {
+      setMessage({
+        action: 'export',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('exportFailed')),
+      });
+    } finally {
       setIsExporting(false);
-      return;
     }
-    const data = await response.text();
-    const blob = new Blob([data], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'customer-sales-report.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-    setMessage({ action: 'export', outcome: 'success', message: t('exported') });
-    setIsExporting(false);
   };
 
   if (isLoading) {

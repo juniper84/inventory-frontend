@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { BrowserMultiFormatReader } from '@zxing/browser';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { decodeJwt, getAccessToken, getOrCreateDeviceId } from '@/lib/auth';
 import {
   enqueueOfflineAction,
@@ -261,7 +261,8 @@ export default function PosPage() {
       setPrinter(connection);
       setUseHardwarePrint(true);
       setMessage({ action: 'save', outcome: 'success', message: t('printerConnected') });
-    } catch {
+    } catch (err) {
+      console.warn('Failed to connect printer', err);
       setMessage({ action: 'save', outcome: 'failure', message: t('printerConnectFailed') });
     } finally {
       setIsConnectingPrinter(false);
@@ -287,7 +288,8 @@ export default function PosPage() {
     );
     try {
       await printEscPosLines(printer, lines);
-    } catch {
+    } catch (err) {
+      console.warn('Failed to print receipt', err);
       setMessage({ action: 'save', outcome: 'failure', message: t('printerConnectFailed') });
     }
   };
@@ -341,7 +343,8 @@ export default function PosPage() {
         if (listResult.status === 'fulfilled') {
           setPriceLists(normalizePaginated(listResult.value).items);
         }
-      } catch {
+      } catch (err) {
+        console.warn('Failed to load POS data from API', err);
         await loadOfflineCache();
       }
     };
@@ -463,8 +466,8 @@ export default function PosPage() {
           setCart(parsed.cart || []);
           setCartDiscount(parsed.cartDiscount || 0);
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn('Failed to parse POS cached cart', err);
       }
     }
   }, []);
@@ -709,7 +712,8 @@ export default function PosPage() {
         }
       });
       setScanActive(true);
-    } catch {
+    } catch (err) {
+      console.warn('Failed to start barcode scanner', err);
       setScanMessage(t('cameraUnavailable'));
     }
   };
@@ -906,7 +910,11 @@ export default function PosPage() {
         }),
       );
     } catch (err) {
-      setMessage({ action: 'save', outcome: 'failure', message: t('completeFailed') });
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('completeFailed')),
+      });
     } finally {
       setIsCompleting(false);
     }

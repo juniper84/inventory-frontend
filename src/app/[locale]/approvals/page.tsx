@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { promptAction } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -173,8 +173,12 @@ export default function ApprovalsPage() {
         }
         return nextState;
       });
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -206,8 +210,12 @@ export default function ApprovalsPage() {
       });
       setMessage({ action: 'approve', outcome: 'success', message: t('statusApproved') });
       await load(filters.status);
-    } catch {
-      setMessage({ action: 'approve', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'approve',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setActionBusy((prev) => {
         const next = { ...prev };
@@ -239,8 +247,12 @@ export default function ApprovalsPage() {
       });
       setMessage({ action: 'reject', outcome: 'success', message: t('statusRejected') });
       await load(filters.status);
-    } catch {
-      setMessage({ action: 'reject', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'reject',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setActionBusy((prev) => {
         const next = { ...prev };

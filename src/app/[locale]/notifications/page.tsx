@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage, refreshSessionToken } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -43,6 +43,8 @@ export default function NotificationsPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const retryRef = useRef(0);
+  const retryTimerRef = useRef<number | null>(null);
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
@@ -131,8 +133,12 @@ export default function NotificationsPage() {
       }
       return nextState;
     });
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -152,13 +158,8 @@ export default function NotificationsPage() {
   ]);
 
   useEffect(() => {
-    const token = getAccessToken();
-    if (!token) {
-      return;
-    }
-    const url = new URL(`${API_BASE_URL}/notifications/stream`);
-    url.searchParams.set('token', token);
-    const source = new EventSource(url.toString());
+    let active = true;
+    let source: EventSource | null = null;
 
     const matchesFilters = (incoming: Notification) => {
       if (filters.status && incoming.status !== filters.status) {
@@ -189,31 +190,76 @@ export default function NotificationsPage() {
       return true;
     };
 
-    const handleNotification = (event: MessageEvent) => {
-      try {
-        const incoming = JSON.parse(event.data) as Notification;
-        if (!incoming?.id) {
-          return;
-        }
-        if (page !== 1 || !matchesFilters(incoming)) {
-          return;
-        }
-        setItems((prev) => {
-          if (prev.some((item) => item.id === incoming.id)) {
-            return prev;
-          }
-          return [incoming, ...prev].slice(0, pageSize);
-        });
-        setTotal((prev) => (typeof prev === 'number' ? prev + 1 : prev));
-      } catch {
-        // Ignore malformed SSE payloads.
+    const connect = async () => {
+      if (!active) {
+        return;
       }
+      const token = getAccessToken();
+      if (!token) {
+        return;
+      }
+      const url = new URL(`${API_BASE_URL}/notifications/stream`);
+      url.searchParams.set('token', token);
+      source = new EventSource(url.toString());
+
+      const handleNotification = (event: MessageEvent) => {
+        try {
+          const incoming = JSON.parse(event.data) as Notification;
+          if (!incoming?.id) {
+            return;
+          }
+          if (page !== 1 || !matchesFilters(incoming)) {
+            return;
+          }
+          setItems((prev) => {
+            if (prev.some((item) => item.id === incoming.id)) {
+              return prev;
+            }
+            return [incoming, ...prev].slice(0, pageSize);
+          });
+          setTotal((prev) => (typeof prev === 'number' ? prev + 1 : prev));
+        } catch (err) {
+          console.warn('Failed to parse notification stream payload', err);
+        }
+      };
+
+      const scheduleReconnect = async () => {
+        if (!active) {
+          return;
+        }
+        source?.close();
+        retryRef.current += 1;
+        const refreshed = await refreshSessionToken();
+        if (refreshed) {
+          retryRef.current = 0;
+        }
+        const delay = refreshed
+          ? 1000
+          : Math.min(30000, 1000 * 2 ** (retryRef.current - 1));
+        if (retryTimerRef.current) {
+          window.clearTimeout(retryTimerRef.current);
+        }
+        retryTimerRef.current = window.setTimeout(() => {
+          void connect();
+        }, delay);
+      };
+
+      source.addEventListener('notification', handleNotification as EventListener);
+      source.addEventListener('ping', () => {
+        retryRef.current = 0;
+      });
+      source.onerror = () => {
+        void scheduleReconnect();
+      };
     };
 
-    source.addEventListener('notification', handleNotification as EventListener);
-
+    void connect();
     return () => {
-      source.close();
+      active = false;
+      if (retryTimerRef.current) {
+        window.clearTimeout(retryTimerRef.current);
+      }
+      source?.close();
     };
   }, [
     filters.search,
@@ -240,7 +286,11 @@ export default function NotificationsPage() {
       );
       setMessage({ action: 'update', outcome: 'success', message: t('markedRead') });
     } catch (err) {
-      setMessage({ action: 'update', outcome: 'failure', message: t('updateFailed') });
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
     } finally {
       setActionBusy((prev) => ({ ...prev, [id]: false }));
     }
@@ -265,8 +315,12 @@ export default function NotificationsPage() {
       setItems((prev) => prev.map((item) => ({ ...item, status: 'READ' })));
       setSelectedIds(new Set());
       setMessage({ action: 'update', outcome: 'success', message: t('markedAllRead') });
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('updateFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
     } finally {
       setBulkBusy(false);
     }
@@ -298,8 +352,12 @@ export default function NotificationsPage() {
         outcome: 'success',
         message: t('markedSelectedRead'),
       });
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('updateFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
     } finally {
       setBulkBusy(false);
     }
@@ -335,8 +393,12 @@ export default function NotificationsPage() {
         outcome: 'success',
         message: t('archivedSelected'),
       });
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('updateFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
     } finally {
       setBulkBusy(false);
     }

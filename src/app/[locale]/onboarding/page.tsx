@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -134,8 +134,12 @@ export default function OnboardingPage() {
           router.replace(base);
         }
       })
-      .catch(() => {
-        setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+      .catch((err) => {
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
       })
       .finally(() => setIsLoading(false));
   }, [router, base, setMessage, t]);
@@ -190,8 +194,12 @@ export default function OnboardingPage() {
       setSettings(updated);
       setMessage({ action: 'save', outcome: 'success', message: t('profileSaved') });
       setStep(1);
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('profileSaveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('profileSaveFailed')),
+      });
     } finally {
       setIsSavingProfile(false);
     }
@@ -228,8 +236,12 @@ export default function OnboardingPage() {
       setBranches(normalizePaginated(branchData).items);
       setBranchForm({ name: '', address: '', phone: '' });
       setMessage({ action: 'create', outcome: 'success', message: t('branchCreated') });
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('branchCreateFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('branchCreateFailed')),
+      });
     } finally {
       setIsCreatingBranch(false);
     }
@@ -263,8 +275,12 @@ export default function OnboardingPage() {
       setSettings(updated);
       setMessage({ action: 'save', outcome: 'success', message: t('branchSaved') });
       setStep(2);
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('branchSaveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('branchSaveFailed')),
+      });
     } finally {
       setIsSavingBranch(false);
     }
@@ -290,8 +306,12 @@ export default function OnboardingPage() {
           },
         }),
       });
-    } catch {
-      // No blocking if optional step update fails.
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('finishLaterFailed')),
+      });
     } finally {
       router.replace(base);
     }

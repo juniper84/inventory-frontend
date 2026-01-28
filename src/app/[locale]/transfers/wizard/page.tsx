@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { useToastState } from '@/lib/app-notifications';
@@ -103,8 +103,12 @@ export default function TransferWizardPage() {
         if (!form.feeCurrency && settings.localeSettings?.currency) {
           setForm((prev) => ({ ...prev, feeCurrency: settings.localeSettings?.currency ?? '' }));
         }
-      } catch {
-        setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+      } catch (err) {
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
       } finally {
         setIsLoading(false);
       }
@@ -184,8 +188,12 @@ export default function TransferWizardPage() {
       setReceiveLines(quantities);
       setStep('receive');
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -208,8 +216,12 @@ export default function TransferWizardPage() {
         setMessage({ action: 'approve', outcome: 'success', message: t('approved') });
         setCreatedTransfer((prev) => (prev ? { ...prev, status: 'IN_TRANSIT' } : prev));
       }
-    } catch {
-      setMessage({ action: 'approve', outcome: 'failure', message: t('approveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'approve',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('approveFailed')),
+      });
     }
   };
 
@@ -233,8 +245,12 @@ export default function TransferWizardPage() {
         body: JSON.stringify({ items: itemsPayload }),
       });
       setMessage({ action: 'save', outcome: 'success', message: t('received') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('receiveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('receiveFailed')),
+      });
     } finally {
       setIsReceiving(false);
     }

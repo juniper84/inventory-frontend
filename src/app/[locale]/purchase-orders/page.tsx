@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import type { Dispatch, SetStateAction } from 'react';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -255,8 +255,12 @@ export default function PurchaseOrdersPage() {
       }
       return nextState;
     });
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -294,7 +298,14 @@ export default function PurchaseOrdersPage() {
       { token },
     )
       .then((data) => setReorderSuggestions(data))
-      .catch(() => setReorderSuggestions([]))
+      .catch((err) => {
+        setReorderSuggestions([]);
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
+      })
       .finally(() => setIsLoadingSuggestions(false));
   }, [form.branchId]);
 
@@ -375,8 +386,12 @@ export default function PurchaseOrdersPage() {
       ]);
       await load(1);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -403,8 +418,12 @@ export default function PurchaseOrdersPage() {
         setMessage({ action: 'approve', outcome: 'success', message: t('approved') });
       }
       await load(page);
-    } catch {
-      setMessage({ action: 'approve', outcome: 'failure', message: t('approveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'approve',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('approveFailed')),
+      });
     } finally {
       setActionBusy((prev) => ({ ...prev, [orderId]: false }));
     }
@@ -477,8 +496,12 @@ export default function PurchaseOrdersPage() {
       ]);
       await load(page);
       setMessage({ action: 'update', outcome: 'success', message: t('updated') });
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('updateFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
     } finally {
       setIsUpdating(false);
     }

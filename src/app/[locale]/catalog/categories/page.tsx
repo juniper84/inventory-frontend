@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -106,7 +106,7 @@ export default function CategoriesPage() {
   };
 
   useEffect(() => {
-    load().catch(() => setMessage(t('loadFailed')));
+    load().catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
   }, [filters.search, filters.status]);
 
   const createCategory = async () => {
@@ -129,7 +129,11 @@ export default function CategoriesPage() {
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
       await load();
     } catch (err) {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -164,7 +168,11 @@ export default function CategoriesPage() {
       setMessage({ action: 'update', outcome: 'success', message: t('updated') });
       await load();
     } catch (err) {
-      setMessage({ action: 'update', outcome: 'failure', message: t('updateFailed') });
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
     } finally {
       setIsSaving(false);
     }

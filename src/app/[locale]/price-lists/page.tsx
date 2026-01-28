@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -103,8 +103,12 @@ export default function PriceListsPage() {
       );
       setNextCursor(listResult.nextCursor);
       setVariants(variantResult.items);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       if (append) {
         setIsLoadingMore(false);
@@ -134,8 +138,12 @@ export default function PriceListsPage() {
       setForm({ name: '' });
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
       await load();
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -168,8 +176,12 @@ export default function PriceListsPage() {
       setEditingId(null);
       setMessage({ action: 'update', outcome: 'success', message: t('updated') });
       await load();
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('updateFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
     } finally {
       setIsSaving(false);
     }
@@ -194,8 +206,12 @@ export default function PriceListsPage() {
       setItemForm({ ...itemForm, price: '' });
       setMessage({ action: 'save', outcome: 'success', message: t('itemSaved') });
       await load();
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('setItemFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('setItemFailed')),
+      });
     } finally {
       setIsAssigning(false);
     }
@@ -215,8 +231,12 @@ export default function PriceListsPage() {
       });
       setMessage({ action: 'delete', outcome: 'success', message: t('itemRemoved') });
       await load();
-    } catch {
-      setMessage({ action: 'delete', outcome: 'failure', message: t('removeItemFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'delete',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('removeItemFailed')),
+      });
     } finally {
       setRemovingItemId(null);
     }

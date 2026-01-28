@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getOrCreateDeviceId } from '@/lib/auth';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -68,8 +68,12 @@ export default function OfflineConflictsPage() {
         append ? [...prev, ...result.items] : result.items,
       );
       setNextCursor(result.nextCursor);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       if (append) {
         setIsLoadingMore(false);
@@ -114,8 +118,12 @@ export default function OfflineConflictsPage() {
                 ? t('syncedApproval')
                 : t('retried'),
       });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('resolveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('resolveFailed')),
+      });
     } finally {
       setResolvingId(null);
       setResolvingAction(null);

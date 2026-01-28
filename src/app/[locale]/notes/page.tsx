@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useToastState } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -163,8 +163,12 @@ export default function NotesPage() {
       }
       return nextState;
     });
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -217,7 +221,14 @@ export default function NotesPage() {
         });
         setLinkOptions(options);
       })
-      .catch(() => setLinkOptions([]))
+      .catch((err) => {
+        setLinkOptions([]);
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
+      })
       .finally(() => {
         if (active) {
           setLinkLoading(false);
@@ -286,8 +297,12 @@ export default function NotesPage() {
       }
       resetForm();
       await load(1);
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('saveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('saveFailed')),
+      });
     } finally {
       setIsSaving(false);
     }
@@ -305,8 +320,12 @@ export default function NotesPage() {
         method: 'POST',
       });
       await load(1);
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('archiveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('archiveFailed')),
+      });
     }
   };
 
@@ -390,9 +409,13 @@ export default function NotesPage() {
       updateReminderForm(noteId, { scheduledAt: '', busy: false });
       await loadReminders(noteId);
       setMessage({ action: 'create', outcome: 'success', message: t('reminderCreated') });
-    } catch {
+    } catch (err) {
       updateReminderForm(noteId, { busy: false });
-      setMessage({ action: 'create', outcome: 'failure', message: t('reminderFailed') });
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('reminderFailed')),
+      });
     }
   };
 
@@ -408,8 +431,12 @@ export default function NotesPage() {
       });
       await loadReminders(noteId);
       setMessage({ action: 'update', outcome: 'success', message: t('reminderCancelled') });
-    } catch {
-      setMessage({ action: 'update', outcome: 'failure', message: t('reminderFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('reminderFailed')),
+      });
     }
   };
 

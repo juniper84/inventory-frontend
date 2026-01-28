@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getOrCreateDeviceId } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import {
@@ -255,8 +255,12 @@ export default function PurchasesPage() {
       }
       return nextState;
     });
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -400,8 +404,12 @@ export default function PurchasesPage() {
       ]);
       await load(1);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -438,8 +446,12 @@ export default function PurchasesPage() {
       });
       await load(page);
       setMessage({ action: 'update', outcome: 'success', message: t('paymentRecorded') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('recordFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('recordFailed')),
+      });
     } finally {
       setIsRecording(false);
     }

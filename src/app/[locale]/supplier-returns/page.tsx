@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -240,8 +240,12 @@ export default function SupplierReturnsPage() {
       );
       setNextCursor(returnResult.nextCursor);
       setReceivings(normalizePaginated(receivingData).items);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       if (append) {
         setIsLoadingMore(false);
@@ -258,8 +262,12 @@ export default function SupplierReturnsPage() {
   }, [activeBranch?.id, form.branchId]);
 
   useEffect(() => {
-    load().catch(() => {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    load().catch((err) => {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
       setIsLoading(false);
     });
   }, [
@@ -352,8 +360,12 @@ export default function SupplierReturnsPage() {
       ]);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
       await load();
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }

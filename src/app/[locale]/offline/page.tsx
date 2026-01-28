@@ -5,7 +5,7 @@ import { useToastState } from '@/lib/app-notifications';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getOrCreateDeviceId, getStoredUser } from '@/lib/auth';
 import {
   clearOfflinePin,
@@ -95,8 +95,13 @@ export default function OfflinePage() {
           );
           setStatus(data);
           setDeviceName(data.device?.deviceName ?? '');
-        } catch {
+        } catch (err) {
           setStatus(null);
+          setMessage({
+            action: 'load',
+            outcome: 'failure',
+            message: getApiErrorMessage(err, t('loadFailed')),
+          });
         }
       }
       setPendingCount(await getPendingCount());
@@ -143,8 +148,12 @@ export default function OfflinePage() {
         device,
       }));
       setMessage({ action: 'sync', outcome: 'info', message: t('deviceRegistered') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('registerFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('registerFailed')),
+      });
     } finally {
       setIsRegistering(false);
     }
@@ -177,8 +186,12 @@ export default function OfflinePage() {
           : prev,
       );
       setMessage({ action: 'sync', outcome: 'info', message: t('deviceRevoked') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('revokeFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('revokeFailed')),
+      });
     } finally {
       setIsRevoking(false);
     }
@@ -197,10 +210,14 @@ export default function OfflinePage() {
       setLastSyncAt(await getOfflineFlag('lastSyncAt'));
       await setOfflineFlag('syncBlocked', 'false');
       setSyncBlocked(false);
-    } catch {
+    } catch (err) {
       await setOfflineFlag('syncBlocked', 'true');
       setSyncBlocked(true);
-      setMessage({ action: 'sync', outcome: 'failure', message: t('syncFailed') });
+      setMessage({
+        action: 'sync',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('syncFailed')),
+      });
     } finally {
       setIsSyncing(false);
     }

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
 import { useToastState } from '@/lib/app-notifications';
@@ -156,8 +156,12 @@ export default function PurchaseOrderWizardPage() {
         setVariants(normalizePaginated(variantData).items);
         setUnits(unitList);
         setBatchTrackingEnabled(!!settings.stockPolicies?.batchTrackingEnabled);
-      } catch {
-        setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+      } catch (err) {
+        setMessage({
+          action: 'load',
+          outcome: 'failure',
+          message: getApiErrorMessage(err, t('loadFailed')),
+        });
       } finally {
         setIsLoading(false);
       }
@@ -230,8 +234,12 @@ export default function PurchaseOrderWizardPage() {
       );
       setStep('receive');
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
-    } catch {
-      setMessage({ action: 'create', outcome: 'failure', message: t('createFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'create',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('createFailed')),
+      });
     } finally {
       setIsCreating(false);
     }
@@ -254,8 +262,12 @@ export default function PurchaseOrderWizardPage() {
         setMessage({ action: 'approve', outcome: 'success', message: t('approved') });
         setCreatedOrder((prev) => (prev ? { ...prev, status: 'APPROVED' } : prev));
       }
-    } catch {
-      setMessage({ action: 'approve', outcome: 'failure', message: t('approveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'approve',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('approveFailed')),
+      });
     }
   };
 
@@ -293,8 +305,12 @@ export default function PurchaseOrderWizardPage() {
         }),
       });
       setMessage({ action: 'save', outcome: 'success', message: t('received') });
-    } catch {
-      setMessage({ action: 'save', outcome: 'failure', message: t('receiveFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('receiveFailed')),
+      });
     } finally {
       setIsReceiving(false);
     }

@@ -190,7 +190,8 @@
     "teamHint": "Invite teammates and assign roles now, or come back later.",
     "openUsers": "Invite users",
     "openRoles": "Manage roles",
-    "finishLater": "Finish for now"
+    "finishLater": "Finish for now",
+    "finishLaterFailed": "Failed to update onboarding status."
   },
   "nav": {
     "dashboard": "Dashboard",

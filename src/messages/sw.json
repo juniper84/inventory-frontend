@@ -190,7 +190,8 @@
     "teamHint": "Waialike wenzako na wape majukumu sasa, au rudi baadaye.",
     "openUsers": "Alika watumiaji",
     "openRoles": "Simamia majukumu",
-    "finishLater": "Maliza kwa sasa"
+    "finishLater": "Maliza kwa sasa",
+    "finishLaterFailed": "Imeshindwa kusasisha hatua za mwanzo."
   },
   "nav": {
     "dashboard": "Dashibodi",

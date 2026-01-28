@@ -254,7 +254,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         retryAttemptRef.current = 0;
         await setOfflineFlag('syncBlocked', 'false');
         setOfflineState((prev) => ({ ...prev, pendingCount: nextPending, syncBlocked: false }));
-      } catch {
+      } catch (err) {
+        console.warn('Offline sync failed', err);
         retryAttemptRef.current += 1;
         const delay = Math.min(300000, 1000 * 2 ** (retryAttemptRef.current - 1));
         await setOfflineFlag('syncBlocked', 'true');
@@ -338,7 +339,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         pendingCount,
         syncBlocked: false,
       }));
-    } catch {
+    } catch (err) {
+      console.warn('Manual sync failed', err);
       await setOfflineFlag('syncBlocked', 'true');
       setOfflineState((prev) => ({ ...prev, syncBlocked: true }));
     }
@@ -739,7 +741,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           notifItems.filter((item) => item.status && item.status !== 'READ').length,
         );
         setApprovalCount(approvalItems.length);
-      } catch {
+      } catch (err) {
+        console.warn('Failed to load shell badge counts', err);
         if (active) {
           setNotificationCount(0);
           setApprovalCount(0);
@@ -819,7 +822,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           token,
           body: JSON.stringify({ refreshToken }),
         });
-      } catch {
+      } catch (err) {
+        console.warn('Server logout failed', err);
         // Best-effort logout on the server.
       }
     }

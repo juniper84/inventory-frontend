@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getLastBusinessId, getOrCreateDeviceId, setLastBusinessId, setSession } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -87,7 +87,7 @@ export default function LoginPage() {
 
       setError(t('loginFailed'));
     } catch (err) {
-      setError(t('loginFailedVerify'));
+      setError(getApiErrorMessage(err, t('loginFailedVerify')));
     } finally {
       setIsSubmitting(false);
     }

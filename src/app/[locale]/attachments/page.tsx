@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -119,8 +119,12 @@ export default function AttachmentsPage() {
         append ? [...prev, ...attachmentResult.items] : attachmentResult.items,
       );
       setNextCursor(attachmentResult.nextCursor);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('loadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
     } finally {
       if (append) {
         setIsLoadingMore(false);
@@ -152,11 +156,14 @@ export default function AttachmentsPage() {
           purchaseOrderId: targetType === 'purchaseOrder' ? targetId : undefined,
         }),
       });
-      await fetch(presign.url, {
+      const uploadResponse = await fetch(presign.url, {
         method: 'PUT',
         headers: file.type ? { 'Content-Type': file.type } : {},
         body: file,
       });
+      if (!uploadResponse.ok) {
+        throw new Error(t('uploadFailed'));
+      }
       await apiFetch('/attachments', {
         token,
         method: 'POST',
@@ -173,8 +180,12 @@ export default function AttachmentsPage() {
       setFile(null);
       setMessage({ action: 'create', outcome: 'success', message: t('uploaded') });
       await load(targetId, targetType);
-    } catch {
-      setMessage({ action: 'load', outcome: 'failure', message: t('uploadFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('uploadFailed')),
+      });
     } finally {
       setIsUploading(false);
     }
@@ -191,8 +202,12 @@ export default function AttachmentsPage() {
       await apiFetch(`/attachments/${id}/remove`, { token, method: 'POST' });
       setMessage({ action: 'delete', outcome: 'success', message: t('removed') });
       await load();
-    } catch {
-      setMessage({ action: 'delete', outcome: 'failure', message: t('removeFailed') });
+    } catch (err) {
+      setMessage({
+        action: 'delete',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('removeFailed')),
+      });
     } finally {
       setRemovingId(null);
     }
@@ -231,8 +246,8 @@ export default function AttachmentsPage() {
               setTargetId(value);
               setNextCursor(null);
               if (value) {
-                load(value, targetType).catch(() =>
-                  setMessage(t('loadFailed')),
+                load(value, targetType).catch((err) =>
+                  setMessage(getApiErrorMessage(err, t('loadFailed'))),
                 );
               }
             }}
