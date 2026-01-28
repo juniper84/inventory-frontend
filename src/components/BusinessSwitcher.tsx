@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { useToastState } from '@/lib/app-notifications';
 import {
   getAccessToken,
@@ -46,8 +46,8 @@ export function BusinessSwitcher() {
           const match = list.find((item) => item.businessId === last);
           setBusinessId(match?.businessId ?? list[0]?.businessId ?? '');
         }
-      } catch {
-        setMessage('Failed to load businesses.');
+      } catch (error) {
+        setMessage(getApiErrorMessage(error, 'Failed to load businesses.'));
       }
     };
     loadBusinesses();
@@ -66,7 +66,7 @@ export function BusinessSwitcher() {
       setLastBusinessId(businessId);
       setMessage('Switched business.');
     } catch (error) {
-      setMessage('Switch failed. Please try again.');
+      setMessage(getApiErrorMessage(error, 'Switch failed. Please try again.'));
     }
   };
 

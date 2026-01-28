@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { promptAction, useToastState } from '@/lib/app-notifications';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { decodeJwt, getPlatformAccessToken } from '@/lib/auth';
 import { formatEntityLabel } from '@/lib/display';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -455,8 +455,8 @@ export function PlatformConsole({
       });
       setAdminPasswordForm({ current: '', next: '', confirm: '' });
       setMessage(t('passwordUpdated'));
-    } catch {
-      setMessage(t('passwordUpdateFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('passwordUpdateFailed')));
     } finally {
       setAdminPasswordBusy(false);
     }
@@ -669,8 +669,8 @@ export function PlatformConsole({
       >('/platform/subscription-requests?limit=200', { token });
       const result = normalizePaginated(data);
       setSubscriptionRequests(result.items);
-    } catch {
-      setMessage(t('loadSubscriptionRequestsFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('loadSubscriptionRequestsFailed')));
     }
   };
 
@@ -700,8 +700,8 @@ export function PlatformConsole({
         append ? [...prev, ...result.items] : result.items,
       );
       setNextExportCursor(result.nextCursor);
-    } catch {
-      setMessage(t('loadExportJobsFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('loadExportJobsFailed')));
     } finally {
       if (append) {
         setIsLoadingMoreExports(false);
@@ -776,7 +776,7 @@ export function PlatformConsole({
       }
       await Promise.all(tasks);
     } catch (err) {
-      setMessage(t('loadPlatformDataFailed'));
+      setMessage(getApiErrorMessage(err, t('loadPlatformDataFailed')));
     } finally {
       setIsLoading(false);
     }
@@ -805,14 +805,16 @@ export function PlatformConsole({
     if (rawPins) {
       try {
         setPinnedBusinessIds(JSON.parse(rawPins) as string[]);
-      } catch {
+      } catch (err) {
+        console.warn('Failed to parse pinned businesses cache', err);
         setPinnedBusinessIds([]);
       }
     }
     if (rawNotes) {
       try {
         setSupportNotes(JSON.parse(rawNotes) as Record<string, string>);
-      } catch {
+      } catch (err) {
+        console.warn('Failed to parse support notes cache', err);
         setSupportNotes({});
       }
     }
@@ -886,7 +888,7 @@ export function PlatformConsole({
       });
       await loadData();
     } catch (err) {
-      setMessage(t('createBusinessFailed'));
+      setMessage(getApiErrorMessage(err, t('createBusinessFailed')));
     } finally {
       setCreatingBusiness(false);
     }
@@ -909,7 +911,7 @@ export function PlatformConsole({
       });
       await loadData();
     } catch (err) {
-      setMessage(t('updateStatusFailed'));
+      setMessage(getApiErrorMessage(err, t('updateStatusFailed')));
     }
   };
 
@@ -935,7 +937,7 @@ export function PlatformConsole({
       setSupportForm({ businessId: '', reason: '', durationHours: '', scope: [] });
       await loadData();
     } catch (err) {
-      setMessage(t('createSupportRequestFailed'));
+      setMessage(getApiErrorMessage(err, t('createSupportRequestFailed')));
     } finally {
       setRequestingSupport(false);
     }
@@ -962,7 +964,7 @@ export function PlatformConsole({
       );
       await loadData();
     } catch (err) {
-      setMessage(t('activateSupportFailed'));
+      setMessage(getApiErrorMessage(err, t('activateSupportFailed')));
     } finally {
       setActivatingSupportId(null);
     }
@@ -993,8 +995,8 @@ export function PlatformConsole({
           ? t('subscriptionRequestApproved')
           : t('subscriptionRequestRejected'),
       );
-    } catch {
-      setMessage(t('updateSubscriptionRequestFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('updateSubscriptionRequestFailed')));
     }
   };
 
@@ -1010,7 +1012,7 @@ export function PlatformConsole({
       });
       setMessage(t('exportOnExitRequested'));
     } catch (err) {
-      setMessage(t('exportOnExitFailed'));
+      setMessage(getApiErrorMessage(err, t('exportOnExitFailed')));
     }
   };
 
@@ -1032,7 +1034,7 @@ export function PlatformConsole({
       setMessage(t('exportMarkedDelivered'));
       setExportDeliveryForm({ exportJobId: '', reason: '' });
     } catch (err) {
-      setMessage(t('exportMarkDeliveredFailed'));
+      setMessage(getApiErrorMessage(err, t('exportMarkDeliveredFailed')));
     } finally {
       setIsMarkingExportDelivered(false);
     }
@@ -1062,7 +1064,7 @@ export function PlatformConsole({
       });
       await loadData();
     } catch (err) {
-      setMessage(t('updateSubscriptionFailed'));
+      setMessage(getApiErrorMessage(err, t('updateSubscriptionFailed')));
     }
   };
 
@@ -1106,8 +1108,8 @@ export function PlatformConsole({
       });
       setMessage(t('resetSubscriptionLimitsSuccess'));
       await loadData();
-    } catch {
-      setMessage(t('resetSubscriptionLimitsFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('resetSubscriptionLimitsFailed')));
     }
   };
 
@@ -1137,7 +1139,7 @@ export function PlatformConsole({
       );
       await loadData();
     } catch (err) {
-      setMessage(t('updateReadOnlyFailed'));
+      setMessage(getApiErrorMessage(err, t('updateReadOnlyFailed')));
     }
   };
 
@@ -1161,7 +1163,7 @@ export function PlatformConsole({
       });
       await loadData();
     } catch (err) {
-      setMessage(t('updateReviewFailed'));
+      setMessage(getApiErrorMessage(err, t('updateReviewFailed')));
     }
   };
 
@@ -1189,7 +1191,7 @@ export function PlatformConsole({
       setRevokeReason('');
       setRevokeReasonTarget('');
     } catch (err) {
-      setMessage(t('forceLogoutFailed'));
+      setMessage(getApiErrorMessage(err, t('forceLogoutFailed')));
     } finally {
       setIsRevokingSessions(false);
     }
@@ -1217,7 +1219,7 @@ export function PlatformConsole({
       });
       setMessage(t('rateLimitApplied'));
     } catch (err) {
-      setMessage(t('rateLimitFailed'));
+      setMessage(getApiErrorMessage(err, t('rateLimitFailed')));
     }
   };
 
@@ -1266,8 +1268,8 @@ export function PlatformConsole({
         }),
       });
       await loadDevices(businessId);
-    } catch {
-      setMessage(t('revokeDeviceFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('revokeDeviceFailed')));
     }
   };
 
@@ -1290,8 +1292,8 @@ export function PlatformConsole({
         body: JSON.stringify({ status, reason }),
       });
       await loadData();
-    } catch {
-      setMessage(t('updateStatusFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('updateStatusFailed')));
     }
   };
 
@@ -1314,8 +1316,8 @@ export function PlatformConsole({
         body: JSON.stringify({ enabled, reason }),
       });
       await loadData();
-    } catch {
-      setMessage(t('updateReadOnlyFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('updateReadOnlyFailed')));
     }
   };
 
@@ -1361,8 +1363,8 @@ export function PlatformConsole({
       });
       setMessage(t('purgeSuccess'));
       await loadData();
-    } catch {
-      setMessage(t('purgeFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('purgeFailed')));
     } finally {
       setPurgingBusinessId(null);
     }
@@ -1432,8 +1434,8 @@ export function PlatformConsole({
         body: JSON.stringify({ status, reason }),
       });
       await loadData();
-    } catch {
-      setMessage(t('applyQuickActionFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('applyQuickActionFailed')));
     }
   };
 
@@ -1453,8 +1455,8 @@ export function PlatformConsole({
         body: JSON.stringify({ enabled: true, reason }),
       });
       await loadData();
-    } catch {
-      setMessage(t('enableReadOnlyFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('enableReadOnlyFailed')));
     }
   };
 
@@ -1486,8 +1488,8 @@ export function PlatformConsole({
         }),
       });
       await loadData();
-    } catch {
-      setMessage(t('extendTrialFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('extendTrialFailed')));
     }
   };
 
@@ -1525,7 +1527,7 @@ export function PlatformConsole({
       );
       setNextAuditCursor(result.nextCursor);
     } catch (err) {
-      setMessage(t('loadAuditLogsFailed'));
+      setMessage(getApiErrorMessage(err, t('loadAuditLogsFailed')));
     } finally {
       if (append) {
         setIsLoadingMoreAudit(false);
@@ -1561,7 +1563,7 @@ export function PlatformConsole({
       );
       setNextPlatformAuditCursor(result.nextCursor);
     } catch (err) {
-      setMessage(t('loadPlatformAuditFailed'));
+      setMessage(getApiErrorMessage(err, t('loadPlatformAuditFailed')));
     }
   };
 
@@ -1633,7 +1635,7 @@ export function PlatformConsole({
       await loadAnnouncements();
       setMessage(t('announcementCreated'));
     } catch (err) {
-      setMessage(t('announcementCreateFailed'));
+      setMessage(getApiErrorMessage(err, t('announcementCreateFailed')));
     } finally {
       setIsCreatingAnnouncement(false);
     }
@@ -1651,8 +1653,8 @@ export function PlatformConsole({
       });
       await loadAnnouncements();
       setMessage(t('announcementEnded'));
-    } catch {
-      setMessage(t('announcementEndFailed'));
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('announcementEndFailed')));
     } finally {
       setEndingAnnouncementId(null);
     }

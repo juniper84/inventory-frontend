@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { promptAction, useToastState } from '@/lib/app-notifications';
 import { StatusBanner } from '@/components/StatusBanner';
@@ -49,11 +49,11 @@ export function NoAccessState({ permission, path }: NoAccessStateProps) {
         outcome: 'success',
         message: t('requestSent'),
       });
-    } catch {
+    } catch (err) {
       setMessage({
         action: 'save',
         outcome: 'failure',
-        message: t('requestFailed'),
+        message: getApiErrorMessage(err, t('requestFailed')),
       });
     } finally {
       setIsSubmitting(false);
