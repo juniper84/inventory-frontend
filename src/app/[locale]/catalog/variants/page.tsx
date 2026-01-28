@@ -69,6 +69,7 @@ type BarcodeLookupResponse = {
     product?: { name?: string | null } | null;
   } | null;
 };
+type ScanMode = 'lookup' | 'assignExisting' | 'assignNew';
 
 function BarcodeCanvas({ value, height }: { value: string; height: number }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -104,6 +105,7 @@ export default function VariantsPage() {
     productId: '',
     name: '',
     sku: '',
+    barcode: '',
     defaultPrice: '',
     minPrice: '',
     vatMode: 'INCLUSIVE',
@@ -120,6 +122,8 @@ export default function VariantsPage() {
   const [labelData, setLabelData] = useState<BarcodeLabel[]>([]);
   const [printMode, setPrintMode] = useState<'A4' | 'THERMAL'>('A4');
   const [scanActive, setScanActive] = useState(false);
+  const [scanMode, setScanMode] = useState<ScanMode>('lookup');
+  const [scanTargetVariantId, setScanTargetVariantId] = useState<string | null>(null);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [scanLookup, setScanLookup] = useState<BarcodeLabel | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -296,13 +300,14 @@ export default function VariantsPage() {
     setMessage(null);
     setIsCreating(true);
     try {
-      await apiFetch('/variants', {
+      const created = await apiFetch<{ id: string }>('/variants', {
         token,
         method: 'POST',
         body: JSON.stringify({
           productId: form.productId,
           name: form.name,
           sku: form.sku || undefined,
+          barcode: undefined,
           baseUnitId: form.baseUnitId || undefined,
           sellUnitId: form.sellUnitId || undefined,
           conversionFactor: form.conversionFactor
@@ -313,10 +318,25 @@ export default function VariantsPage() {
           vatMode: form.vatMode,
         }),
       });
+      const trimmedBarcode = form.barcode.trim();
+      if (trimmedBarcode) {
+        try {
+          await addBarcode(created.id, trimmedBarcode);
+        } catch (err) {
+          setMessage({
+            action: 'save',
+            outcome: 'warning',
+            message: getApiErrorMessage(err, t('addBarcodeFailed')),
+          });
+        }
+      } else {
+        await load(1);
+      }
       setForm({
         productId: '',
         name: '',
         sku: '',
+        barcode: '',
         defaultPrice: '',
         minPrice: '',
         vatMode: 'INCLUSIVE',
@@ -525,7 +545,7 @@ export default function VariantsPage() {
     setIsPrinting(false);
   };
 
-  const startScan = async () => {
+  const startScan = async (mode: ScanMode = 'lookup', targetVariantId?: string) => {
     if (!videoRef.current) {
       return;
     }
@@ -536,6 +556,8 @@ export default function VariantsPage() {
     if (scannerRef.current) {
       resetScanner(scannerRef.current);
     }
+    setScanMode(mode);
+    setScanTargetVariantId(targetVariantId ?? null);
     setScanMessage(null);
     setScanLookup(null);
     try {
@@ -544,12 +566,23 @@ export default function VariantsPage() {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter((device) => device.kind === 'videoinput');
       const deviceId = videoDevices[0]?.deviceId;
+      let handled = false;
       await reader.decodeFromVideoDevice(
         deviceId,
         videoRef.current,
         async (result, error) => {
           if (result) {
-            await lookupBarcode(result.getText());
+            if (handled) {
+              return;
+            }
+            handled = true;
+            const normalized = result.getText().trim();
+            if (!normalized) {
+              handled = false;
+              return;
+            }
+            await handleScannedCode(normalized, mode, targetVariantId);
+            stopScan();
           }
         },
       );
@@ -578,6 +611,18 @@ export default function VariantsPage() {
       variantId: variant.id,
     })),
   );
+  const scanTargetVariant =
+    scanTargetVariantId ? variants.find((variant) => variant.id === scanTargetVariantId) : null;
+  const scanTargetLabel = scanTargetVariant
+    ? formatVariantLabel(
+        {
+          id: scanTargetVariant.id,
+          name: scanTargetVariant.name,
+          productName: scanTargetVariant.product?.name ?? null,
+        },
+        common('unknown'),
+      )
+    : common('unknown');
 
   const lookupBarcode = useCallback(
     async (code: string) => {
@@ -611,13 +656,55 @@ export default function VariantsPage() {
     [common, t],
   );
 
+  const handleScannedCode = useCallback(
+    async (code: string, mode: ScanMode, targetVariantId?: string | null) => {
+      const normalized = code.trim();
+      if (!normalized) {
+        return;
+      }
+      if (mode === 'lookup') {
+        await lookupBarcode(normalized);
+        return;
+      }
+      if (mode === 'assignExisting') {
+        if (!targetVariantId) {
+          setScanMessage(t('scanAssignFailed'));
+          return;
+        }
+        setScanMessage(t('scanAssigning', { code: normalized }));
+        try {
+          await addBarcode(targetVariantId, normalized);
+          setMessage({
+            action: 'save',
+            outcome: 'success',
+            message: t('scanAssignSuccess', { code: normalized }),
+          });
+        } catch (err) {
+          setScanMessage(getApiErrorMessage(err, t('scanAssignFailed')));
+        }
+        setScanMode('lookup');
+        setScanTargetVariantId(null);
+        return;
+      }
+      setForm((prev) => ({ ...prev, barcode: normalized }));
+      setMessage({
+        action: 'save',
+        outcome: 'success',
+        message: t('scanAssignNewSuccess', { code: normalized }),
+      });
+      setScanMode('lookup');
+      setScanTargetVariantId(null);
+    },
+    [addBarcode, lookupBarcode, setForm, setMessage, setScanMode, setScanTargetVariantId, t],
+  );
+
   useEffect(() => {
     return installBarcodeScanner({
-      onScan: lookupBarcode,
+      onScan: (code) => handleScannedCode(code, scanMode, scanTargetVariantId),
       enabled: true,
       minLength: 6,
     });
-  }, [lookupBarcode]);
+  }, [handleScannedCode, scanMode, scanTargetVariantId]);
 
   if (isLoading) {
     return <PageSkeleton title={t('title')} lines={4} blocks={3} />;
@@ -666,6 +753,24 @@ export default function VariantsPage() {
             placeholder={t('skuOptional')}
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={form.barcode}
+            onChange={(event) =>
+              setForm({ ...form, barcode: event.target.value })
+            }
+            placeholder={t('barcodeOptional')}
+            className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+          <button
+            onClick={() => startScan('assignNew')}
+            disabled={!canWrite}
+            title={!canWrite ? noAccess('title') : undefined}
+            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:opacity-70"
+          >
+            {t('scanAssignNew')}
+          </button>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <input
@@ -842,7 +947,11 @@ export default function VariantsPage() {
       <div className="command-card p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('scanTitle')}</h3>
         <p className="text-xs text-gold-300">
-          {t('scanSubtitle')}
+          {scanMode === 'lookup'
+            ? t('scanSubtitle')
+            : scanMode === 'assignExisting'
+              ? t('scanAssignExistingSubtitle', { variant: scanTargetLabel })
+              : t('scanAssignNewSubtitle')}
         </p>
         {scanMessage ? (
           <p className="text-xs text-gold-300">{scanMessage}</p>
@@ -856,7 +965,12 @@ export default function VariantsPage() {
         ) : null}
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => startScan()}
+            onClick={() =>
+              startScan(
+                scanMode,
+                scanMode === 'assignExisting' ? scanTargetVariantId ?? undefined : undefined,
+              )
+            }
             className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black"
           >
             {scanActive ? t('scanRestart') : t('scanStart')}
@@ -1202,6 +1316,14 @@ export default function VariantsPage() {
                   }}
                   disabled={!canWrite}
                 />
+                <button
+                  onClick={() => startScan('assignExisting', variant.id)}
+                  disabled={!canWrite}
+                  title={!canWrite ? noAccess('title') : undefined}
+                  className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
+                >
+                  {t('scanAssign')}
+                </button>
                 <button
                   onClick={() => generateBarcode(variant.id)}
                   disabled={!canWrite || barcodeAction?.variantId === variant.id}

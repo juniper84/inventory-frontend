@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { BrowserMultiFormatReader } from '@zxing/browser';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -11,6 +12,7 @@ import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
+import { installBarcodeScanner } from '@/lib/barcode-scanner';
 
 type Category = { id: string; name: string };
 type Branch = { id: string; name: string };
@@ -70,6 +72,11 @@ export default function ProductWizardPage() {
     },
   ]);
   const [stockLines, setStockLines] = useState<StockDraft[]>([]);
+  const [scanActive, setScanActive] = useState(false);
+  const [scanTargetId, setScanTargetId] = useState<string | null>(null);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scannerRef = useRef<BrowserMultiFormatReader | null>(null);
 
   const steps = [
     t('stepProduct'),
@@ -77,6 +84,18 @@ export default function ProductWizardPage() {
     t('stepInitialStock'),
     t('stepReview'),
   ];
+  const scanTargetLabel = useMemo(() => {
+    if (!scanTargetId) {
+      return '';
+    }
+    const index = variants.findIndex((variant) => variant.id === scanTargetId);
+    const variant = variants[index];
+    if (!variant) {
+      return '';
+    }
+    const name = variant.name.trim();
+    return name || t('variantNumber', { index: index + 1 });
+  }, [scanTargetId, variants, t]);
 
   const vatOptions = useMemo(
     () => [
@@ -122,6 +141,108 @@ export default function ProductWizardPage() {
       );
     }
   }, [activeBranch?.id, variants, stockLines.length]);
+
+  const resetScanner = (reader: BrowserMultiFormatReader | null) => {
+    if (!reader) {
+      return;
+    }
+    const scanner = reader as unknown as {
+      reset?: () => void;
+      stopContinuousDecode?: () => void;
+      stopStreams?: () => void;
+    };
+    scanner.reset?.();
+    scanner.stopContinuousDecode?.();
+    scanner.stopStreams?.();
+  };
+
+  const stopScan = () => {
+    resetScanner(scannerRef.current);
+    scannerRef.current = null;
+    setScanActive(false);
+    setScanTargetId(null);
+  };
+
+  const startScan = async (variantId: string) => {
+    if (!videoRef.current) {
+      return;
+    }
+    setScanTargetId(variantId);
+    setScanMessage(null);
+    if (scannerRef.current) {
+      resetScanner(scannerRef.current);
+    }
+    try {
+      const reader = new BrowserMultiFormatReader();
+      scannerRef.current = reader;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter((device) => device.kind === 'videoinput');
+      const deviceId = videoDevices[0]?.deviceId;
+      let handled = false;
+      await reader.decodeFromVideoDevice(
+        deviceId,
+        videoRef.current,
+        async (result) => {
+          if (!result || handled) {
+            return;
+          }
+          handled = true;
+          const normalized = result.getText().trim();
+          if (!normalized) {
+            handled = false;
+            return;
+          }
+          setVariants((prev) =>
+            prev.map((variant) =>
+              variant.id === variantId ? { ...variant, barcode: normalized } : variant,
+            ),
+          );
+          setMessage({
+            action: 'save',
+            outcome: 'success',
+            message: t('scanAssignSuccess', { code: normalized }),
+          });
+          stopScan();
+        },
+      );
+      setScanActive(true);
+    } catch (err) {
+      setScanMessage(t('scanCameraFailed'));
+    }
+  };
+
+  useEffect(() => {
+    return installBarcodeScanner({
+      enabled: Boolean(scanTargetId),
+      minLength: 6,
+      onScan: (code) => {
+        if (!scanTargetId) {
+          return;
+        }
+        const normalized = code.trim();
+        if (!normalized) {
+          return;
+        }
+        setVariants((prev) =>
+          prev.map((variant) =>
+            variant.id === scanTargetId ? { ...variant, barcode: normalized } : variant,
+          ),
+        );
+        setMessage({
+          action: 'save',
+          outcome: 'success',
+          message: t('scanAssignSuccess', { code: normalized }),
+        });
+        stopScan();
+      },
+    });
+  }, [scanTargetId, setMessage, stopScan, t]);
+
+  useEffect(() => {
+    return () => {
+      resetScanner(scannerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!units.length) {
@@ -463,14 +584,23 @@ export default function ProductWizardPage() {
                   }
                   options={vatOptions}
                 />
-                <input
-                  value={variant.barcode}
-                  onChange={(event) =>
-                    updateVariant(variant.id, { barcode: event.target.value })
-                  }
-                  placeholder={t('barcodeOptional')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    value={variant.barcode}
+                    onChange={(event) =>
+                      updateVariant(variant.id, { barcode: event.target.value })
+                    }
+                    placeholder={t('barcodeOptional')}
+                    className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => startScan(variant.id)}
+                    className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+                  >
+                    {t('scanAssign')}
+                  </button>
+                </div>
                 <label className="flex items-center gap-2 text-xs text-gold-300">
                   <input
                     type="checkbox"
@@ -545,6 +675,40 @@ export default function ProductWizardPage() {
           >
             {t('addVariant')}
           </button>
+          {scanTargetId ? (
+            <div className="rounded border border-gold-700/40 bg-black/70 p-4 space-y-3">
+              <h4 className="text-sm font-semibold text-gold-100">
+                {t('scanAssignTitle')}
+              </h4>
+              <p className="text-xs text-gold-300">
+                {t('scanAssignSubtitle', { variant: scanTargetLabel })}
+              </p>
+              {scanMessage ? (
+                <p className="text-xs text-gold-300">{scanMessage}</p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => startScan(scanTargetId)}
+                  className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
+                >
+                  {scanActive ? t('scanRestart') : t('scanStart')}
+                </button>
+                {scanActive ? (
+                  <button
+                    type="button"
+                    onClick={stopScan}
+                    className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+                  >
+                    {t('scanStop')}
+                  </button>
+                ) : null}
+              </div>
+              <div className="overflow-hidden rounded border border-gold-700/40 bg-black/80">
+                <video ref={videoRef} className="w-full" />
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
