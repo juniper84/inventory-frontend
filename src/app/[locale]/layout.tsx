@@ -7,6 +7,14 @@ import '../globals.css';
 export const metadata: Metadata = {
   title: 'New Vision Inventory',
   description: 'Inventory management system',
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: {
+      index: false,
+      follow: false,
+    },
+  },
   icons: {
     icon: [
       { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },

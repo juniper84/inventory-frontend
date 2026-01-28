@@ -152,11 +152,11 @@ export default function StockCountsPage() {
         setBatches([]);
         return;
       }
-      const data = await apiFetch<Batch[]>(
+      const data = await apiFetch<PaginatedResponse<Batch> | Batch[]>(
         `/stock/batches?branchId=${form.branchId}&variantId=${form.variantId}`,
         { token },
       );
-      setBatches(data);
+      setBatches(normalizePaginated(data).items);
     };
     loadBatches().catch(() => setBatches([]));
   }, [form.branchId, form.variantId]);
