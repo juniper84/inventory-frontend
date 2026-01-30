@@ -286,6 +286,9 @@ export function PlatformConsole({
     useState(false);
   const [exportDeliveryBusinessId, setExportDeliveryBusinessId] = useState('');
   const [businessSearch, setBusinessSearch] = useState('');
+  const [businessStatusFilter, setBusinessStatusFilter] = useState<
+    'ACTIVE' | 'ARCHIVED' | 'DELETED'
+  >('ACTIVE');
   const [selectedBusinessId, setSelectedBusinessId] = useState('');
   const [openedBusinessId, setOpenedBusinessId] = useState('');
   const [pinnedBusinessIds, setPinnedBusinessIds] = useState<string[]>([]);
@@ -504,11 +507,19 @@ export function PlatformConsole({
   const filteredBusinesses = useMemo(() => {
     const query = businessSearch.trim().toLowerCase();
     const pinned = new Set(pinnedBusinessIds);
+    const byStatus =
+      businessStatusFilter === 'ACTIVE'
+        ? businesses.filter(
+            (biz) =>
+              !['ARCHIVED', 'DELETED'].includes(biz.status) &&
+              biz.status !== 'SUSPENDED',
+          )
+        : businesses.filter((biz) => biz.status === businessStatusFilter);
     const base = query
-      ? businesses.filter((biz) =>
+      ? byStatus.filter((biz) =>
           `${biz.name} ${biz.id}`.toLowerCase().includes(query),
         )
-      : businesses;
+      : byStatus;
     return [...base].sort((a, b) => {
       const aPinned = pinned.has(a.id);
       const bPinned = pinned.has(b.id);
@@ -516,7 +527,17 @@ export function PlatformConsole({
       if (!aPinned && bPinned) return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [businessSearch, businesses, pinnedBusinessIds]);
+  }, [businessSearch, businesses, pinnedBusinessIds, businessStatusFilter]);
+  const filteredBusinessIds = useMemo(
+    () => new Set(filteredBusinesses.map((biz) => biz.id)),
+    [filteredBusinesses],
+  );
+
+  useEffect(() => {
+    if (openedBusinessId && !filteredBusinessIds.has(openedBusinessId)) {
+      setOpenedBusinessId('');
+    }
+  }, [openedBusinessId, filteredBusinessIds]);
   const [subscriptionHistory, setSubscriptionHistory] = useState<
     {
       previousStatus?: string | null;
@@ -2328,6 +2349,33 @@ export function PlatformConsole({
             {t('useSelectedBusiness')}
           </button>
         </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {[
+            { value: 'ACTIVE', label: t('statusActive') },
+            { value: 'ARCHIVED', label: t('statusArchived') },
+            { value: 'DELETED', label: t('statusDeletedReady') },
+          ].map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() =>
+                setBusinessStatusFilter(
+                  option.value as 'ACTIVE' | 'ARCHIVED' | 'DELETED',
+                )
+              }
+              className={`rounded border px-3 py-1 text-[10px] uppercase tracking-[0.25em] ${
+                businessStatusFilter === option.value
+                  ? 'border-gold-500 text-gold-100'
+                  : 'border-gold-800/60 text-gold-500'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-gold-500">
+          {t('deletedReadyNote')} {t('purgedRemovedNote')}
+        </p>
         <div className="overflow-x-auto rounded border border-gold-700/30 bg-black/40">
           <table className="min-w-full text-xs text-gold-200">
             <thead>
@@ -2360,6 +2408,16 @@ export function PlatformConsole({
                           : t('pin')}
                       </button>
                       <span className="text-gold-100">{business.name}</span>
+                      {business.status === 'ARCHIVED' ? (
+                        <span className="rounded border border-gold-600/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.25em] text-gold-300">
+                          {t('statusArchived')}
+                        </span>
+                      ) : null}
+                      {business.status === 'DELETED' ? (
+                        <span className="rounded border border-red-500/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.25em] text-red-200">
+                          {t('statusDeletedReady')}
+                        </span>
+                      ) : null}
                     </div>
                     <p className="text-[10px] text-gold-500">{business.id}</p>
                     {(() => {
@@ -2403,7 +2461,13 @@ export function PlatformConsole({
                       onClick={() => setOpenedBusinessId(business.id)}
                       className="rounded border border-gold-700/60 px-2 py-1 text-[10px] text-gold-200"
                     >
-                      {openedBusinessId === business.id ? t('opened') : t('open')}
+                      {openedBusinessId === business.id
+                        ? t('opened')
+                        : ['ARCHIVED', 'DELETED', 'SUSPENDED'].includes(
+                              business.status,
+                            )
+                          ? t('view')
+                          : t('open')}
                     </button>
                   </td>
                 </tr>
@@ -2601,21 +2665,7 @@ export function PlatformConsole({
                     >
                       {t('forceLogout')}
                     </button>
-                    {business.status !== 'DELETED' ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateStatusOverride(
-                            business.id,
-                            'DELETED',
-                            quick.reason,
-                          )
-                        }
-                        className="rounded border border-red-500/60 px-3 py-2 text-xs text-red-200"
-                      >
-                        {t('archive')}
-                      </button>
-                    ) : (
+                    {['ARCHIVED', 'DELETED'].includes(business.status) ? (
                       <button
                         type="button"
                         onClick={() =>
@@ -2629,8 +2679,22 @@ export function PlatformConsole({
                       >
                         {t('restore')}
                       </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateStatusOverride(
+                            business.id,
+                            'ARCHIVED',
+                            quick.reason,
+                          )
+                        }
+                        className="rounded border border-red-500/60 px-3 py-2 text-xs text-red-200"
+                      >
+                        {t('archive')}
+                      </button>
                     )}
-                    {business.status === 'DELETED' ? (
+                    {['ARCHIVED', 'DELETED'].includes(business.status) ? (
                       <button
                         type="button"
                         onClick={() => purgeBusiness(business.id)}
@@ -2744,6 +2808,7 @@ export function PlatformConsole({
                           { value: 'GRACE', label: t('statusGrace') },
                           { value: 'EXPIRED', label: t('statusExpired') },
                           { value: 'SUSPENDED', label: t('statusSuspended') },
+                          { value: 'ARCHIVED', label: t('statusArchived') },
                           { value: 'DELETED', label: t('statusDeleted') },
                         ]}
                       />

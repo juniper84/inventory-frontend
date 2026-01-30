@@ -23,6 +23,7 @@ type BusinessOption = {
   businessId: string;
   businessName: string;
   status: string;
+  businessStatus?: string;
 };
 
 export function BusinessSwitcher() {
@@ -40,11 +41,16 @@ export function BusinessSwitcher() {
         const list = await apiFetch<BusinessOption[]>('/auth/businesses', {
           token,
         });
-        setBusinesses(list);
+        const filtered = list.filter(
+          (item) =>
+            item.businessStatus !== 'DELETED' &&
+            item.businessStatus !== 'SUSPENDED',
+        );
+        setBusinesses(filtered);
         if (!businessId) {
           const last = getLastBusinessId();
-          const match = list.find((item) => item.businessId === last);
-          setBusinessId(match?.businessId ?? list[0]?.businessId ?? '');
+          const match = filtered.find((item) => item.businessId === last);
+          setBusinessId(match?.businessId ?? filtered[0]?.businessId ?? '');
         }
       } catch (error) {
         setMessage(getApiErrorMessage(error, 'Failed to load businesses.'));
