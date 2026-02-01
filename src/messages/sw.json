@@ -2931,6 +2931,8 @@
     "customerOptional": "Mteja (hiari)",
     "priceListLabel": "Orodha ya bei: {name}",
     "scanOrSearch": "Skani msimbo pau au tafuta",
+    "loadingPos": "Inapakia POS...",
+    "loadingPosHint": "Inachukua matawi, bidhaa, na mipangilio.",
     "scanStart": "Anza skani ya kamera",
     "scanRestart": "Anzisha upya skani ya kamera",
     "scanStop": "Simamisha skani",

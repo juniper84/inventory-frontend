@@ -2931,6 +2931,8 @@
     "customerOptional": "Customer (optional)",
     "priceListLabel": "Price list: {name}",
     "scanOrSearch": "Scan barcode or search",
+    "loadingPos": "Loading POS...",
+    "loadingPosHint": "Fetching branches, items, and settings.",
     "scanStart": "Start camera scan",
     "scanRestart": "Restart camera scan",
     "scanStop": "Stop scan",

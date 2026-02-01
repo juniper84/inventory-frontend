@@ -187,6 +187,7 @@ export default function PosPage() {
   const [pinRequired, setPinRequired] = useState(false);
   const [pinVerified, setPinVerified] = useState(false);
   const [pinInput, setPinInput] = useState('');
+  const [coreLoaded, setCoreLoaded] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('flowline');
   const [layoutReady, setLayoutReady] = useState(false);
@@ -401,6 +402,7 @@ export default function PosPage() {
         if (listResult.status === 'fulfilled') {
           setPriceLists(normalizePaginated(listResult.value).items);
         }
+        setCoreLoaded(true);
       } catch (err) {
         console.warn('Failed to load POS data from API', err);
         await loadOfflineCache();
@@ -418,6 +420,7 @@ export default function PosPage() {
       }>('snapshot');
       if (!cache) {
         setMessage({ action: 'sync', outcome: 'info', message: t('offlineCacheUnavailable') });
+        setCoreLoaded(true);
         return;
       }
       setBranches(cache.branches ?? []);
@@ -444,6 +447,7 @@ export default function PosPage() {
         setCreditEnabled(cache.settings.posPolicies.creditEnabled ?? false);
         setShiftTrackingEnabled(cache.settings.posPolicies.shiftTrackingEnabled ?? false);
       }
+      setCoreLoaded(true);
     };
 
     if (navigator.onLine) {
@@ -1004,6 +1008,7 @@ export default function PosPage() {
     cart.length > 0 || availableBranches.length <= 1;
   const branchSelectionRequired =
     !branchId && availableBranches.length > 0;
+  const showLoadingOverlay = !coreLoaded;
 
   const layoutOptions: { value: LayoutMode; label: string }[] = [
     { value: 'flowline', label: t('layoutFlowline') },
@@ -1384,6 +1389,17 @@ export default function PosPage() {
 
   return (
     <section className="space-y-6">
+      {showLoadingOverlay ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-gold-700/40 bg-black/80 p-6 text-center text-gold-100 shadow-2xl">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-gold-700/50">
+              <Spinner size="sm" variant="ring" />
+            </div>
+            <p className="text-sm font-semibold">{t('loadingPos')}</p>
+            <p className="mt-2 text-xs text-gold-400">{t('loadingPosHint')}</p>
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
