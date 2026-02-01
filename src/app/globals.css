@@ -400,8 +400,90 @@ body::after {
   }
 }
 
+@keyframes nvi-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
 .nvi-reveal {
   animation: nvi-reveal var(--motion-base) var(--motion-ease) both;
+}
+
+.nvi-tile {
+  position: relative;
+  transition: transform 200ms ease, box-shadow 220ms ease, border-color 200ms ease;
+}
+
+.nvi-tile:hover {
+  transform: translateY(-4px);
+  border-color: rgba(245, 158, 11, 0.7);
+  box-shadow: 0 22px 40px rgba(245, 158, 11, 0.18);
+}
+
+.nvi-tile:active {
+  transform: translateY(-1px) scale(0.99);
+}
+
+.nvi-image-frame {
+  position: relative;
+}
+
+.nvi-image-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(145deg, rgba(250, 204, 21, 0.16), transparent);
+  pointer-events: none;
+}
+
+.nvi-cta {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 60%, #d97706 100%);
+  box-shadow: 0 10px 25px rgba(245, 158, 11, 0.25);
+  transition: transform 200ms ease, box-shadow 220ms ease;
+}
+
+.nvi-cta::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -40%;
+  width: 30%;
+  height: 220%;
+  background: rgba(255, 255, 255, 0.45);
+  transform: rotate(20deg) translateX(-140%);
+  transition: transform 420ms ease;
+}
+
+.nvi-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 28px rgba(245, 158, 11, 0.35);
+}
+
+.nvi-cta:hover::after {
+  transform: rotate(20deg) translateX(240%);
+}
+
+.nvi-cta:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.nvi-panel {
+  background: radial-gradient(circle at top, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.9));
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  border-color: rgba(245, 158, 11, 0.35);
+  transition: border-color 200ms ease, box-shadow 220ms ease;
+}
+
+.nvi-panel:hover {
+  border-color: rgba(245, 158, 11, 0.55);
+  box-shadow: 0 22px 50px rgba(245, 158, 11, 0.18);
 }
 
 .nvi-stagger > * {

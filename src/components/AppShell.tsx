@@ -72,6 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const t = useTranslations('common');
+  const authT = useTranslations('auth');
   const navT = useTranslations('nav');
   const sectionT = useTranslations('navSections');
   const shellT = useTranslations('appShell');
@@ -792,16 +793,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (isAuthRoute) {
     return (
-      <div className="min-h-screen bg-[#0b0f14] text-gold-100">
+      <div className="min-h-screen bg-[#0a0e14] text-gold-100">
         <div className="relative min-h-screen overflow-hidden">
-          <div
-            className="absolute inset-0 bg-cover bg-[center_left]"
-            style={{ backgroundImage: "url('/images/login-bg.jpg')" }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0b0f14]/65 via-[#0b0f14]/30 to-transparent" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,transparent_0%,#0b0f14_60%)] opacity-20" />
-          <div className="relative z-10 flex min-h-screen items-start justify-end px-3 pt-24 pb-10 sm:px-6 lg:px-8">
-            <div className="flex min-h-[640px] w-full max-w-sm flex-col justify-between rounded-2xl border border-white/20 bg-[#5b6270]/80 px-10 py-12 shadow-[0_40px_120px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(245,158,11,0.14),transparent_55%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(59,130,246,0.12),transparent_50%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(15,23,42,0.95),rgba(2,6,23,0.8))]" />
+          <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-12 px-6 pb-16 pt-20 lg:flex-row lg:items-center lg:justify-between">
+            <div className="max-w-xl space-y-6">
+              <p className="text-xs uppercase tracking-[0.4em] text-gold-500">
+                {t('brand')}
+              </p>
+              <h1 className="text-4xl font-semibold leading-tight text-gold-100 md:text-5xl">
+                {authT('commandRoomTitle')}
+              </h1>
+              <p className="text-base text-gold-300 md:text-lg">
+                {authT('commandRoomSubtitle')}
+              </p>
+              <div className="inline-flex items-center gap-4 rounded-2xl border border-gold-700/40 bg-black/60 px-5 py-4 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.35em] text-gold-500">
+                    {authT('systemStatusTitle')}
+                  </p>
+                  <p className="text-sm text-gold-100">
+                    {authT('systemStatusValue')}
+                  </p>
+                </div>
+                <span className="rounded-full border border-emerald-400/60 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                  {authT('systemStatusTag')}
+                </span>
+              </div>
+            </div>
+            <div className="flex w-full max-w-md flex-col justify-between rounded-3xl border border-white/10 bg-[#0f172a]/80 px-8 py-10 shadow-[0_40px_120px_rgba(0,0,0,0.6)] backdrop-blur-xl">
               {children}
             </div>
           </div>

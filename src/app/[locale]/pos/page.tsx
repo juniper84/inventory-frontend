@@ -47,6 +47,8 @@ type Variant = {
   id: string;
   name: string;
   product?: { name?: string | null };
+  sku?: string | null;
+  imageUrl?: string | null;
   defaultPrice?: number | null;
   minPrice?: number | null;
   baseUnitId?: string | null;
@@ -125,11 +127,8 @@ type SettingsResponse = {
   };
 };
 
-type LayoutMode = 'flowline' | 'triage' | 'command';
-
 const VAT_RATE = 18;
 const CART_KEY = 'nvi-pos-cart';
-const POS_LAYOUT_KEY = 'nvi-pos-layout';
 
 const resolveUnitFactor = (variant: Variant, unitId?: string | null) => {
   if (!unitId) {
@@ -189,14 +188,13 @@ export default function PosPage() {
   const [pinInput, setPinInput] = useState('');
   const [coreLoaded, setCoreLoaded] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>('flowline');
-  const [layoutReady, setLayoutReady] = useState(false);
   const [printer, setPrinter] = useState<EscPosConnection | null>(null);
   const [isConnectingPrinter, setIsConnectingPrinter] = useState(false);
   const [useHardwarePrint, setUseHardwarePrint] = useState(false);
   const [lastReceipt, setLastReceipt] = useState<ReceiptPayload | null>(null);
   const [previewReceipt, setPreviewReceipt] = useState<ReceiptPayload | null>(null);
   const [previewMode, setPreviewMode] = useState<'compact' | 'detailed'>('detailed');
+  const [productQuery, setProductQuery] = useState('');
   const storedUser = useMemo(() => getStoredUser(), []);
   const scanMessageTimer = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -251,31 +249,6 @@ export default function PosPage() {
     const scope = Array.isArray(payload?.branchScope) ? payload?.branchScope : [];
     setBranchScope(scope ?? []);
   }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    const stored = window.localStorage.getItem(POS_LAYOUT_KEY) as LayoutMode | null;
-    const allowed: LayoutMode[] = ['flowline', 'triage', 'command'];
-    if (stored && allowed.includes(stored)) {
-      setLayoutMode(stored);
-      setLayoutReady(true);
-      return;
-    }
-    const width = window.innerWidth;
-    const defaultLayout =
-      width < 768 ? 'flowline' : width < 1200 ? 'triage' : 'command';
-    setLayoutMode(defaultLayout);
-    setLayoutReady(true);
-  }, []);
-
-  useEffect(() => {
-    if (!layoutReady || typeof window === 'undefined') {
-      return;
-    }
-    window.localStorage.setItem(POS_LAYOUT_KEY, layoutMode);
-  }, [layoutMode, layoutReady]);
 
   useEffect(() => {
     return () => {
@@ -1010,14 +983,8 @@ export default function PosPage() {
     !branchId && availableBranches.length > 0;
   const showLoadingOverlay = !coreLoaded;
 
-  const layoutOptions: { value: LayoutMode; label: string }[] = [
-    { value: 'flowline', label: t('layoutFlowline') },
-    { value: 'triage', label: t('layoutTriage') },
-    { value: 'command', label: t('layoutCommand') },
-  ];
-
   const scanPanel = (
-    <div className="command-card p-4 space-y-3 nvi-reveal">
+    <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-lg font-semibold text-gold-100">
           {t('scanSearchTitle')}
@@ -1099,8 +1066,101 @@ export default function PosPage() {
     </div>
   );
 
+  const filteredProductVariants = useMemo(() => {
+    const query = productQuery.trim().toLowerCase();
+    if (!query) {
+      return variants;
+    }
+    return variants.filter((variant) => {
+      const productName = variant.product?.name?.toLowerCase() ?? '';
+      const sku = variant.sku?.toLowerCase() ?? '';
+      const hasBarcode = variant.barcodes.some((barcode) =>
+        barcode.code.toLowerCase().includes(query),
+      );
+      return (
+        variant.name.toLowerCase().includes(query) ||
+        productName.includes(query) ||
+        sku.includes(query) ||
+        hasBarcode
+      );
+    });
+  }, [productQuery, variants]);
+
+  const productPanel = (
+    <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-lg font-semibold text-gold-100">
+          {t('productsTitle')}
+        </h3>
+        <span className="text-[10px] uppercase tracking-[0.25em] text-gold-500">
+          {t('productsTag')}
+        </span>
+      </div>
+      <p className="text-xs text-gold-400">{t('productsHint')}</p>
+      <input
+        value={productQuery}
+        onChange={(event) => setProductQuery(event.target.value)}
+        placeholder={t('productSearchPlaceholder')}
+        className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
+      />
+      {filteredProductVariants.length === 0 ? (
+        <p className="text-sm text-gold-400">{t('productNoResults')}</p>
+      ) : (
+        <div className="nvi-stagger max-h-[560px] space-y-4 overflow-y-auto pr-2">
+          {filteredProductVariants.map((variant) => {
+            const displayName = formatVariantLabel({
+              id: variant.id,
+              name: variant.name,
+              productName: variant.product?.name ?? null,
+            });
+            const price =
+              priceListMap.get(variant.id) ?? variant.defaultPrice ?? null;
+            return (
+              <button
+                key={variant.id}
+                type="button"
+                onClick={() => addToCart(variant)}
+                className="nvi-tile flex w-full items-center gap-4 rounded-xl border border-gold-700/40 bg-black/70 p-4 text-left"
+              >
+                <div className="nvi-image-frame h-16 w-16 overflow-hidden rounded-lg border border-gold-700/40 bg-black">
+                  {variant.imageUrl ? (
+                    <img
+                      src={variant.imageUrl}
+                      alt={displayName}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-gold-500">
+                      {displayName.slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 space-y-1">
+                  <p className="text-base font-semibold text-gold-100">
+                    {displayName}
+                  </p>
+                  {variant.sku ? (
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-gold-500/80">
+                      {variant.sku}
+                    </p>
+                  ) : null}
+                  <p className="text-sm text-gold-200">
+                    {price !== null ? Number(price).toFixed(2) : t('missingPrice')}
+                  </p>
+                </div>
+                <span className="nvi-cta rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-black">
+                  {t('productAdd')}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
   const cartPanel = (
-    <div className="command-card p-4 space-y-3 nvi-reveal">
+    <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-lg font-semibold text-gold-100">{t('cartTitle')}</h3>
         <span className="text-[10px] uppercase tracking-[0.25em] text-gold-500">
@@ -1150,7 +1210,7 @@ export default function PosPage() {
                   {actions('remove')}
                 </button>
               </div>
-              <div className="grid gap-2 md:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(64px,0.7fr)_minmax(170px,1.4fr)_minmax(110px,0.9fr)_minmax(110px,0.9fr)]">
                 <input
                   type="number"
                   value={item.quantity}
@@ -1187,6 +1247,7 @@ export default function PosPage() {
                     label: buildUnitLabel(unit),
                   }))}
                   placeholder={t('unit')}
+                  className="min-w-[140px]"
                 />
                 <input
                   type="number"
@@ -1228,7 +1289,7 @@ export default function PosPage() {
   );
 
   const totalsPanel = (
-    <div className="command-card p-4 space-y-3 nvi-reveal">
+    <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-lg font-semibold text-gold-100">{t('totalsTitle')}</h3>
         <span className="text-[10px] uppercase tracking-[0.25em] text-gold-500">
@@ -1236,21 +1297,29 @@ export default function PosPage() {
         </span>
       </div>
       <div className="space-y-1 text-sm text-gold-200">
-        <div className="flex justify-between">
+        <div className="flex items-center justify-between gap-3">
           <span>{t('subtotal')}</span>
-          <span>{totals.subtotal.toFixed(2)}</span>
+          <span className="whitespace-nowrap text-right tabular-nums">
+            {totals.subtotal.toFixed(2)}
+          </span>
         </div>
-        <div className="flex justify-between">
+        <div className="flex items-center justify-between gap-3">
           <span>{t('discounts')}</span>
-          <span>{(totals.lineDiscount + cartDiscount).toFixed(2)}</span>
+          <span className="whitespace-nowrap text-right tabular-nums">
+            {(totals.lineDiscount + cartDiscount).toFixed(2)}
+          </span>
         </div>
-        <div className="flex justify-between">
+        <div className="flex items-center justify-between gap-3">
           <span>{t('vat')}</span>
-          <span>{totals.vatTotal.toFixed(2)}</span>
+          <span className="whitespace-nowrap text-right tabular-nums">
+            {totals.vatTotal.toFixed(2)}
+          </span>
         </div>
-        <div className="flex justify-between text-base text-gold-100">
+        <div className="flex items-center justify-between gap-3 text-base text-gold-100">
           <span>{t('total')}</span>
-          <span>{totals.total.toFixed(2)}</span>
+          <span className="whitespace-nowrap text-right tabular-nums">
+            {totals.total.toFixed(2)}
+          </span>
         </div>
       </div>
       <div className="space-y-2">
@@ -1425,29 +1494,6 @@ export default function PosPage() {
         </div>
       </div>
 
-      <div className="command-card px-3 py-2 nvi-reveal">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gold-200">
-          <span className="uppercase tracking-[0.3em] text-gold-500">
-            {t('layoutLabel')}
-          </span>
-          {layoutOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setLayoutMode(option.value)}
-              className={`rounded-full border px-3 py-1 text-[11px] ${
-                layoutMode === option.value
-                  ? 'border-gold-400 text-gold-100'
-                  : 'border-gold-700/60 text-gold-300'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <p className="text-xs text-gold-400">{t('layoutHint')}</p>
-      </div>
-
       {shiftTrackingEnabled ? (
         <p className="text-xs text-gold-400">
           {t('shiftTracking', {
@@ -1490,31 +1536,16 @@ export default function PosPage() {
         </div>
       ) : null}
 
-      {layoutMode === 'flowline' ? (
-        <div className="grid gap-4 lg:grid-cols-[1.15fr_1.5fr_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[1.05fr_1.6fr_1.4fr]">
+        <div className="space-y-4">
           {scanPanel}
+        </div>
+        {productPanel}
+        <div className="space-y-4">
           {cartPanel}
           {totalsPanel}
         </div>
-      ) : null}
-
-      {layoutMode === 'triage' ? (
-        <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-          {scanPanel}
-          <div className="space-y-4">
-            {cartPanel}
-            {totalsPanel}
-          </div>
-        </div>
-      ) : null}
-
-      {layoutMode === 'command' ? (
-        <div className="grid gap-4 lg:grid-cols-[1fr_1.6fr_1fr]">
-          {totalsPanel}
-          {cartPanel}
-          {scanPanel}
-        </div>
-      ) : null}
+      </div>
 
       {previewReceipt ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

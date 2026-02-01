@@ -11,7 +11,6 @@ import { SmartSelect } from '@/components/SmartSelect';
 
 export default function LoginPage() {
   const t = useTranslations('auth');
-  const common = useTranslations('common');
   const router = useRouter();
   const params = useParams<{ locale: string }>();
   const searchParams = useSearchParams();
@@ -112,11 +111,11 @@ export default function LoginPage() {
 
   return (
     <div className="space-y-6 nvi-reveal">
-      <div>
+      <div className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight text-gold-100">
-          {t('loginTitle')}
+          {t('commandRoomFormTitle')}
         </h1>
-        <p className="text-sm text-gold-300">{common('brand')}</p>
+        <p className="text-sm text-gold-300">{t('commandRoomFormSubtitle')}</p>
       </div>
 
       <form className="space-y-4" onSubmit={submit}>
@@ -162,7 +161,7 @@ export default function LoginPage() {
         >
           <span className="inline-flex items-center justify-center gap-2">
             {isSubmitting ? <Spinner variant="ring" size="xs" /> : null}
-            {isSubmitting ? t('signingIn') : t('signIn')}
+            {isSubmitting ? t('signingIn') : t('enterCommandRoom')}
           </span>
         </button>
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
