@@ -17,7 +17,7 @@ import {
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
-import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
+import { formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import {
@@ -28,24 +28,13 @@ import {
 import {
   buildReceiptLines,
   type ReceiptData as ReceiptPrintData,
-  type ReceiptLine,
 } from '@/lib/receipt-print';
+import { ReceiptPreview } from '@/components/receipts/ReceiptPreview';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 
-type ReceiptData = ReceiptPrintData & {
-  cashierId?: string | null;
-  customer?: {
-    name?: string | null;
-    phone?: string | null;
-    tin?: string | null;
-  } | null;
-  branchContact?: {
-    address?: string | null;
-    phone?: string | null;
-  } | null;
-};
+type ReceiptData = ReceiptPrintData;
 
 type ReceiptRecord = {
   id: string;
@@ -76,6 +65,7 @@ type User = { id: string; name?: string | null; email?: string | null };
 
 export default function ReceiptsPage() {
   const t = useTranslations('receiptsPage');
+  const previewT = useTranslations('receiptPreview');
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
@@ -87,6 +77,7 @@ export default function ReceiptsPage() {
   const [isReturning, setIsReturning] = useState(false);
   const [receipts, setReceipts] = useState<ReceiptResponse[]>([]);
   const [selected, setSelected] = useState<ReceiptResponse | null>(null);
+  const [previewMode, setPreviewMode] = useState<'compact' | 'detailed'>('detailed');
   const [message, setMessage] = useToastState();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -349,6 +340,15 @@ export default function ReceiptsPage() {
       ]),
     );
   }, [users]);
+  const previewReceiptData = useMemo(() => {
+    if (!receiptData) {
+      return null;
+    }
+    const cashierLabel = receiptData.cashierId
+      ? cashierLookup.get(receiptData.cashierId) ?? receiptData.cashierId
+      : null;
+    return { ...receiptData, cashierId: cashierLabel ?? receiptData.cashierId };
+  }, [receiptData, cashierLookup]);
   const outstandingAmount = selected?.sale?.outstandingAmount
     ? Number(selected.sale.outstandingAmount)
     : 0;
@@ -679,69 +679,44 @@ export default function ReceiptsPage() {
 
       {selected ? (
         <div className="command-card p-4 space-y-3 nvi-reveal">
-          <h3 className="text-lg font-semibold text-gold-100">{t('detailTitle')}</h3>
-          <p className="text-xs text-gold-400">{selected.receiptNumber}</p>
-          {receiptData ? (
-            <div className="space-y-2 text-sm text-gold-200">
-              <p>
-                {t('businessLabel', {
-                  value: receiptData.businessName ?? t('empty'),
-                })}
-              </p>
-              <p>
-                {t('branchLabel', { value: receiptData.branchName ?? t('empty') })}
-              </p>
-              <p>
-                {t('cashierLabel', {
-                  value: formatEntityLabel(
-                    {
-                      name: receiptData.cashierId
-                        ? cashierLookup.get(receiptData.cashierId) ?? null
-                        : null,
-                      id: receiptData.cashierId ?? null,
-                    },
-                    t('empty'),
-                  ),
-                })}
-              </p>
-              <p>{t('templateLabel', { value: receiptData.receiptTemplate || 'THERMAL' })}</p>
-              {receiptData.customer ? (
-                <p>
-                  {t('customerLabel', {
-                    name: receiptData.customer.name ?? t('empty'),
-                    phone: receiptData.customer.phone || t('empty'),
-                    tin: receiptData.customer.tin || t('empty'),
-                  })}
-                </p>
-              ) : null}
-              {receiptData.receiptHeader ? (
-                <p>{t('headerLabel', { value: receiptData.receiptHeader })}</p>
-              ) : null}
-              {receiptData.receiptFooter ? (
-                <p>{t('footerLabel', { value: receiptData.receiptFooter })}</p>
-              ) : null}
-              <div className="space-y-1">
-                {receiptData.lines?.map((line: ReceiptLine, index: number) => (
-                  <div key={index} className="text-xs text-gold-300">
-                    {t('lineItem', {
-                      name: formatVariantLabel(
-                        {
-                          id: line.variantId ?? null,
-                          name: line.variantName ?? null,
-                          productName: line.productName ?? null,
-                        },
-                        t('empty'),
-                      ),
-                      qty: line.quantity ?? 0,
-                      price: line.unitPrice ?? 0,
-                    })}
-                  </div>
-                ))}
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-gold-100">
+                {previewT('title')}
+              </h3>
+              <p className="text-xs text-gold-400">{selected.receiptNumber}</p>
             </div>
-          ) : (
-            <p className="text-sm text-gold-300">{t('noReceiptData')}</p>
-          )}
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setPreviewMode('compact')}
+                className={`rounded border px-3 py-1 ${
+                  previewMode === 'compact'
+                    ? 'border-gold-500 text-gold-100'
+                    : 'border-gold-700/50 text-gold-400'
+                }`}
+              >
+                {previewT('compact')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewMode('detailed')}
+                className={`rounded border px-3 py-1 ${
+                  previewMode === 'detailed'
+                    ? 'border-gold-500 text-gold-100'
+                    : 'border-gold-700/50 text-gold-400'
+                }`}
+              >
+                {previewT('detailed')}
+              </button>
+            </div>
+          </div>
+          <ReceiptPreview
+            receiptNumber={selected.receiptNumber}
+            issuedAt={selected.issuedAt}
+            data={previewReceiptData ?? undefined}
+            mode={previewMode}
+          />
         </div>
       ) : null}
 
@@ -959,64 +934,26 @@ export default function ReceiptsPage() {
         </div>
       </div>
 
-      <div id="receipt-print" className="hidden print:block">
-        {receiptData ? (
-          <div className="rounded border border-neutral-200 bg-white p-4 text-black">
-            <h1 className="text-lg font-semibold">{receiptData.businessName}</h1>
-            <p className="text-xs">{receiptData.branchName}</p>
-            {receiptData.branchContact ? (
-              <p className="text-[10px] text-neutral-700">
-                {[receiptData.branchContact.address, receiptData.branchContact.phone]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </p>
-            ) : null}
-            {receiptData.customer ? (
-              <p className="text-[10px] text-neutral-700">
-                {receiptData.customer.name}
-                {receiptData.customer.phone
-                  ? ` · ${receiptData.customer.phone}`
-                  : ''}
-                {receiptData.customer.tin ? ` · TIN ${receiptData.customer.tin}` : ''}
-              </p>
-            ) : null}
-            {receiptData.receiptHeader ? (
-              <p className="text-xs">{receiptData.receiptHeader}</p>
-            ) : null}
-            <p className="text-xs">
-              {t('receiptNumber', { value: selected?.receiptNumber ?? '' })}
-            </p>
-            <div className="mt-2 space-y-1 text-xs">
-              {receiptData.lines?.map((line: ReceiptLine, index: number) => (
-                <div key={index} className="flex justify-between">
-                  <span>
-                    {formatVariantLabel(
-                      {
-                        id: line.variantId ?? null,
-                        name: line.variantName ?? null,
-                        productName: line.productName ?? null,
-                      },
-                      line.variantName ?? 'Item',
-                    )}
-                  </span>
-                  <span>
-                    {line.quantity} × {line.unitPrice}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 text-xs">
-              <p>{t('totalLabel', { value: receiptData.totals?.total ?? 0 })}</p>
-            </div>
-            {receiptData.receiptFooter ? (
-              <p className="mt-2 text-xs">{receiptData.receiptFooter}</p>
-            ) : null}
-          </div>
+      <div
+        id="receipt-print"
+        className="hidden print:block"
+        data-template={receiptData?.receiptTemplate ?? 'THERMAL'}
+      >
+        {selected ? (
+          <ReceiptPreview
+            receiptNumber={selected.receiptNumber}
+            issuedAt={selected.issuedAt}
+            data={previewReceiptData ?? undefined}
+            mode={previewMode}
+          />
         ) : null}
       </div>
 
       <style jsx global>{`
         @media print {
+          body {
+            background: white !important;
+          }
           body * {
             visibility: hidden;
           }
@@ -1031,6 +968,17 @@ export default function ReceiptsPage() {
             width: 100%;
             background: white;
             padding: 16px;
+          }
+          #receipt-print .receipt-paper {
+            background: white !important;
+            border-color: #ddd !important;
+          }
+          #receipt-print .receipt-paper * {
+            color: #111 !important;
+          }
+          #receipt-print[data-template='THERMAL'] .receipt-paper {
+            max-width: 320px;
+            margin: 0 auto;
           }
         }
       `}</style>

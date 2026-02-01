@@ -6,7 +6,12 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
-import { decodeJwt, getAccessToken, getOrCreateDeviceId } from '@/lib/auth';
+import {
+  decodeJwt,
+  getAccessToken,
+  getOrCreateDeviceId,
+  getStoredUser,
+} from '@/lib/auth';
 import {
   enqueueOfflineAction,
   getOfflineCache,
@@ -34,6 +39,7 @@ import {
   EscPosConnection,
 } from '@/lib/escpos-printer';
 import { buildReceiptLines, type ReceiptData } from '@/lib/receipt-print';
+import { ReceiptPreview } from '@/components/receipts/ReceiptPreview';
 
 type Branch = { id: string; name: string };
 type Barcode = { id: string; code: string; isActive: boolean };
@@ -143,7 +149,9 @@ const resolveUnitFactor = (variant: Variant, unitId?: string | null) => {
 
 export default function PosPage() {
   const t = useTranslations('posPage');
+  const previewT = useTranslations('receiptPreview');
   const actions = useTranslations('actions');
+  const common = useTranslations('common');
   const status = useTranslations('status');
   const pathname = usePathname();
   const permissions = getPermissionSet();
@@ -186,6 +194,10 @@ export default function PosPage() {
   const [isConnectingPrinter, setIsConnectingPrinter] = useState(false);
   const [useHardwarePrint, setUseHardwarePrint] = useState(false);
   const [lastReceipt, setLastReceipt] = useState<ReceiptPayload | null>(null);
+  const [previewReceipt, setPreviewReceipt] = useState<ReceiptPayload | null>(null);
+  const [previewMode, setPreviewMode] = useState<'compact' | 'detailed'>('detailed');
+  const storedUser = useMemo(() => getStoredUser(), []);
+  const scanMessageTimer = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<BrowserMultiFormatReader | null>(null);
   const resetScanner = (reader: BrowserMultiFormatReader | null) => {
@@ -201,6 +213,20 @@ export default function PosPage() {
     scanner.stopContinuousDecode?.();
     scanner.stopStreams?.();
   };
+
+  const setTimedScanMessage = useCallback((message: string | null) => {
+    if (scanMessageTimer.current) {
+      window.clearTimeout(scanMessageTimer.current);
+      scanMessageTimer.current = null;
+    }
+    setScanMessage(message);
+    if (message) {
+      scanMessageTimer.current = window.setTimeout(() => {
+        setScanMessage(null);
+        scanMessageTimer.current = null;
+      }, 2000);
+    }
+  }, []);
 
   const variantOptions = useMemo(
     () =>
@@ -250,6 +276,14 @@ export default function PosPage() {
     window.localStorage.setItem(POS_LAYOUT_KEY, layoutMode);
   }, [layoutMode, layoutReady]);
 
+  useEffect(() => {
+    return () => {
+      if (scanMessageTimer.current) {
+        window.clearTimeout(scanMessageTimer.current);
+      }
+    };
+  }, []);
+
   const connectPrinter = async () => {
     if (isConnectingPrinter) {
       return;
@@ -293,6 +327,30 @@ export default function PosPage() {
       setMessage({ action: 'save', outcome: 'failure', message: t('printerConnectFailed') });
     }
   };
+
+  const handlePreviewPrint = async () => {
+    if (!previewReceipt) {
+      return;
+    }
+    if (useHardwarePrint && printer) {
+      await printReceipt(previewReceipt);
+      return;
+    }
+    setTimeout(() => window.print(), 100);
+  };
+
+  const previewReceiptData = useMemo(() => {
+    if (!previewReceipt?.data) {
+      return previewReceipt?.data ?? undefined;
+    }
+    if (!storedUser?.id || previewReceipt.data.cashierId !== storedUser.id) {
+      return previewReceipt.data;
+    }
+    return {
+      ...previewReceipt.data,
+      cashierId: storedUser.name || storedUser.email || previewReceipt.data.cashierId,
+    };
+  }, [previewReceipt, storedUser]);
 
   useEffect(() => {
     const handleOnline = () => setOffline(!navigator.onLine);
@@ -519,16 +577,26 @@ export default function PosPage() {
       if (match && match.length === 1) {
         addToCart(match[0], normalized);
         setSearch('');
-        setScanMessage(t('scanned', { value: normalized }));
+        setTimedScanMessage(t('scanned', { value: normalized }));
+        setMessage({
+          action: 'save',
+          outcome: 'success',
+          message: t('scanAddedToCart', { value: normalized }),
+        });
+        if (scanActive) {
+          stopScan();
+        }
         return;
       }
       if (match && match.length > 1) {
         setMessage({ action: 'save', outcome: 'info', message: t('multipleBarcodeMatches') });
+        setTimedScanMessage(t('multipleBarcodeMatches'));
         return;
       }
       setMessage({ action: 'save', outcome: 'info', message: t('noMatch') });
+      setTimedScanMessage(t('noMatch'));
     },
-    [barcodeMap, setMessage, t],
+    [barcodeMap, setMessage, setTimedScanMessage, t, scanActive],
   );
 
   useEffect(() => {
@@ -720,6 +788,12 @@ export default function PosPage() {
 
   const stopScan = () => {
     resetScanner(scannerRef.current);
+    scannerRef.current = null;
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
     setScanActive(false);
   };
 
@@ -765,13 +839,19 @@ export default function PosPage() {
       (sum, pay) => sum + (pay.amount || 0),
       0,
     );
-    if (!creditSale && Math.abs(paymentTotal - total) > 0.01) {
+    const hasCash = cleanedPayments.some((payment) => payment.method === 'CASH');
+    if (!creditSale && paymentTotal + 0.01 < total) {
       setMessage({ action: 'save', outcome: 'info', message: t('paymentsMustMatch') });
       setIsCompleting(false);
       return;
     }
     if (creditSale && paymentTotal > total) {
       setMessage({ action: 'save', outcome: 'info', message: t('creditExceedsTotal') });
+      setIsCompleting(false);
+      return;
+    }
+    if (!creditSale && paymentTotal > total + 0.01 && !hasCash) {
+      setMessage({ action: 'save', outcome: 'info', message: t('paymentsMustMatch') });
       setIsCompleting(false);
       return;
     }
@@ -1279,6 +1359,14 @@ export default function PosPage() {
         >
           {t('printLastReceipt')}
         </button>
+        <button
+          type="button"
+          onClick={() => setPreviewReceipt(lastReceipt)}
+          className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:opacity-70"
+          disabled={!lastReceipt}
+        >
+          {t('previewAndPrint')}
+        </button>
       </div>
       <p className="text-xs text-gold-400">
         {t('receiptTemplate', { template: receiptTemplate })}
@@ -1411,6 +1499,126 @@ export default function PosPage() {
           {scanPanel}
         </div>
       ) : null}
+
+      {previewReceipt ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label={common('close')}
+            onClick={() => setPreviewReceipt(null)}
+            className="absolute inset-0 bg-black/70"
+          />
+          <div className="relative z-10 w-full max-w-xl space-y-4 rounded border border-gold-700/40 bg-black p-4 shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-lg font-semibold text-gold-100">
+                {previewT('title')}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPreviewReceipt(null)}
+                className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
+              >
+                {common('close')}
+              </button>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setPreviewMode('compact')}
+                className={`rounded border px-3 py-1 ${
+                  previewMode === 'compact'
+                    ? 'border-gold-500 text-gold-100'
+                    : 'border-gold-700/50 text-gold-400'
+                }`}
+              >
+                {previewT('compact')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewMode('detailed')}
+                className={`rounded border px-3 py-1 ${
+                  previewMode === 'detailed'
+                    ? 'border-gold-500 text-gold-100'
+                    : 'border-gold-700/50 text-gold-400'
+                }`}
+              >
+                {previewT('detailed')}
+              </button>
+            </div>
+            <ReceiptPreview
+              receiptNumber={previewReceipt.receiptNumber}
+              issuedAt={previewReceipt.issuedAt}
+              data={previewReceiptData ?? undefined}
+              mode={previewMode}
+            />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPreviewReceipt(null)}
+                className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+              >
+                {common('close')}
+              </button>
+              <button
+                type="button"
+                onClick={handlePreviewPrint}
+                className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
+              >
+                {previewT('printReceipt')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        id="pos-receipt-print"
+        className="hidden print:block"
+        data-template={previewReceipt?.data?.receiptTemplate ?? 'THERMAL'}
+      >
+        {previewReceipt ? (
+          <ReceiptPreview
+            receiptNumber={previewReceipt.receiptNumber}
+            issuedAt={previewReceipt.issuedAt}
+            data={previewReceiptData ?? undefined}
+            mode={previewMode}
+          />
+        ) : null}
+      </div>
+
+      <style jsx global>{`
+        @media print {
+          body {
+            background: white !important;
+          }
+          body * {
+            visibility: hidden;
+          }
+          #pos-receipt-print,
+          #pos-receipt-print * {
+            visibility: visible;
+          }
+          #pos-receipt-print {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            background: white;
+            padding: 16px;
+          }
+          #pos-receipt-print .receipt-paper {
+            background: white !important;
+            border-color: #ddd !important;
+          }
+          #pos-receipt-print .receipt-paper * {
+            color: #111 !important;
+          }
+          #pos-receipt-print[data-template='THERMAL'] .receipt-paper {
+            max-width: 320px;
+            margin: 0 auto;
+          }
+        }
+      `}</style>
     </section>
   );
 }

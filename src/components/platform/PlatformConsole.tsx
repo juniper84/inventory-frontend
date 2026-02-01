@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { promptAction, useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -327,6 +327,9 @@ export function PlatformConsole({
     confirm: false,
   });
   const [adminPasswordBusy, setAdminPasswordBusy] = useState(false);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>(
+    {},
+  );
   const showOverview = view === 'overview';
   const showHealth = view === 'health';
   const showBusinesses = view === 'businesses';
@@ -339,6 +342,18 @@ export function PlatformConsole({
     Record<string, { reason: string; trialDays: string }>
   >({});
   const [purgingBusinessId, setPurgingBusinessId] = useState<string | null>(null);
+
+  const withAction = useCallback(
+    async (key: string, task: () => Promise<void>) => {
+      setActionLoading((prev) => ({ ...prev, [key]: true }));
+      try {
+        await task();
+      } finally {
+        setActionLoading((prev) => ({ ...prev, [key]: false }));
+      }
+    },
+    [],
+  );
 
   const supportScopeOptions = useMemo(
     () => [
@@ -1765,10 +1780,15 @@ export function PlatformConsole({
             />
             <button
               type="button"
-              onClick={() => loadMetrics()}
+              onClick={() => withAction('metrics:apply', loadMetrics)}
               className="rounded bg-gold-500 px-3 py-2 font-semibold text-black"
             >
-              {t('applyRange')}
+              <span className="inline-flex items-center gap-2">
+                {actionLoading['metrics:apply'] ? (
+                  <Spinner size="xs" variant="ring" />
+                ) : null}
+                {t('applyRange')}
+              </span>
             </button>
           </div>
         ) : null}
@@ -1865,10 +1885,15 @@ export function PlatformConsole({
           <h3 className="text-xl font-semibold">{t('activityTitle')}</h3>
           <button
             type="button"
-            onClick={loadActivityFeed}
+            onClick={() => withAction('activity:refresh', loadActivityFeed)}
             className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
           >
-            {t('refreshFeed')}
+            <span className="inline-flex items-center gap-2">
+              {actionLoading['activity:refresh'] ? (
+                <Spinner size="xs" variant="bars" />
+              ) : null}
+              {t('refreshFeed')}
+            </span>
           </button>
         </div>
         <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
@@ -2017,7 +2042,10 @@ export function PlatformConsole({
                 className="rounded border border-gold-700/60 px-3 py-1 text-gold-100"
                 disabled={healthLoading}
               >
-                {healthLoading ? t('loading') : t('loadSelected')}
+                <span className="inline-flex items-center gap-2">
+                  {healthLoading ? <Spinner size="xs" variant="pulse" /> : null}
+                  {healthLoading ? t('loading') : t('loadSelected')}
+                </span>
               </button>
               <button
                 type="button"
@@ -2025,7 +2053,10 @@ export function PlatformConsole({
                 className="rounded border border-gold-700/60 px-3 py-1 text-gold-100"
                 disabled={healthLoading}
               >
-                {t('loadPinned')}
+                <span className="inline-flex items-center gap-2">
+                  {healthLoading ? <Spinner size="xs" variant="pulse" /> : null}
+                  {t('loadPinned')}
+                </span>
               </button>
             </div>
           </div>
@@ -2108,11 +2139,18 @@ export function PlatformConsole({
                   setMessage(t('selectBusinessLoadDevices'));
                   return;
                 }
-                loadDevices(deviceFleetBusinessId);
+                withAction(`devices:refresh:${deviceFleetBusinessId}`, () =>
+                  loadDevices(deviceFleetBusinessId),
+                );
               }}
               className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
             >
-              {t('refresh')}
+              <span className="inline-flex items-center gap-2">
+                {actionLoading[`devices:refresh:${deviceFleetBusinessId}`] ? (
+                  <Spinner size="xs" variant="grid" />
+                ) : null}
+                {t('refresh')}
+              </span>
             </button>
           </div>
           <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
@@ -2129,16 +2167,23 @@ export function PlatformConsole({
                     type="button"
                     onClick={() =>
                       deviceRevokeReason.trim()
-                        ? revokeDevice(
-                            device.id,
-                            deviceFleetBusinessId,
-                            deviceRevokeReason,
+                        ? withAction(`device:revoke:${device.id}`, () =>
+                            revokeDevice(
+                              device.id,
+                              deviceFleetBusinessId,
+                              deviceRevokeReason,
+                            ),
                           )
                         : setMessage(t('revokeReasonRequired'))
                     }
                     className="mt-2 rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
                   >
-                    {t('revokeDevice')}
+                    <span className="inline-flex items-center gap-2">
+                      {actionLoading[`device:revoke:${device.id}`] ? (
+                        <Spinner size="xs" variant="dots" />
+                      ) : null}
+                      {t('revokeDevice')}
+                    </span>
                   </button>
                 ) : null}
               </div>
@@ -2162,10 +2207,15 @@ export function PlatformConsole({
             <h3 className="text-xl font-semibold">{t('incidentsTitle')}</h3>
             <button
               type="button"
-              onClick={() => loadBusinesses()}
+              onClick={() => withAction('businesses:refresh', () => loadBusinesses())}
               className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
             >
-              {t('refresh')}
+              <span className="inline-flex items-center gap-2">
+                {actionLoading['businesses:refresh'] ? (
+                  <Spinner size="xs" variant="orbit" />
+                ) : null}
+                {t('refresh')}
+              </span>
             </button>
           </div>
           <div className="grid gap-3 md:grid-cols-[2fr_1fr_2fr_auto]">
@@ -2253,53 +2303,81 @@ export function PlatformConsole({
                   <button
                     type="button"
                     onClick={() =>
-                      updateReview(business.id, {
-                        underReview: false,
-                        reason: incidentNotes[business.id] ?? '',
-                      })
+                      withAction(`incident:clear:${business.id}`, () =>
+                        updateReview(business.id, {
+                          underReview: false,
+                          reason: incidentNotes[business.id] ?? '',
+                        }),
+                      )
                     }
                     className="rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black"
                   >
-                    {t('clearFlag')}
+                    <span className="inline-flex items-center gap-2">
+                      {actionLoading[`incident:clear:${business.id}`] ? (
+                        <Spinner size="xs" variant="dots" />
+                      ) : null}
+                      {t('clearFlag')}
+                    </span>
                   </button>
                   <button
                     type="button"
                     onClick={() =>
-                      updateStatusOverride(
-                        business.id,
-                        'SUSPENDED',
-                        incidentNotes[business.id],
+                      withAction(`incident:freeze:${business.id}`, () =>
+                        updateStatusOverride(
+                          business.id,
+                          'SUSPENDED',
+                          incidentNotes[business.id],
+                        ),
                       )
                     }
                     className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
                   >
-                    {t('freeze')}
+                    <span className="inline-flex items-center gap-2">
+                      {actionLoading[`incident:freeze:${business.id}`] ? (
+                        <Spinner size="xs" variant="bars" />
+                      ) : null}
+                      {t('freeze')}
+                    </span>
                   </button>
                   <button
                     type="button"
                     onClick={() =>
-                      updateStatusOverride(
-                        business.id,
-                        'ACTIVE',
-                        incidentNotes[business.id],
+                      withAction(`incident:unfreeze:${business.id}`, () =>
+                        updateStatusOverride(
+                          business.id,
+                          'ACTIVE',
+                          incidentNotes[business.id],
+                        ),
                       )
                     }
                     className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
                   >
-                    {t('unfreeze')}
+                    <span className="inline-flex items-center gap-2">
+                      {actionLoading[`incident:unfreeze:${business.id}`] ? (
+                        <Spinner size="xs" variant="orbit" />
+                      ) : null}
+                      {t('unfreeze')}
+                    </span>
                   </button>
                   <button
                     type="button"
                     onClick={() =>
-                      updateReadOnlyOverride(
-                        business.id,
-                        true,
-                        incidentNotes[business.id],
+                      withAction(`incident:readonly:${business.id}`, () =>
+                        updateReadOnlyOverride(
+                          business.id,
+                          true,
+                          incidentNotes[business.id],
+                        ),
                       )
                     }
                     className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
                   >
-                    {t('readOnly')}
+                    <span className="inline-flex items-center gap-2">
+                      {actionLoading[`incident:readonly:${business.id}`] ? (
+                        <Spinner size="xs" variant="pulse" />
+                      ) : null}
+                      {t('readOnly')}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -2317,10 +2395,15 @@ export function PlatformConsole({
           <h3 className="text-xl font-semibold">{t('businessRegistryTitle')}</h3>
           <button
             type="button"
-            onClick={() => loadBusinesses()}
+            onClick={() => withAction('businesses:load', () => loadBusinesses())}
             className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
           >
-            {t('loadBusinesses')}
+            <span className="inline-flex items-center gap-2">
+              {actionLoading['businesses:load'] ? (
+                <Spinner size="xs" variant="grid" />
+              ) : null}
+              {t('loadBusinesses')}
+            </span>
           </button>
         </div>
         <div className="grid gap-3 md:grid-cols-[2fr_1fr_auto]">
@@ -2343,10 +2426,17 @@ export function PlatformConsole({
           />
           <button
             type="button"
-            onClick={applySelectedBusiness}
+            onClick={() =>
+              withAction('businesses:apply', async () => applySelectedBusiness())
+            }
             className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
           >
-            {t('useSelectedBusiness')}
+            <span className="inline-flex items-center gap-2">
+              {actionLoading['businesses:apply'] ? (
+                <Spinner size="xs" variant="dots" />
+              ) : null}
+              {t('useSelectedBusiness')}
+            </span>
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -2577,24 +2667,51 @@ export function PlatformConsole({
                     ) : null}
                     <button
                       type="button"
-                      onClick={() => loadBusinessHealth(business.id)}
+                      onClick={() =>
+                        withAction(`business:health:${business.id}`, () =>
+                          loadBusinessHealth(business.id),
+                        )
+                      }
                       className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
                     >
-                      {t('loadHealth')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`business:health:${business.id}`] ? (
+                          <Spinner size="xs" variant="grid" />
+                        ) : null}
+                        {t('loadHealth')}
+                      </span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => exportOnExit(business.id)}
+                      onClick={() =>
+                        withAction(`business:export:${business.id}`, () =>
+                          exportOnExit(business.id),
+                        )
+                      }
                       className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
                     >
-                      {t('exportOnExit')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`business:export:${business.id}`] ? (
+                          <Spinner size="xs" variant="pulse" />
+                        ) : null}
+                        {t('exportOnExit')}
+                      </span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => loadDevices(business.id)}
+                      onClick={() =>
+                        withAction(`business:devices:${business.id}`, () =>
+                          loadDevices(business.id),
+                        )
+                      }
                       className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
                     >
-                      {t('devices')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`business:devices:${business.id}`] ? (
+                          <Spinner size="xs" variant="dots" />
+                        ) : null}
+                        {t('devices')}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -2639,24 +2756,51 @@ export function PlatformConsole({
                     />
                     <button
                       type="button"
-                      onClick={() => runQuickStatus(business.id, 'SUSPENDED')}
+                      onClick={() =>
+                        withAction(`quick:suspend:${business.id}`, () =>
+                          runQuickStatus(business.id, 'SUSPENDED'),
+                        )
+                      }
                       className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
                     >
-                      {t('suspend')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`quick:suspend:${business.id}`] ? (
+                          <Spinner size="xs" variant="bars" />
+                        ) : null}
+                        {t('suspend')}
+                      </span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => runQuickReadOnly(business.id)}
+                      onClick={() =>
+                        withAction(`quick:readonly:${business.id}`, () =>
+                          runQuickReadOnly(business.id),
+                        )
+                      }
                       className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
                     >
-                      {t('readOnly')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`quick:readonly:${business.id}`] ? (
+                          <Spinner size="xs" variant="pulse" />
+                        ) : null}
+                        {t('readOnly')}
+                      </span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => runQuickExtendTrial(business.id)}
+                      onClick={() =>
+                        withAction(`quick:extend:${business.id}`, () =>
+                          runQuickExtendTrial(business.id),
+                        )
+                      }
                       className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
                     >
-                      {t('extendTrial')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`quick:extend:${business.id}`] ? (
+                          <Spinner size="xs" variant="ring" />
+                        ) : null}
+                        {t('extendTrial')}
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -2669,29 +2813,43 @@ export function PlatformConsole({
                       <button
                         type="button"
                         onClick={() =>
-                          updateStatusOverride(
-                            business.id,
-                            'ACTIVE',
-                            quick.reason,
+                          withAction(`business:restore:${business.id}`, () =>
+                            updateStatusOverride(
+                              business.id,
+                              'ACTIVE',
+                              quick.reason,
+                            ),
                           )
                         }
                         className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
                       >
-                        {t('restore')}
+                        <span className="inline-flex items-center gap-2">
+                          {actionLoading[`business:restore:${business.id}`] ? (
+                            <Spinner size="xs" variant="orbit" />
+                          ) : null}
+                          {t('restore')}
+                        </span>
                       </button>
                     ) : (
                       <button
                         type="button"
                         onClick={() =>
-                          updateStatusOverride(
-                            business.id,
-                            'ARCHIVED',
-                            quick.reason,
+                          withAction(`business:archive:${business.id}`, () =>
+                            updateStatusOverride(
+                              business.id,
+                              'ARCHIVED',
+                              quick.reason,
+                            ),
                           )
                         }
                         className="rounded border border-red-500/60 px-3 py-2 text-xs text-red-200"
                       >
-                        {t('archive')}
+                        <span className="inline-flex items-center gap-2">
+                          {actionLoading[`business:archive:${business.id}`] ? (
+                            <Spinner size="xs" variant="bars" />
+                          ) : null}
+                          {t('archive')}
+                        </span>
                       </button>
                     )}
                     {['ARCHIVED', 'DELETED'].includes(business.status) ? (
@@ -2725,11 +2883,22 @@ export function PlatformConsole({
                       />
                       <button
                         type="button"
-                        onClick={() => revokeBusinessSessions(business.id)}
+                        onClick={() =>
+                          withAction(`business:revoke:${business.id}`, () =>
+                            revokeBusinessSessions(business.id),
+                          )
+                        }
                         disabled={isRevokingSessions}
                         className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black disabled:opacity-70"
                       >
-                        {isRevokingSessions ? t('forceLogoutWorking') : t('forceLogoutAction')}
+                        <span className="inline-flex items-center gap-2">
+                          {isRevokingSessions ? (
+                            <Spinner size="xs" variant="dots" />
+                          ) : null}
+                          {isRevokingSessions
+                            ? t('forceLogoutWorking')
+                            : t('forceLogoutAction')}
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -2769,10 +2938,19 @@ export function PlatformConsole({
                         {device.status !== 'REVOKED' ? (
                           <button
                             type="button"
-                            onClick={() => revokeDevice(device.id, business.id)}
+                            onClick={() =>
+                              withAction(`business:device:${device.id}`, () =>
+                                revokeDevice(device.id, business.id),
+                              )
+                            }
                             className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
                           >
-                            {t('revoke')}
+                            <span className="inline-flex items-center gap-2">
+                              {actionLoading[`business:device:${device.id}`] ? (
+                                <Spinner size="xs" variant="dots" />
+                              ) : null}
+                              {t('revoke')}
+                            </span>
                           </button>
                         ) : null}
                       </div>
@@ -2831,10 +3009,19 @@ export function PlatformConsole({
                     />
                       <button
                         type="button"
-                        onClick={() => updateStatus(business.id)}
+                        onClick={() =>
+                          withAction(`status:update:${business.id}`, () =>
+                            updateStatus(business.id),
+                          )
+                        }
                       className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
                     >
-                      {t('updateStatus')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`status:update:${business.id}`] ? (
+                          <Spinner size="xs" variant="orbit" />
+                        ) : null}
+                        {t('updateStatus')}
+                      </span>
                     </button>
                       <div className="flex items-center gap-2 text-xs text-gold-300">
                         <input
@@ -2893,10 +3080,19 @@ export function PlatformConsole({
                     />
                       <button
                         type="button"
-                        onClick={() => updateReview(business.id)}
+                        onClick={() =>
+                          withAction(`review:update:${business.id}`, () =>
+                            updateReview(business.id),
+                          )
+                        }
                       className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
                     >
-                      {t('saveReviewFlag')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`review:update:${business.id}`] ? (
+                          <Spinner size="xs" variant="pulse" />
+                        ) : null}
+                        {t('saveReviewFlag')}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -3116,25 +3312,52 @@ export function PlatformConsole({
                         />
                         <button
                           type="button"
-                          onClick={() => applySubscriptionDuration(business.id)}
+                          onClick={() =>
+                            withAction(`subscription:duration:${business.id}`, () =>
+                              applySubscriptionDuration(business.id),
+                            )
+                          }
                           className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
                         >
-                          {t('applyDuration')}
+                          <span className="inline-flex items-center gap-2">
+                            {actionLoading[`subscription:duration:${business.id}`] ? (
+                              <Spinner size="xs" variant="ring" />
+                            ) : null}
+                            {t('applyDuration')}
+                          </span>
                         </button>
                       </div>
                       <button
                         type="button"
-                        onClick={() => updateSubscription(business.id)}
+                        onClick={() =>
+                          withAction(`subscription:update:${business.id}`, () =>
+                            updateSubscription(business.id),
+                          )
+                        }
                       className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
                     >
-                      {t('updateSubscription')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`subscription:update:${business.id}`] ? (
+                          <Spinner size="xs" variant="dots" />
+                        ) : null}
+                        {t('updateSubscription')}
+                      </span>
                     </button>
                       <button
                         type="button"
-                        onClick={() => resetSubscriptionLimits(business.id)}
+                        onClick={() =>
+                          withAction(`subscription:reset:${business.id}`, () =>
+                            resetSubscriptionLimits(business.id),
+                          )
+                        }
                         className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
                       >
-                        {t('resetSubscriptionLimits')}
+                        <span className="inline-flex items-center gap-2">
+                          {actionLoading[`subscription:reset:${business.id}`] ? (
+                            <Spinner size="xs" variant="grid" />
+                          ) : null}
+                          {t('resetSubscriptionLimits')}
+                        </span>
                       </button>
                   </div>
                 </div>
@@ -3181,10 +3404,19 @@ export function PlatformConsole({
                     />
                       <button
                         type="button"
-                        onClick={() => updateReadOnly(business.id)}
+                        onClick={() =>
+                          withAction(`readonly:update:${business.id}`, () =>
+                            updateReadOnly(business.id),
+                          )
+                        }
                       className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
                     >
-                      {t('applyReadOnly')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`readonly:update:${business.id}`] ? (
+                          <Spinner size="xs" variant="pulse" />
+                        ) : null}
+                        {t('applyReadOnly')}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -3271,10 +3503,19 @@ export function PlatformConsole({
                     />
                       <button
                         type="button"
-                        onClick={() => updateRateLimits(business.id)}
+                        onClick={() =>
+                          withAction(`ratelimit:update:${business.id}`, () =>
+                            updateRateLimits(business.id),
+                          )
+                        }
                       className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
                     >
-                      {t('applyOverride')}
+                      <span className="inline-flex items-center gap-2">
+                        {actionLoading[`ratelimit:update:${business.id}`] ? (
+                          <Spinner size="xs" variant="bars" />
+                        ) : null}
+                        {t('applyOverride')}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -3287,11 +3528,19 @@ export function PlatformConsole({
           <div className="flex justify-center pt-2">
             <button
               type="button"
-              onClick={() => loadBusinesses(nextBusinessCursor, true)}
+              onClick={() =>
+                withAction('businesses:loadMore', () =>
+                  loadBusinesses(nextBusinessCursor, true),
+                )
+              }
               className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-4 py-2 text-sm text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
               disabled={isLoadingMoreBusinesses}
             >
-              {isLoadingMoreBusinesses ? <Spinner size="xs" variant="grid" /> : null}
+              {isLoadingMoreBusinesses ? (
+                <Spinner size="xs" variant="grid" />
+              ) : actionLoading['businesses:loadMore'] ? (
+                <Spinner size="xs" variant="grid" />
+              ) : null}
               {isLoadingMoreBusinesses ? t('loading') : t('loadMoreBusinesses')}
             </button>
           </div>
@@ -3504,17 +3753,35 @@ export function PlatformConsole({
                 />
                 <button
                   type="button"
-                  onClick={() => updateSubscriptionRequest(request.id, 'approve')}
+                  onClick={() =>
+                    withAction(`subscription:approve:${request.id}`, () =>
+                      updateSubscriptionRequest(request.id, 'approve'),
+                    )
+                  }
                   className="rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black"
                 >
-                  {actions('approve')}
+                  <span className="inline-flex items-center gap-2">
+                    {actionLoading[`subscription:approve:${request.id}`] ? (
+                      <Spinner size="xs" variant="dots" />
+                    ) : null}
+                    {actions('approve')}
+                  </span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => updateSubscriptionRequest(request.id, 'reject')}
+                  onClick={() =>
+                    withAction(`subscription:reject:${request.id}`, () =>
+                      updateSubscriptionRequest(request.id, 'reject'),
+                    )
+                  }
                   className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
                 >
-                  {actions('reject')}
+                  <span className="inline-flex items-center gap-2">
+                    {actionLoading[`subscription:reject:${request.id}`] ? (
+                      <Spinner size="xs" variant="bars" />
+                    ) : null}
+                    {actions('reject')}
+                  </span>
                 </button>
               </div>
             </div>
@@ -3538,10 +3805,15 @@ export function PlatformConsole({
           />
           <button
             type="button"
-            onClick={loadSubscriptionHistory}
+            onClick={() =>
+              withAction('subscription:history', loadSubscriptionHistory)
+            }
             className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
           >
-            {loadingHistory ? t('loading') : t('loadHistory')}
+            <span className="inline-flex items-center gap-2">
+              {loadingHistory ? <Spinner size="xs" variant="ring" /> : null}
+              {loadingHistory ? t('loading') : t('loadHistory')}
+            </span>
           </button>
         </div>
         <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
@@ -3580,11 +3852,16 @@ export function PlatformConsole({
             <h3 className="text-xl font-semibold">{t('exportQueueTitle')}</h3>
             <button
               type="button"
-              onClick={() => loadExportJobs()}
+              onClick={() =>
+                withAction('exports:refresh', () => loadExportJobs())
+              }
               className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
               disabled={isLoadingExports}
             >
-              {isLoadingExports ? t('loading') : t('refresh')}
+              <span className="inline-flex items-center gap-2">
+                {isLoadingExports ? <Spinner size="xs" variant="orbit" /> : null}
+                {isLoadingExports ? t('loading') : t('refresh')}
+              </span>
             </button>
           </div>
           <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_auto]">
@@ -3630,10 +3907,17 @@ export function PlatformConsole({
             />
             <button
               type="button"
-              onClick={() => loadExportJobs()}
+              onClick={() =>
+                withAction('exports:apply', () => loadExportJobs())
+              }
               className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
             >
-              {t('applyFilters')}
+              <span className="inline-flex items-center gap-2">
+                {actionLoading['exports:apply'] ? (
+                  <Spinner size="xs" variant="ring" />
+                ) : null}
+                {t('applyFilters')}
+              </span>
             </button>
           </div>
           <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
@@ -3688,11 +3972,17 @@ export function PlatformConsole({
             {nextExportCursor ? (
               <button
                 type="button"
-                onClick={() => loadExportJobs(nextExportCursor, true)}
+                onClick={() =>
+                  withAction('exports:loadMore', () =>
+                    loadExportJobs(nextExportCursor, true),
+                  )
+                }
                 className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
                 disabled={isLoadingMoreExports}
               >
                 {isLoadingMoreExports ? (
+                  <Spinner size="xs" variant="grid" />
+                ) : actionLoading['exports:loadMore'] ? (
                   <Spinner size="xs" variant="grid" />
                 ) : null}
                 {t('loadMore')}
@@ -3719,11 +4009,18 @@ export function PlatformConsole({
                 setMessage(t('selectBusinessRequestExport'));
                 return;
               }
-              exportOnExit(exportDeliveryBusinessId);
+              withAction(`exports:request:${exportDeliveryBusinessId}`, () =>
+                exportOnExit(exportDeliveryBusinessId),
+              );
             }}
             className="rounded border border-gold-700/50 px-3 py-2 text-sm font-semibold text-gold-100"
           >
-            {t('requestExportOnExit')}
+            <span className="inline-flex items-center gap-2">
+              {actionLoading[`exports:request:${exportDeliveryBusinessId}`] ? (
+                <Spinner size="xs" variant="pulse" />
+              ) : null}
+              {t('requestExportOnExit')}
+            </span>
           </button>
           <input
             value={exportDeliveryForm.exportJobId}
@@ -4074,11 +4371,19 @@ export function PlatformConsole({
           {nextAuditCursor ? (
             <button
               type="button"
-              onClick={() => fetchAuditLogs(undefined, nextAuditCursor, true)}
+              onClick={() =>
+                withAction('audit:loadMore', () =>
+                  fetchAuditLogs(undefined, nextAuditCursor, true),
+                )
+              }
               className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
               disabled={isLoadingMoreAudit}
             >
-              {isLoadingMoreAudit ? <Spinner size="xs" variant="grid" /> : null}
+              {isLoadingMoreAudit ? (
+                <Spinner size="xs" variant="grid" />
+              ) : actionLoading['audit:loadMore'] ? (
+                <Spinner size="xs" variant="grid" />
+              ) : null}
               {t('loadMoreLogs')}
             </button>
           ) : null}
@@ -4089,7 +4394,14 @@ export function PlatformConsole({
       {showAudit ? (
         <section className="command-card p-6 space-y-4 nvi-reveal">
         <h3 className="text-xl font-semibold">{t('adminActionsTitle')}</h3>
-        <form className="grid gap-3 md:grid-cols-3" onSubmit={fetchPlatformAuditLogs}>
+        <form
+          className="grid gap-3 md:grid-cols-3"
+          onSubmit={(event) =>
+            withAction('audit:platform', () =>
+              fetchPlatformAuditLogs(event, undefined, false),
+            )
+          }
+        >
           <input
             value={platformAdminId}
             onChange={(event) => setPlatformAdminId(event.target.value)}
@@ -4100,7 +4412,12 @@ export function PlatformConsole({
             type="submit"
             className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black"
           >
-            {t('loadAdminActions')}
+            <span className="inline-flex items-center gap-2">
+              {actionLoading['audit:platform'] ? (
+                <Spinner size="xs" variant="ring" />
+              ) : null}
+              {t('loadAdminActions')}
+            </span>
           </button>
         </form>
         <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
@@ -4136,11 +4453,18 @@ export function PlatformConsole({
             <button
               type="button"
               onClick={() =>
-                fetchPlatformAuditLogs(undefined, nextPlatformAuditCursor, true)
+                withAction('audit:platformMore', () =>
+                  fetchPlatformAuditLogs(undefined, nextPlatformAuditCursor, true),
+                )
               }
               className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
             >
-              {t('loadMoreActions')}
+              <span className="inline-flex items-center gap-2">
+                {actionLoading['audit:platformMore'] ? (
+                  <Spinner size="xs" variant="grid" />
+                ) : null}
+                {t('loadMoreActions')}
+              </span>
             </button>
           ) : null}
         </div>

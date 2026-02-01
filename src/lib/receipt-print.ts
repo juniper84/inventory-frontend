@@ -13,9 +13,12 @@ export type ReceiptLine = {
 export type ReceiptData = {
   businessName?: string;
   branchName?: string;
+  branchContact?: { address?: string; phone?: string; email?: string };
+  cashierId?: string | null;
+  customer?: { name?: string; phone?: string; tin?: string };
   receiptHeader?: string;
   receiptFooter?: string;
-  receiptTemplate?: string;
+  receiptTemplate?: 'THERMAL' | 'A4' | string;
   lines?: ReceiptLine[];
   totals?: {
     subtotal?: number | string;

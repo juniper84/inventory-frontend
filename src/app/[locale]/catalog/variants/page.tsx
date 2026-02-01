@@ -145,6 +145,8 @@ export default function VariantsPage() {
   );
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<BrowserMultiFormatReader | null>(null);
+  const scanResultRef = useRef<HTMLDivElement | null>(null);
+  const scanMessageTimer = useRef<number | null>(null);
   const resetScanner = (reader: BrowserMultiFormatReader | null) => {
     if (!reader) {
       return;
@@ -158,6 +160,20 @@ export default function VariantsPage() {
     scanner.stopContinuousDecode?.();
     scanner.stopStreams?.();
   };
+
+  const setTimedScanMessage = useCallback((message: string | null) => {
+    if (scanMessageTimer.current) {
+      window.clearTimeout(scanMessageTimer.current);
+      scanMessageTimer.current = null;
+    }
+    setScanMessage(message);
+    if (message) {
+      scanMessageTimer.current = window.setTimeout(() => {
+        setScanMessage(null);
+        scanMessageTimer.current = null;
+      }, 2000);
+    }
+  }, []);
   const { filters, pushFilters, resetFilters } = useListFilters({
     search: '',
     status: '',
@@ -634,7 +650,7 @@ export default function VariantsPage() {
       if (!normalized) {
         return;
       }
-      setScanMessage(t('scanResult', { code: normalized }));
+      setTimedScanMessage(t('scanResult', { code: normalized }));
       setScanLookup(null);
       try {
         const data = await apiFetch<BarcodeLookupResponse>(
@@ -649,11 +665,18 @@ export default function VariantsPage() {
           barcode: data.code,
           price: data.variant?.defaultPrice ?? null,
         });
+        setMessage({
+          action: 'save',
+          outcome: 'success',
+          message: t('scanResult', { code: normalized }),
+        });
       } catch (err) {
-        setScanMessage(getApiErrorMessage(err, t('scanNotFound')));
+        const errorMessage = getApiErrorMessage(err, t('scanNotFound'));
+        setTimedScanMessage(errorMessage);
+        setMessage({ action: 'save', outcome: 'warning', message: errorMessage });
       }
     },
-    [common, t],
+    [common, setMessage, setTimedScanMessage, t],
   );
 
   const handleScannedCode = useCallback(
@@ -668,10 +691,10 @@ export default function VariantsPage() {
       }
       if (mode === 'assignExisting') {
         if (!targetVariantId) {
-          setScanMessage(t('scanAssignFailed'));
+          setTimedScanMessage(t('scanAssignFailed'));
           return;
         }
-        setScanMessage(t('scanAssigning', { code: normalized }));
+        setTimedScanMessage(t('scanAssigning', { code: normalized }));
         try {
           await addBarcode(targetVariantId, normalized);
           setMessage({
@@ -679,8 +702,9 @@ export default function VariantsPage() {
             outcome: 'success',
             message: t('scanAssignSuccess', { code: normalized }),
           });
+          setTimedScanMessage(t('scanAssignSuccess', { code: normalized }));
         } catch (err) {
-          setScanMessage(getApiErrorMessage(err, t('scanAssignFailed')));
+          setTimedScanMessage(getApiErrorMessage(err, t('scanAssignFailed')));
         }
         setScanMode('lookup');
         setScanTargetVariantId(null);
@@ -692,10 +716,20 @@ export default function VariantsPage() {
         outcome: 'success',
         message: t('scanAssignNewSuccess', { code: normalized }),
       });
+      setTimedScanMessage(t('scanAssignNewSuccess', { code: normalized }));
       setScanMode('lookup');
       setScanTargetVariantId(null);
     },
-    [addBarcode, lookupBarcode, setForm, setMessage, setScanMode, setScanTargetVariantId, t],
+    [
+      addBarcode,
+      lookupBarcode,
+      setForm,
+      setMessage,
+      setScanMode,
+      setScanTargetVariantId,
+      setTimedScanMessage,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -705,6 +739,21 @@ export default function VariantsPage() {
       minLength: 6,
     });
   }, [handleScannedCode, scanMode, scanTargetVariantId]);
+
+  useEffect(() => {
+    if (!scanLookup || !scanResultRef.current) {
+      return;
+    }
+    scanResultRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [scanLookup]);
+
+  useEffect(() => {
+    return () => {
+      if (scanMessageTimer.current) {
+        window.clearTimeout(scanMessageTimer.current);
+      }
+    };
+  }, []);
 
   if (isLoading) {
     return <PageSkeleton title={t('title')} lines={4} blocks={3} />;
@@ -957,7 +1006,10 @@ export default function VariantsPage() {
           <p className="text-xs text-gold-300">{scanMessage}</p>
         ) : null}
         {scanLookup ? (
-          <div className="rounded border border-gold-700/40 bg-black/70 p-3 text-xs text-gold-100">
+          <div
+            ref={scanResultRef}
+            className="rounded border border-gold-700/40 bg-black/70 p-3 text-xs text-gold-100"
+          >
             <p>{t('scanProduct', { value: scanLookup.productName })}</p>
             <p>{t('scanVariant', { value: scanLookup.variantName })}</p>
             <p>{t('scanSku', { value: scanLookup.sku || '—' })}</p>

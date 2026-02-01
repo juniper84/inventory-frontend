@@ -504,7 +504,7 @@ export default function ProductWizardPage() {
             onChange={(value) =>
               setProduct({ ...product, categoryId: value })
             }
-            placeholder={t('categoryOptional')}
+            placeholder={t('category')}
             options={categories.map((category) => ({
               value: category.id,
               label: category.name,
