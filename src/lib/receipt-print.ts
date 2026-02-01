@@ -26,7 +26,7 @@ export type ReceiptData = {
     vatTotal?: number | string;
     total?: number | string;
   };
-  payments?: Array<{ method?: string; amount?: number | string }>;
+  payments?: Array<{ method?: string; methodLabel?: string; amount?: number | string }>;
 };
 
 export type ReceiptRecord = {
