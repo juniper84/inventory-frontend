@@ -75,6 +75,7 @@ export default function ProductWizardPage() {
   const [scanActive, setScanActive] = useState(false);
   const [scanTargetId, setScanTargetId] = useState<string | null>(null);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [scanAutoStart, setScanAutoStart] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<BrowserMultiFormatReader | null>(null);
 
@@ -156,18 +157,30 @@ export default function ProductWizardPage() {
     scanner.stopStreams?.();
   };
 
+  const stopVideoStream = () => {
+    const video = videoRef.current;
+    const stream = video?.srcObject as MediaStream | null;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    if (video) {
+      video.srcObject = null;
+    }
+  };
+
   const stopScan = () => {
     resetScanner(scannerRef.current);
     scannerRef.current = null;
     setScanActive(false);
     setScanTargetId(null);
+    setScanAutoStart(false);
+    stopVideoStream();
   };
 
   const startScan = async (variantId: string) => {
     if (!videoRef.current) {
       return;
     }
-    setScanTargetId(variantId);
     setScanMessage(null);
     if (scannerRef.current) {
       resetScanner(scannerRef.current);
@@ -202,6 +215,7 @@ export default function ProductWizardPage() {
             outcome: 'success',
             message: t('scanAssignSuccess', { code: normalized }),
           });
+          setScanMessage(t('scanAssignSuccess', { code: normalized }));
           stopScan();
         },
       );
@@ -210,6 +224,16 @@ export default function ProductWizardPage() {
       setScanMessage(t('scanCameraFailed'));
     }
   };
+
+  useEffect(() => {
+    if (!scanTargetId || !scanAutoStart) {
+      return;
+    }
+    if (!videoRef.current) {
+      return;
+    }
+    startScan(scanTargetId);
+  }, [scanTargetId, scanAutoStart]);
 
   useEffect(() => {
     return installBarcodeScanner({
@@ -233,6 +257,7 @@ export default function ProductWizardPage() {
           outcome: 'success',
           message: t('scanAssignSuccess', { code: normalized }),
         });
+        setScanMessage(t('scanAssignSuccess', { code: normalized }));
         stopScan();
       },
     });
@@ -241,6 +266,7 @@ export default function ProductWizardPage() {
   useEffect(() => {
     return () => {
       resetScanner(scannerRef.current);
+      stopVideoStream();
     };
   }, []);
 
@@ -279,6 +305,29 @@ export default function ProductWizardPage() {
     setVariants((prev) =>
       prev.map((variant) => (variant.id === id ? { ...variant, ...patch } : variant)),
     );
+    if (patch.baseUnitId || patch.sellUnitId) {
+      setStockLines((prev) =>
+        prev.map((line) => {
+          if (line.variantId !== id) {
+            return line;
+          }
+          const current = variants.find((variant) => variant.id === id);
+          const previousBase = current?.baseUnitId || '';
+          const previousSell = current?.sellUnitId || previousBase;
+          const nextBase = patch.baseUnitId ?? previousBase;
+          const nextSell = patch.sellUnitId ?? previousSell;
+          const preferredUnit = nextSell || nextBase;
+          if (
+            !line.unitId ||
+            line.unitId === previousSell ||
+            line.unitId === previousBase
+          ) {
+            return { ...line, unitId: preferredUnit };
+          }
+          return line;
+        }),
+      );
+    }
   };
 
   const addVariant = () => {
@@ -595,7 +644,11 @@ export default function ProductWizardPage() {
                   />
                   <button
                     type="button"
-                    onClick={() => startScan(variant.id)}
+                    onClick={() => {
+                      setScanTargetId(variant.id);
+                      setScanMessage(null);
+                      setScanAutoStart(true);
+                    }}
                     className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
                   >
                     {t('scanAssign')}
@@ -689,7 +742,10 @@ export default function ProductWizardPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => startScan(scanTargetId)}
+                  onClick={() => {
+                    setScanAutoStart(true);
+                    startScan(scanTargetId);
+                  }}
                   className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
                 >
                   {scanActive ? t('scanRestart') : t('scanStart')}

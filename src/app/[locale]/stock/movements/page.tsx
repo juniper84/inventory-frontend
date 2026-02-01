@@ -272,7 +272,7 @@ export default function StockMovementsPage() {
       <div className="command-card p-4 nvi-reveal">
         {!movements.length ? <StatusBanner message={t('emptyState')} /> : null}
         {viewMode === 'table' ? (
-          <div className="grid grid-cols-1 gap-2 text-sm text-gold-100 md:grid-cols-8">
+          <div className="grid grid-cols-1 gap-2 text-sm text-gold-100 md:grid-cols-[56px_160px_140px_minmax(180px,1fr)_140px_80px_120px_140px] md:items-center md:gap-3">
             <span className="text-xs uppercase text-gold-400">{common('images')}</span>
             <span className="text-xs uppercase text-gold-400">{t('date')}</span>
             <span className="text-xs uppercase text-gold-400">{t('branch')}</span>
@@ -301,8 +301,8 @@ export default function StockMovementsPage() {
                 <div className="text-xs text-gold-300">
                   {new Date(movement.createdAt).toLocaleString()}
                 </div>
-                <div>{movement.branch?.name || t('empty')}</div>
-                <div>
+                <div className="min-w-0">{movement.branch?.name || t('empty')}</div>
+                <div className="min-w-0">
                   {movement.variant
                     ? formatVariantLabel(
                         {
@@ -314,10 +314,10 @@ export default function StockMovementsPage() {
                       )
                     : t('empty')}
                 </div>
-                <div className="text-xs text-gold-300">
+                <div className="text-xs text-gold-300 truncate" title={movement.movementType}>
                   {movement.movementType}
                 </div>
-                <div>{movement.quantity}</div>
+                <div className="tabular-nums">{movement.quantity}</div>
                 <div className="text-xs text-gold-300">
                   {movement.batch?.code || t('empty')}
                 </div>

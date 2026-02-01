@@ -29,9 +29,13 @@ type BusinessSettings = {
     stockAdjust: boolean;
     stockAdjustThresholdAmount: number | null;
     refund: boolean;
+    refundThresholdAmount: number | null;
     purchase: boolean;
+    purchaseThresholdAmount: number | null;
     transfer: boolean;
+    transferThresholdAmount: number | null;
     expense: boolean;
+    expenseThresholdAmount: number | null;
     discountThresholdPercent: number;
     discountThresholdAmount: number | null;
   };
@@ -904,147 +908,245 @@ export default function BusinessSettingsPage() {
             <h3 className="text-lg font-semibold text-gold-100">
               {t('approvalDefaultsTitle')}
             </h3>
-            <div className="grid gap-3 md:grid-cols-2 text-sm text-gold-200">
-              <label className="flex items-center gap-2">
+            <div className="grid gap-3 text-sm text-gold-200">
+              <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)]">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={draftSettings.approvalDefaults.stockAdjust}
+                    disabled={!isEditing}
+                    onChange={(event) =>
+                      setDraftSettings({
+                        ...draftSettings,
+                        approvalDefaults: {
+                          ...draftSettings.approvalDefaults,
+                          stockAdjust: event.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  {t('approvalStockAdjust')}
+                </label>
                 <input
-                  type="checkbox"
-                  checked={draftSettings.approvalDefaults.stockAdjust}
-                  disabled={!isEditing}
+                  value={
+                    draftSettings.approvalDefaults.stockAdjustThresholdAmount ??
+                    ''
+                  }
+                  disabled={
+                    !isEditing || !draftSettings.approvalDefaults.stockAdjust
+                  }
                   onChange={(event) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        stockAdjust: event.target.checked,
+                        stockAdjustThresholdAmount: event.target.value
+                          ? Number(event.target.value)
+                          : null,
                       },
                     })
                   }
+                  placeholder={t('stockAdjustThresholdAmount')}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                 />
-                {t('approvalStockAdjust')}
-              </label>
-              <label className="flex items-center gap-2">
+              </div>
+              <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)]">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={draftSettings.approvalDefaults.refund}
+                    disabled={!isEditing}
+                    onChange={(event) =>
+                      setDraftSettings({
+                        ...draftSettings,
+                        approvalDefaults: {
+                          ...draftSettings.approvalDefaults,
+                          refund: event.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  {t('approvalRefund')}
+                </label>
                 <input
-                  type="checkbox"
-                  checked={draftSettings.approvalDefaults.refund}
-                  disabled={!isEditing}
+                  value={draftSettings.approvalDefaults.refundThresholdAmount ?? ''}
+                  disabled={!isEditing || !draftSettings.approvalDefaults.refund}
                   onChange={(event) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        refund: event.target.checked,
+                        refundThresholdAmount: event.target.value
+                          ? Number(event.target.value)
+                          : null,
                       },
                     })
                   }
+                  placeholder={t('refundThresholdAmount')}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                 />
-                {t('approvalRefund')}
-              </label>
-              <label className="flex items-center gap-2">
+              </div>
+              <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)]">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={draftSettings.approvalDefaults.purchase}
+                    disabled={!isEditing}
+                    onChange={(event) =>
+                      setDraftSettings({
+                        ...draftSettings,
+                        approvalDefaults: {
+                          ...draftSettings.approvalDefaults,
+                          purchase: event.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  {t('approvalPurchase')}
+                </label>
                 <input
-                  type="checkbox"
-                  checked={draftSettings.approvalDefaults.purchase}
-                  disabled={!isEditing}
+                  value={
+                    draftSettings.approvalDefaults.purchaseThresholdAmount ?? ''
+                  }
+                  disabled={
+                    !isEditing || !draftSettings.approvalDefaults.purchase
+                  }
                   onChange={(event) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        purchase: event.target.checked,
+                        purchaseThresholdAmount: event.target.value
+                          ? Number(event.target.value)
+                          : null,
                       },
                     })
                   }
+                  placeholder={t('purchaseThresholdAmount')}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                 />
-                {t('approvalPurchase')}
-              </label>
-              <label className="flex items-center gap-2">
+              </div>
+              <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)]">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={draftSettings.approvalDefaults.transfer}
+                    disabled={!isEditing}
+                    onChange={(event) =>
+                      setDraftSettings({
+                        ...draftSettings,
+                        approvalDefaults: {
+                          ...draftSettings.approvalDefaults,
+                          transfer: event.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  {t('approvalTransfer')}
+                </label>
                 <input
-                  type="checkbox"
-                  checked={draftSettings.approvalDefaults.transfer}
-                  disabled={!isEditing}
+                  value={
+                    draftSettings.approvalDefaults.transferThresholdAmount ?? ''
+                  }
+                  disabled={
+                    !isEditing || !draftSettings.approvalDefaults.transfer
+                  }
                   onChange={(event) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        transfer: event.target.checked,
+                        transferThresholdAmount: event.target.value
+                          ? Number(event.target.value)
+                          : null,
                       },
                     })
                   }
+                  placeholder={t('transferThresholdAmount')}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                 />
-                {t('approvalTransfer')}
-              </label>
-              <label className="flex items-center gap-2">
+              </div>
+              <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)]">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={draftSettings.approvalDefaults.expense}
+                    disabled={!isEditing}
+                    onChange={(event) =>
+                      setDraftSettings({
+                        ...draftSettings,
+                        approvalDefaults: {
+                          ...draftSettings.approvalDefaults,
+                          expense: event.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  {t('approvalExpense')}
+                </label>
                 <input
-                  type="checkbox"
-                  checked={draftSettings.approvalDefaults.expense}
-                  disabled={!isEditing}
+                  value={
+                    draftSettings.approvalDefaults.expenseThresholdAmount ?? ''
+                  }
+                  disabled={
+                    !isEditing || !draftSettings.approvalDefaults.expense
+                  }
                   onChange={(event) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        expense: event.target.checked,
+                        expenseThresholdAmount: event.target.value
+                          ? Number(event.target.value)
+                          : null,
                       },
                     })
                   }
+                  placeholder={t('expenseThresholdAmount')}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                 />
-                {t('approvalExpense')}
-              </label>
+              </div>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <input
-                value={
-                  draftSettings.approvalDefaults.stockAdjustThresholdAmount ?? ''
-                }
-                disabled={!isEditing}
-                onChange={(event) =>
-                  setDraftSettings({
-                    ...draftSettings,
-                    approvalDefaults: {
-                      ...draftSettings.approvalDefaults,
-                      stockAdjustThresholdAmount: event.target.value
-                        ? Number(event.target.value)
-                        : null,
-                    },
-                  })
-                }
-                placeholder={t('stockAdjustThresholdAmount')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-              />
-              <input
-                value={draftSettings.approvalDefaults.discountThresholdPercent}
-                disabled={!isEditing}
-                onChange={(event) =>
-                  setDraftSettings({
-                    ...draftSettings,
-                    approvalDefaults: {
-                      ...draftSettings.approvalDefaults,
-                      discountThresholdPercent: Number(event.target.value),
-                    },
-                  })
-                }
-                placeholder={t('discountThresholdPercent')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-              />
-              <input
-                value={
-                  draftSettings.approvalDefaults.discountThresholdAmount ?? ''
-                }
-                disabled={!isEditing}
-                onChange={(event) =>
-                  setDraftSettings({
-                    ...draftSettings,
-                    approvalDefaults: {
-                      ...draftSettings.approvalDefaults,
-                      discountThresholdAmount: event.target.value
-                        ? Number(event.target.value)
-                        : null,
-                    },
-                  })
-                }
-                placeholder={t('discountThresholdAmount')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-              />
+            <div className="space-y-2 text-sm text-gold-200">
+              <span className="text-xs uppercase tracking-[0.2em] text-gold-500">
+                {t('discountThresholdsTitle')}
+              </span>
+              <div className="grid gap-3 md:grid-cols-2">
+                <input
+                  value={draftSettings.approvalDefaults.discountThresholdPercent}
+                  disabled={!isEditing}
+                  onChange={(event) =>
+                    setDraftSettings({
+                      ...draftSettings,
+                      approvalDefaults: {
+                        ...draftSettings.approvalDefaults,
+                        discountThresholdPercent: Number(event.target.value),
+                      },
+                    })
+                  }
+                  placeholder={t('discountThresholdPercent')}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                />
+                <input
+                  value={
+                    draftSettings.approvalDefaults.discountThresholdAmount ?? ''
+                  }
+                  disabled={!isEditing}
+                  onChange={(event) =>
+                    setDraftSettings({
+                      ...draftSettings,
+                      approvalDefaults: {
+                        ...draftSettings.approvalDefaults,
+                        discountThresholdAmount: event.target.value
+                          ? Number(event.target.value)
+                          : null,
+                      },
+                    })
+                  }
+                  placeholder={t('discountThresholdAmount')}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                />
+              </div>
             </div>
           </div>
 
