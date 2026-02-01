@@ -344,7 +344,7 @@ export function PlatformConsole({
   const [purgingBusinessId, setPurgingBusinessId] = useState<string | null>(null);
 
   const withAction = useCallback(
-    async (key: string, task: () => Promise<void>) => {
+    async (key: string, task: () => void | Promise<void>) => {
       setActionLoading((prev) => ({ ...prev, [key]: true }));
       try {
         await task();
