@@ -1106,6 +1106,7 @@
     "permissionPresetReadHint": "Soma tu: tazama data bila kubadili.",
     "permissionPresetStandardHint": "Kawaida: vitendo vya kila siku kama kuunda na kusasisha.",
     "permissionPresetFullHint": "Ufikiaji wote: vitendo nyeti au visivyoweza kutenduliwa.",
+    "systemOwnerLocked": "Ruhusa za Mmiliki wa Mfumo zimefungwa.",
     "permissionCount": "Idadi ya ruhusa",
     "permissionsSome": "Ina ruhusa",
     "permissionsNone": "Haina ruhusa",
@@ -2917,6 +2918,7 @@
     "reviewProduct": "Bidhaa:",
     "reviewVariants": "Aina:",
     "reviewStockLines": "Mistari ya stok ya kuanzia:",
+    "confirmCancel": "Unataka kufuta mchawi huu na kurudi kwenye bidhaa?",
     "continue": "Endelea",
     "finish": "Maliza mchawi",
     "creating": "Inaunda..."

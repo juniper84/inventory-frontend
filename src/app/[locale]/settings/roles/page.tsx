@@ -170,6 +170,7 @@ export default function RolesPage() {
     () => roles.find((role) => role.id === selectedRoleId) || null,
     [roles, selectedRoleId],
   );
+  const isSystemOwnerRole = (role: Role) => role.name === 'System Owner';
 
   const loadRolePermissions = async (roleId: string) => {
     const token = getAccessToken();
@@ -374,8 +375,14 @@ export default function RolesPage() {
                       ),
                     );
                   }}
-                  disabled={!canUpdate}
-                  title={!canUpdate ? noAccess('title') : undefined}
+                  disabled={!canUpdate || isSystemOwnerRole(role)}
+                  title={
+                    !canUpdate
+                      ? noAccess('title')
+                      : isSystemOwnerRole(role)
+                        ? t('systemOwnerLocked')
+                        : undefined
+                  }
                   className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
                 >
                   {t('editPermissions')}

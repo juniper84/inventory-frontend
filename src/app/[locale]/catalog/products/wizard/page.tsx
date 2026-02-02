@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { useParams, useRouter } from 'next/navigation';
 import { BrowserMultiFormatReader } from '@zxing/browser';
-import { useToastState } from '@/lib/app-notifications';
+import { confirmAction, useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
@@ -42,6 +43,9 @@ type StockDraft = {
 export default function ProductWizardPage() {
   const t = useTranslations('productWizardPage');
   const actions = useTranslations('actions');
+  const common = useTranslations('common');
+  const router = useRouter();
+  const params = useParams<{ locale: string }>();
   const activeBranch = useActiveBranch();
   const [isLoading, setIsLoading] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -846,6 +850,23 @@ export default function ProductWizardPage() {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            const confirmed = await confirmAction({
+              message: t('confirmCancel'),
+              confirmText: common('confirm'),
+              cancelText: common('cancel'),
+            });
+            if (!confirmed) {
+              return;
+            }
+            router.push(`/${params.locale}/catalog/products`);
+          }}
+          className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+        >
+          {common('cancel')}
+        </button>
         {step > 0 ? (
           <button
             type="button"
