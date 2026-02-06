@@ -73,7 +73,6 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [profileForm, setProfileForm] = useState({
     name: '',
-    defaultLanguage: 'en',
     currency: '',
     timezone: '',
     dateFormat: '',
@@ -112,7 +111,6 @@ export default function OnboardingPage() {
         setBranches(normalizePaginated(branchData).items);
         setProfileForm({
           name: biz.name ?? '',
-          defaultLanguage: biz.defaultLanguage ?? 'en',
           currency: config.localeSettings?.currency ?? 'TZS',
           timezone: config.localeSettings?.timezone ?? 'Africa/Dar_es_Salaam',
           dateFormat: config.localeSettings?.dateFormat ?? 'DD/MM/YYYY',
@@ -162,12 +160,6 @@ export default function OnboardingPage() {
       const businessUpdates: { name?: string; defaultLanguage?: string } = {};
       if (profileForm.name.trim() && profileForm.name.trim() !== business.name) {
         businessUpdates.name = profileForm.name.trim();
-      }
-      if (
-        profileForm.defaultLanguage &&
-        profileForm.defaultLanguage !== business.defaultLanguage
-      ) {
-        businessUpdates.defaultLanguage = profileForm.defaultLanguage;
       }
       if (Object.keys(businessUpdates).length) {
         await apiFetch('/business', {
@@ -366,20 +358,6 @@ export default function OnboardingPage() {
               />
             </label>
             <label className="flex flex-col gap-1">
-              {t('defaultLanguage')}
-              <SmartSelect
-                value={profileForm.defaultLanguage}
-                onChange={(value) =>
-                  setProfileForm({ ...profileForm, defaultLanguage: value })
-                }
-                options={[
-                  { value: 'en', label: t('languageEnglish') },
-                  { value: 'sw', label: t('languageSwahili') },
-                ]}
-                className="nvi-select-container"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
               {t('currency')}
               <input
                 value={profileForm.currency}
@@ -393,9 +371,7 @@ export default function OnboardingPage() {
               {t('timezone')}
               <input
                 value={profileForm.timezone}
-                onChange={(event) =>
-                  setProfileForm({ ...profileForm, timezone: event.target.value })
-                }
+                readOnly
                 className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
               />
             </label>

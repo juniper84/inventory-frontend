@@ -365,28 +365,28 @@ export default function RolesPage() {
                 {role.isSystem ? (
                   <span className="text-gold-400">{t('system')}</span>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedRoleId(role.id);
-                    loadRolePermissions(role.id).catch((err) =>
-                      setMessage(
-                        getApiErrorMessage(err, t('loadPermissionsFailed')),
-                      ),
-                    );
-                  }}
-                  disabled={!canUpdate || isSystemOwnerRole(role)}
-                  title={
-                    !canUpdate
-                      ? noAccess('title')
-                      : isSystemOwnerRole(role)
-                        ? t('systemOwnerLocked')
-                        : undefined
-                  }
-                  className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
-                >
-                  {t('editPermissions')}
-                </button>
+                {isSystemOwnerRole(role) ? (
+                  <span className="text-xs text-gold-400">
+                    {t('systemOwnerLocked')}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRoleId(role.id);
+                      loadRolePermissions(role.id).catch((err) =>
+                        setMessage(
+                          getApiErrorMessage(err, t('loadPermissionsFailed')),
+                        ),
+                      );
+                    }}
+                    disabled={!canUpdate}
+                    title={!canUpdate ? noAccess('title') : undefined}
+                    className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
+                  >
+                    {t('editPermissions')}
+                  </button>
+                )}
               </div>
             </li>
           ))}

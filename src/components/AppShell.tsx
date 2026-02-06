@@ -100,6 +100,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     enabled: boolean;
     reason: string | null;
   } | null>(null);
+  const [onboardingRequired, setOnboardingRequired] = useState(false);
   const [offlineState, setOfflineState] = useState<{
     isOffline: boolean;
     offlineSince: string | null;
@@ -121,6 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!token || isPlatformRoute) {
       setTimeout(() => setReadOnlyState(null), 0);
+      setTimeout(() => setOnboardingRequired(false), 0);
       return;
     }
     let active = true;
@@ -148,6 +150,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             (!settings.onboarding.businessProfileComplete ||
               !settings.onboarding.branchSetupComplete),
         );
+        setOnboardingRequired(required);
         if (
           required &&
           canForceOnboarding &&
@@ -160,6 +163,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .catch(() => {
         if (active) {
           setReadOnlyState(null);
+          setOnboardingRequired(false);
         }
       });
     return () => {
@@ -829,6 +833,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (onboardingRequired && pathname.startsWith(`${base}/onboarding`)) {
+    return (
+      <AuthGate>
+        <div className="min-h-screen bg-[color:var(--background)] text-[color:var(--foreground)]">
+          <NotificationSurface locale={locale} />
+          <LocalToastSurface />
+          <main className="px-6 py-10">{children}</main>
+        </div>
+      </AuthGate>
     );
   }
 
