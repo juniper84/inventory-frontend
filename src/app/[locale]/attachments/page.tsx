@@ -17,6 +17,7 @@ import {
 import { formatEntityLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Supplier = { id: string; name: string };
 type Purchase = { id: string; status: string; createdAt?: string; supplier?: Supplier | null };
@@ -55,6 +56,13 @@ export default function AttachmentsPage() {
   );
   const [targetId, setTargetId] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const activeAttachments = attachments.filter(
+    (attachment) => attachment.status === 'ACTIVE',
+  ).length;
+  const totalSizeMb = attachments.reduce(
+    (sum, attachment) => sum + Number(attachment.sizeMb ?? 0),
+    0,
+  );
   const formatDocLabel = (doc: Purchase | PurchaseOrder) => {
     const dateLabel = doc.createdAt ? new Date(doc.createdAt).toLocaleDateString() : null;
     const parts = [doc.supplier?.name ?? null, dateLabel, doc.status].filter(Boolean);
@@ -218,14 +226,46 @@ export default function AttachmentsPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-      <p className="text-sm text-gold-300">
-        {t('subtitle')}
-      </p>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Document control"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Attachments</span>
+            <span className="status-chip">{targetType === 'purchase' ? t('purchase') : t('purchaseOrder')}</span>
+          </>
+        }
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Loaded files</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{attachments.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active versions</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeAttachments}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Storage (MB)</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{totalSizeMb.toFixed(2)}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Selected document</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{targetId ? 'Linked' : 'Not selected'}</p>
+        </article>
+      </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('uploadTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-3">
           <SmartSelect
@@ -270,7 +310,7 @@ export default function AttachmentsPage() {
         <button
           type="button"
           onClick={upload}
-          className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isUploading || !canWrite}
           title={!canWrite ? noAccess('title') : undefined}
         >
@@ -279,14 +319,9 @@ export default function AttachmentsPage() {
         </button>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-gold-100">{t('listTitle')}</h3>
-          <ViewToggle
-            value={viewMode}
-            onChange={setViewMode}
-            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-          />
         </div>
         {viewMode === 'table' ? (
           !attachments.length ? (

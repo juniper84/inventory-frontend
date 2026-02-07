@@ -12,6 +12,7 @@ import { StatusBanner } from '@/components/StatusBanner';
 import { useToastState } from '@/lib/app-notifications';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { getPermissionSet } from '@/lib/permissions';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Business = {
   id: string;
@@ -315,9 +316,40 @@ export default function OnboardingPage() {
 
   return (
     <section className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-        <p className="text-sm text-gold-300">{t('subtitle')}</p>
+      <PremiumPageHeader
+        eyebrow="SETUP FLOW"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">GUIDED</span>
+            <span className="nvi-badge">STEP {step + 1}/3</span>
+          </>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">BUSINESS</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {onboardingState.businessProfileComplete ? 'COMPLETE' : 'PENDING'}
+          </p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">BRANCH SETUP</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {onboardingState.branchSetupComplete ? 'COMPLETE' : 'PENDING'}
+          </p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">BRANCHES</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ACCESS MODE</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {settings?.readOnlyEnabled ? 'READ-ONLY' : 'EDITABLE'}
+          </p>
+        </article>
       </div>
 
       <div className="flex flex-wrap gap-2 text-xs text-gold-200">
@@ -342,7 +374,7 @@ export default function OnboardingPage() {
       ) : null}
 
       {step === 0 ? (
-        <div className="command-card p-6 space-y-4 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">
             {t('businessTitle')}
           </h3>
@@ -392,7 +424,7 @@ export default function OnboardingPage() {
               type="button"
               onClick={saveBusinessProfile}
               disabled={isSavingProfile}
-              className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-70"
+              className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-70"
             >
               <span className="inline-flex items-center gap-2">
                 {isSavingProfile ? <Spinner variant="dots" size="xs" /> : null}
@@ -404,7 +436,7 @@ export default function OnboardingPage() {
       ) : null}
 
       {step === 1 ? (
-        <div className="command-card p-6 space-y-4 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">
             {t('branchTitle')}
           </h3>
@@ -454,7 +486,7 @@ export default function OnboardingPage() {
               type="button"
               onClick={createBranch}
               disabled={isCreatingBranch}
-              className="rounded border border-gold-700/50 px-3 py-2 text-sm text-gold-100 disabled:opacity-70 md:col-span-3"
+              className="nvi-cta rounded px-3 py-2 text-sm font-semibold text-black disabled:opacity-70 md:col-span-3"
             >
               <span className="inline-flex items-center gap-2">
                 {isCreatingBranch ? <Spinner variant="dots" size="xs" /> : null}
@@ -467,7 +499,7 @@ export default function OnboardingPage() {
               type="button"
               onClick={completeBranchSetup}
               disabled={isSavingBranch}
-              className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-70"
+              className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-70"
             >
               <span className="inline-flex items-center gap-2">
                 {isSavingBranch ? <Spinner variant="dots" size="xs" /> : null}
@@ -479,7 +511,7 @@ export default function OnboardingPage() {
       ) : null}
 
       {step === 2 ? (
-        <div className="command-card p-6 space-y-4 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">
             {t('teamTitle')}
           </h3>
@@ -488,14 +520,14 @@ export default function OnboardingPage() {
             <button
               type="button"
               onClick={() => router.push(`${base}/settings/users`)}
-              className="rounded border border-gold-700/50 px-3 py-2 text-sm text-gold-100"
+              className="nvi-cta rounded px-3 py-2 text-sm font-semibold text-black"
             >
               {t('openUsers')}
             </button>
             <button
               type="button"
               onClick={() => router.push(`${base}/settings/roles`)}
-              className="rounded border border-gold-700/50 px-3 py-2 text-sm text-gold-100"
+              className="nvi-cta rounded px-3 py-2 text-sm font-semibold text-black"
             >
               {t('openRoles')}
             </button>
@@ -504,7 +536,7 @@ export default function OnboardingPage() {
             <button
               type="button"
               onClick={finishLater}
-              className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black"
+              className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black"
             >
               {t('finishLater')}
             </button>

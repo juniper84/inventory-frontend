@@ -23,6 +23,8 @@ import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { useBranchScope } from '@/lib/use-branch-scope';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Supplier = { id: string; name: string };
@@ -118,6 +120,8 @@ export default function ReceivingPage() {
     from: '',
     to: '',
   });
+  const { activeBranch } = useBranchScope();
+  const [branchFilterInitialized, setBranchFilterInitialized] = useState(false);
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchDraft, 350);
 
@@ -141,6 +145,26 @@ export default function ReceivingPage() {
     ],
     [common],
   );
+  const manualCount = useMemo(
+    () =>
+      receivings.filter((line) => !line.purchase && !line.purchaseOrder).length,
+    [receivings],
+  );
+  const batchedCount = useMemo(
+    () => receivings.filter((line) => line.batch?.code).length,
+    [receivings],
+  );
+
+  useEffect(() => {
+    if (branchFilterInitialized) {
+      return;
+    }
+    if (!activeBranch?.id) {
+      return;
+    }
+    setBranchFilterInitialized(true);
+    pushFilters({ branchId: activeBranch.id });
+  }, [activeBranch?.id, branchFilterInitialized, pushFilters]);
 
   useEffect(() => {
     setSearchDraft(filters.search);
@@ -334,57 +358,94 @@ export default function ReceivingPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Warehouse receiving"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Live queue</span>
+            <span className="status-chip">{batchTrackingEnabled ? 'Batch tracking' : 'Standard'}</span>
+          </>
+        }
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.branchId}
-          onChange={(value) => pushFilters({ branchId: value })}
-          options={branchOptions}
-          placeholder={common('branch')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-        <DatePickerInput
-          value={filters.from}
-          onChange={(value) => pushFilters({ from: value })}
-          placeholder={common('fromDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-        <DatePickerInput
-          value={filters.to}
-          onChange={(value) => pushFilters({ to: value })}
-          placeholder={common('toDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-      </ListFilters>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Recent lines
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{receivings.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Manual receives
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{manualCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Batched lines
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{batchedCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Target mode
+          </p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {targetType === 'purchase' ? t('purchase') : t('purchaseOrder')}
+          </p>
+        </article>
+      </div>
+      <div className="command-card nvi-reveal nvi-panel p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.branchId}
+            onChange={(value) => pushFilters({ branchId: value })}
+            options={branchOptions}
+            placeholder={common('branch')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={common('status')}
+            className="nvi-select-container"
+          />
+          <DatePickerInput
+            value={filters.from}
+            onChange={(value) => pushFilters({ from: value })}
+            placeholder={common('fromDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+          <DatePickerInput
+            value={filters.to}
+            onChange={(value) => pushFilters({ to: value })}
+            placeholder={common('toDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+        </ListFilters>
+      </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('receiveTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-3">
           <SmartSelect
@@ -518,7 +579,7 @@ export default function ReceivingPage() {
           <button
             type="button"
             onClick={receive}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canWrite || isReceiving}
             title={!canWrite ? noAccess('title') : undefined}
           >
@@ -528,7 +589,7 @@ export default function ReceivingPage() {
         </div>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('recentTitle')}</h3>
         {viewMode === 'table' ? (
           <div className="overflow-auto text-sm text-gold-200">

@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { useToastState } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -17,6 +17,7 @@ import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Supplier = { id: string; name: string; leadTimeDays?: number | null };
@@ -88,7 +89,8 @@ export default function PurchaseOrderWizardPage() {
     { id: crypto.randomUUID(), variantId: '', quantity: '', unitCost: '', unitId: '' },
   ]);
   const [receivingLines, setReceivingLines] = useState<ReceiveLine[]>([]);
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
+  const effectiveBranchId = resolveBranchId(form.branchId) || '';
 
   const selectedSupplier = suppliers.find((supplier) => supplier.id === form.supplierId);
   const supplierEta =
@@ -186,7 +188,7 @@ export default function PurchaseOrderWizardPage() {
 
   const createOrder = async () => {
     const token = getAccessToken();
-    if (!token || !form.branchId || !form.supplierId) {
+    if (!token || !effectiveBranchId || !form.supplierId) {
       return;
     }
     if (!validLines.length) {
@@ -207,7 +209,7 @@ export default function PurchaseOrderWizardPage() {
           token,
           method: 'POST',
           body: JSON.stringify({
-            branchId: form.branchId,
+            branchId: effectiveBranchId,
             supplierId: form.supplierId,
             expectedAt: form.expectedAt || undefined,
             lines: payloadLines,
@@ -321,25 +323,54 @@ export default function PurchaseOrderWizardPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-gold-500">{t('eyebrow')}</p>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <Link
-          href={`/${locale}/purchase-orders`}
-          className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-        >
-          {t('backToOrders')}
-        </Link>
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('eyebrow')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Guided</span>
+            <span className="status-chip">{step}</span>
+          </>
+        }
+        actions={
+          <Link
+            href={`/${locale}/purchase-orders`}
+            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+          >
+            {t('backToOrders')}
+          </Link>
+        }
+      />
 
       {message ? <StatusBanner message={message} /> : null}
       {approvalNotice ? <StatusBanner message={approvalNotice} /> : null}
 
-      <div className="flex flex-wrap gap-2 text-xs text-gold-300">
+      <div className="grid gap-3 md:grid-cols-3 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Current step
+          </p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{t(`${step}Step`)}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Valid lines
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{validLines.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Created order
+          </p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {createdOrder?.status ?? 'Not created'}
+          </p>
+        </article>
+      </div>
+
+      <div className="flex flex-wrap gap-2 text-xs text-gold-300 command-card p-3 nvi-reveal nvi-panel">
         {steps.map((entry) => (
           <span
             key={entry}
@@ -355,7 +386,7 @@ export default function PurchaseOrderWizardPage() {
       </div>
 
       {step === 'details' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card p-4 space-y-3 nvi-reveal nvi-panel">
           <h3 className="text-lg font-semibold text-gold-100">{t('detailsTitle')}</h3>
           <div className="grid gap-3 md:grid-cols-2">
             <SmartSelect
@@ -386,8 +417,8 @@ export default function PurchaseOrderWizardPage() {
           <button
             type="button"
             onClick={() => setStep('lines')}
-            disabled={!form.branchId || !form.supplierId}
-            className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+            disabled={!effectiveBranchId || !form.supplierId}
+            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
           >
             {actions('next')}
           </button>
@@ -395,7 +426,7 @@ export default function PurchaseOrderWizardPage() {
       ) : null}
 
       {step === 'lines' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card p-4 space-y-3 nvi-reveal nvi-panel">
           <h3 className="text-lg font-semibold text-gold-100">{t('linesTitle')}</h3>
           {lines.map((line) => (
             <div key={line.id} className="grid gap-2 md:grid-cols-[2fr_1fr_1fr_1fr_auto]">
@@ -463,7 +494,7 @@ export default function PurchaseOrderWizardPage() {
               type="button"
               onClick={() => setStep('review')}
               disabled={!validLines.length}
-              className="rounded bg-gold-500 px-4 py-2 text-xs font-semibold text-black disabled:opacity-60"
+              className="nvi-cta rounded px-4 py-2 text-xs font-semibold text-black disabled:opacity-60"
             >
               {actions('next')}
             </button>
@@ -479,10 +510,14 @@ export default function PurchaseOrderWizardPage() {
       ) : null}
 
       {step === 'review' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card p-4 space-y-3 nvi-reveal nvi-panel">
           <h3 className="text-lg font-semibold text-gold-100">{t('reviewTitle')}</h3>
           <div className="text-sm text-gold-200">
-            <p>{t('summaryBranch', { name: branches.find((b) => b.id === form.branchId)?.name ?? '—' })}</p>
+            <p>
+              {t('summaryBranch', {
+                name: branches.find((b) => b.id === effectiveBranchId)?.name ?? '—',
+              })}
+            </p>
             <p>{t('summarySupplier', { name: suppliers.find((s) => s.id === form.supplierId)?.name ?? '—' })}</p>
             <p>
               {t('summaryExpected', {
@@ -511,7 +546,7 @@ export default function PurchaseOrderWizardPage() {
               type="button"
               onClick={createOrder}
               disabled={!canWrite || isCreating}
-              className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+              className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
               title={!canWrite ? noAccess('title') : undefined}
             >
               {isCreating ? <Spinner size="xs" variant="dots" /> : null}
@@ -529,7 +564,7 @@ export default function PurchaseOrderWizardPage() {
       ) : null}
 
       {step === 'receive' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card p-4 space-y-3 nvi-reveal nvi-panel">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-lg font-semibold text-gold-100">{t('receiveTitle')}</h3>
             {createdOrder ? (
@@ -611,7 +646,7 @@ export default function PurchaseOrderWizardPage() {
             type="button"
             onClick={receiveStock}
             disabled={!canWrite || isReceiving || !createdOrder}
-            className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
             title={!canWrite ? noAccess('title') : undefined}
           >
             {isReceiving ? <Spinner size="xs" variant="orbit" /> : null}

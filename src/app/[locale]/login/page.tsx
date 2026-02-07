@@ -8,6 +8,7 @@ import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getLastBusinessId, getOrCreateDeviceId, setLastBusinessId, setSession } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 export default function LoginPage() {
   const t = useTranslations('auth');
@@ -111,14 +112,34 @@ export default function LoginPage() {
 
   return (
     <div className="space-y-6 nvi-reveal">
-      <div className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-gold-100">
-          {t('commandRoomFormTitle')}
-        </h1>
-        <p className="text-sm text-gold-300">{t('commandRoomFormSubtitle')}</p>
+      <PremiumPageHeader
+        eyebrow="AUTH GATE"
+        title={t('commandRoomFormTitle')}
+        subtitle={t('commandRoomFormSubtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">SECURE LOGIN</span>
+            <span className="nvi-badge">{needsBusinessSelection ? 'BUSINESS PICK' : 'DIRECT'}</span>
+          </>
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-3 nvi-stagger">
+        <article className="command-card nvi-panel p-3 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">BUSINESSES</p>
+          <p className="mt-1 text-2xl font-semibold text-gold-100">{availableBusinesses.length}</p>
+        </article>
+        <article className="command-card nvi-panel p-3 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">STATUS</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('signingIn') : 'READY'}</p>
+        </article>
+        <article className="command-card nvi-panel p-3 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">SELECTION</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{needsBusinessSelection ? 'REQUIRED' : 'OPTIONAL'}</p>
+        </article>
       </div>
 
-      <form className="space-y-4" onSubmit={submit}>
+      <form className="command-card nvi-panel space-y-4 p-4" onSubmit={submit}>
         <div className="space-y-2">
           <label className="text-sm text-gold-200" htmlFor="email">
             {t('username')}
@@ -157,7 +178,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta w-full rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
         >
           <span className="inline-flex items-center justify-center gap-2">
             {isSubmitting ? <Spinner variant="ring" size="xs" /> : null}
@@ -169,7 +190,7 @@ export default function LoginPage() {
 
       {needsBusinessSelection ? (
         <form
-          className="space-y-3"
+          className="command-card nvi-panel space-y-3 p-4"
           onSubmit={submitBusinessSelection}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -197,7 +218,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="mt-3 w-full rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+              className="nvi-cta mt-3 w-full rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             >
               {isSubmitting ? t('loading') : t('continue')}
             </button>

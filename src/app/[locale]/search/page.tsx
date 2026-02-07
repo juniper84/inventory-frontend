@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -9,6 +9,7 @@ import { Spinner } from '@/components/Spinner';
 import { TypeaheadInput } from '@/components/TypeaheadInput';
 import { StatusBanner } from '@/components/StatusBanner';
 import { formatVariantLabel } from '@/lib/display';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type SearchResults = {
   products: {
@@ -37,6 +38,18 @@ export default function SearchPage() {
   const [suggestions, setSuggestions] = useState<
     { id: string; label: string }[]
   >([]);
+  const totalMatches = useMemo(() => {
+    if (!results) {
+      return 0;
+    }
+    return (
+      results.products.length +
+      results.variants.length +
+      results.receipts.length +
+      results.customers.length +
+      results.transfers.length
+    );
+  }, [results]);
 
   const runSearch = async (queryText = query) => {
     const token = getAccessToken();
@@ -136,10 +149,38 @@ export default function SearchPage() {
 
   return (
     <section className="space-y-4">
-      <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-      <p className="text-sm text-gold-300">{t('subtitle')}</p>
+      <PremiumPageHeader
+        eyebrow="DISCOVERY HUB"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">GLOBAL LOOKUP</span>
+            <span className="nvi-badge">LIVE INDEX</span>
+          </>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">TOTAL MATCHES</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{totalMatches}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">PRODUCT SIGNAL</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{results?.products.length ?? 0}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">CUSTOMERS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{results?.customers.length ?? 0}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">TRANSFERS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{results?.transfers.length ?? 0}</p>
+        </article>
+      </div>
       {message ? <StatusBanner message={message} /> : null}
-      <div className="flex gap-2">
+      <div className="command-card nvi-panel p-4 nvi-reveal">
+        <div className="flex gap-2">
         <TypeaheadInput
           value={query}
           onChange={setQuery}
@@ -155,17 +196,18 @@ export default function SearchPage() {
         <button
           type="button"
           onClick={() => runSearch()}
-          className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isSearching}
         >
           {isSearching ? <Spinner size="xs" variant="orbit" /> : null}
           {isSearching ? t('searching') : actions('search')}
         </button>
+        </div>
       </div>
 
       {results ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="command-card p-4 nvi-reveal">
+        <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
+          <div className="command-card nvi-panel p-4 nvi-reveal">
             <h3 className="text-lg font-semibold text-gold-100">
               {t('productsAndVariants')}
             </h3>
@@ -198,7 +240,7 @@ export default function SearchPage() {
               ))
             )}
           </div>
-          <div className="command-card p-4 nvi-reveal">
+          <div className="command-card nvi-panel p-4 nvi-reveal">
             <h3 className="text-lg font-semibold text-gold-100">
               {t('variantMatches')}
             </h3>
@@ -220,7 +262,7 @@ export default function SearchPage() {
               ))
             )}
           </div>
-          <div className="command-card p-4 nvi-reveal">
+          <div className="command-card nvi-panel p-4 nvi-reveal">
             <h3 className="text-lg font-semibold text-gold-100">{t('receipts')}</h3>
             {results.receipts.length === 0 ? (
               <StatusBanner message={t('noReceiptMatches')} />
@@ -232,7 +274,7 @@ export default function SearchPage() {
               ))
             )}
           </div>
-          <div className="command-card p-4 nvi-reveal">
+          <div className="command-card nvi-panel p-4 nvi-reveal">
             <h3 className="text-lg font-semibold text-gold-100">{t('customers')}</h3>
             {results.customers.length === 0 ? (
               <StatusBanner message={t('noCustomerMatches')} />
@@ -244,7 +286,7 @@ export default function SearchPage() {
               ))
             )}
           </div>
-          <div className="command-card p-4 lg:col-span-2 nvi-reveal">
+          <div className="command-card nvi-panel p-4 lg:col-span-2 nvi-reveal">
             <h3 className="text-lg font-semibold text-gold-100">{t('transfers')}</h3>
             {results.transfers.length === 0 ? (
               <StatusBanner message={t('noTransferMatches')} />

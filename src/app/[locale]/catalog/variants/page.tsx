@@ -25,6 +25,8 @@ import { formatVariantLabel } from '@/lib/display';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { useBranchScope } from '@/lib/use-branch-scope';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Product = { id: string; name: string };
 type Branch = { id: string; name: string };
@@ -180,6 +182,8 @@ export default function VariantsPage() {
     branchId: '',
     availability: '',
   });
+  const { activeBranch } = useBranchScope();
+  const branchFilterInit = useRef(false);
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchDraft, 350);
 
@@ -201,6 +205,14 @@ export default function VariantsPage() {
     ],
     [common],
   );
+  const activeVariants = useMemo(
+    () => variants.filter((variant) => variant.status === 'ACTIVE').length,
+    [variants],
+  );
+  const barcodeCoverage = useMemo(
+    () => variants.filter((variant) => variant.barcodes.some((barcode) => barcode.isActive)).length,
+    [variants],
+  );
 
   const branchOptions = useMemo(
     () => [
@@ -209,6 +221,17 @@ export default function VariantsPage() {
     ],
     [branches, common],
   );
+
+  useEffect(() => {
+    if (branchFilterInit.current) {
+      return;
+    }
+    if (!activeBranch?.id) {
+      return;
+    }
+    branchFilterInit.current = true;
+    pushFilters({ branchId: activeBranch.id });
+  }, [activeBranch?.id, pushFilters]);
 
   useEffect(() => {
     setSearchDraft(filters.search);
@@ -760,21 +783,46 @@ export default function VariantsPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Variant operations"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Barcode-ready</span>
+            <span className="status-chip">Multi-branch</span>
+          </>
+        }
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Variants</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeVariants}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">With barcode</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{barcodeCoverage}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Branches</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
+        </article>
+      </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('newVariant')}</h3>
         <div className="grid gap-3 md:grid-cols-3">
           <SmartSelect
@@ -907,7 +955,7 @@ export default function VariantsPage() {
           onClick={createVariant}
           disabled={!canWrite || isCreating}
           title={!canWrite ? noAccess('title') : undefined}
-          className="rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
         >
           <span className="inline-flex items-center gap-2">
             {isCreating ? <Spinner variant="orbit" size="xs" /> : null}
@@ -916,7 +964,7 @@ export default function VariantsPage() {
         </button>
       </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">
           {t('barcodeReassignTitle')}
         </h3>
@@ -984,7 +1032,7 @@ export default function VariantsPage() {
           }
           disabled={!canWrite || isReassigning}
           title={!canWrite ? noAccess('title') : undefined}
-          className="rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
         >
           <span className="inline-flex items-center gap-2">
             {isReassigning ? <Spinner variant="dots" size="xs" /> : null}
@@ -993,7 +1041,7 @@ export default function VariantsPage() {
         </button>
       </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('scanTitle')}</h3>
         <p className="text-xs text-gold-300">
           {scanMode === 'lookup'
@@ -1023,7 +1071,7 @@ export default function VariantsPage() {
                 scanMode === 'assignExisting' ? scanTargetVariantId ?? undefined : undefined,
               )
             }
-            className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black"
+            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black"
           >
             {scanActive ? t('scanRestart') : t('scanStart')}
           </button>
@@ -1041,7 +1089,7 @@ export default function VariantsPage() {
         </div>
       </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">
           {t('labelsTitle')}
         </h3>
@@ -1056,7 +1104,7 @@ export default function VariantsPage() {
               )
             }
             disabled={isPrinting}
-            className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-70"
+            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-70"
           >
             <span className="inline-flex items-center gap-2">
               {isPrinting ? <Spinner variant="ring" size="xs" /> : null}
@@ -1085,40 +1133,42 @@ export default function VariantsPage() {
         ) : null}
       </div>
 
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.branchId}
-          onChange={(value) => pushFilters({ branchId: value })}
-          options={branchOptions}
-          placeholder={common('branch')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.availability}
-          onChange={(value) => pushFilters({ availability: value })}
-          options={availabilityOptions}
-          placeholder={t('availability')}
-          className="nvi-select-container"
-        />
-      </ListFilters>
+      <div className="command-card nvi-reveal nvi-panel p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={common('status')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.branchId}
+            onChange={(value) => pushFilters({ branchId: value })}
+            options={branchOptions}
+            placeholder={common('branch')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.availability}
+            onChange={(value) => pushFilters({ availability: value })}
+            options={availabilityOptions}
+            placeholder={t('availability')}
+            className="nvi-select-container"
+          />
+        </ListFilters>
+      </div>
 
       {viewMode === 'table' ? (
-        <div className="command-card p-4 nvi-reveal">
+        <div className="command-card nvi-panel p-4 nvi-reveal">
           {variants.length === 0 ? (
             <StatusBanner message={t('noVariants')} />
           ) : (
@@ -1182,7 +1232,7 @@ export default function VariantsPage() {
           variants.map((variant) => (
           <div
             key={variant.id}
-            className="command-card p-4 space-y-3 nvi-reveal"
+            className="command-card nvi-panel p-4 space-y-3 nvi-reveal"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">

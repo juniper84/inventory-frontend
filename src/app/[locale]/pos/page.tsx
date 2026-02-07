@@ -40,6 +40,7 @@ import {
 } from '@/lib/escpos-printer';
 import { buildReceiptLines, type ReceiptData } from '@/lib/receipt-print';
 import { ReceiptPreview } from '@/components/receipts/ReceiptPreview';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Barcode = { id: string; code: string; isActive: boolean };
@@ -982,6 +983,13 @@ export default function PosPage() {
   const branchSelectionRequired =
     !branchId && availableBranches.length > 0;
   const showLoadingOverlay = !coreLoaded;
+  const cartUnits = useMemo(
+    () => cart.reduce((sum, item) => sum + item.quantity, 0),
+    [cart],
+  );
+  const activeBranchName = branchId
+    ? availableBranches.find((branch) => branch.id === branchId)?.name ?? t('selectBranch')
+    : t('selectBranch');
 
   const scanPanel = (
     <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
@@ -1038,7 +1046,7 @@ export default function PosPage() {
         />
         <button
           onClick={handleSearchSubmit}
-          className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
+          className="nvi-cta rounded px-3 py-2 text-sm font-semibold text-black"
         >
           {actions('add')}
         </button>
@@ -1400,7 +1408,7 @@ export default function PosPage() {
       <button
         onClick={completeSale}
         disabled={isCompleting}
-        className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-70"
+        className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-70"
       >
         <span className="inline-flex items-center gap-2">
           {isCompleting ? <Spinner variant="orbit" size="xs" /> : null}
@@ -1469,28 +1477,41 @@ export default function PosPage() {
           </div>
         </div>
       ) : null}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-400">{t('subtitle')}</p>
-        </div>
-        <div className="flex flex-col gap-2 text-xs text-gold-300 sm:items-end">
-          <span>
-            {t('branchLabel', {
-              value: branchId
-                ? availableBranches.find((b) => b.id === branchId)?.name ??
-                  t('selectBranch')
-                : t('selectBranch'),
-            })}
+      <PremiumPageHeader
+        eyebrow="SALES ENGINE"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">{offline ? status('offline') : status('online')}</span>
+            <span className="nvi-badge">{t('pendingSync', { count: pendingSyncCount })}</span>
+          </>
+        }
+        actions={
+          <span className="text-xs text-gold-300">
+            {t('branchLabel', { value: activeBranchName })}
           </span>
-          <div className="flex items-center gap-3">
-            <span className={offline ? 'text-red-400' : 'text-green-400'}>
-              {offline ? status('offline') : status('online')}
-            </span>
-            <span className="text-xs text-gold-400">
-              {t('pendingSync', { count: pendingSyncCount })}
-            </span>
-          </div>
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">ITEMS IN CART</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{cart.length}</p>
+        </div>
+        <div className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">TOTAL UNITS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{cartUnits}</p>
+        </div>
+        <div className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">PAYABLE</p>
+          <p className="mt-2 text-2xl font-semibold text-gold-100">
+            TZS {totals.total.toFixed(2)}
+          </p>
+        </div>
+        <div className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">ACTIVE BRANCH</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{activeBranchName}</p>
         </div>
       </div>
 
@@ -1609,7 +1630,7 @@ export default function PosPage() {
               <button
                 type="button"
                 onClick={handlePreviewPrint}
-                className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
+                className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black"
               >
                 {previewT('printReceipt')}
               </button>

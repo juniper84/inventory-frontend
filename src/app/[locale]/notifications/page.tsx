@@ -20,6 +20,7 @@ import { formatNotificationMessage } from '@/lib/notification-format';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Notification = {
   id: string;
@@ -406,6 +407,8 @@ export default function NotificationsPage() {
 
   const securityItems = items.filter((item) => item.priority === 'SECURITY');
   const regularItems = items.filter((item) => item.priority !== 'SECURITY');
+  const unreadCount = items.filter((item) => item.status !== 'READ').length;
+  const actionRequiredCount = items.filter((item) => item.priority === 'ACTION_REQUIRED').length;
   const selectedCount = selectedIds.size;
   const allSelected = items.length > 0 && selectedCount === items.length;
   const toggleSelectAll = () => {
@@ -436,50 +439,76 @@ export default function NotificationsPage() {
   }
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-2">
-        <h2 className="text-2xl font-semibold text-[color:var(--foreground)]">
-          {t('title')}
-        </h2>
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Alert inbox"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Stream</span>
+            <span className="status-chip">Live</span>
+          </>
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={t('status')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.priority}
-          onChange={(value) => pushFilters({ priority: value })}
-          options={priorityOptions}
-          placeholder={t('priorityLabel')}
-          className="nvi-select-container"
-        />
-        <DatePickerInput
-          value={filters.from}
-          onChange={(value) => pushFilters({ from: value })}
-          placeholder={t('fromDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-        <DatePickerInput
-          value={filters.to}
-          onChange={(value) => pushFilters({ to: value })}
-          placeholder={t('toDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-      </ListFilters>
-      <div className="command-card px-3 py-2 text-xs text-gold-300 nvi-reveal">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Inbox size</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{items.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Unread</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{unreadCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Action required</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{actionRequiredCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Selected</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{selectedCount}</p>
+        </article>
+      </div>
+      <div className="command-card nvi-panel nvi-reveal p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={t('status')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.priority}
+            onChange={(value) => pushFilters({ priority: value })}
+            options={priorityOptions}
+            placeholder={t('priorityLabel')}
+            className="nvi-select-container"
+          />
+          <DatePickerInput
+            value={filters.from}
+            onChange={(value) => pushFilters({ from: value })}
+            placeholder={t('fromDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+          <DatePickerInput
+            value={filters.to}
+            onChange={(value) => pushFilters({ to: value })}
+            placeholder={t('toDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+        </ListFilters>
+      </div>
+      <div className="command-card nvi-panel px-3 py-2 text-xs text-gold-300 nvi-reveal">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
@@ -511,7 +540,7 @@ export default function NotificationsPage() {
               type="button"
               onClick={markAllRead}
               disabled={bulkBusy || !items.length}
-              className="inline-flex items-center gap-2 rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
+              className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
             >
               {bulkBusy ? <Spinner size="xs" variant="dots" /> : null}
               {t('markAllReadAction')}
@@ -576,7 +605,7 @@ export default function NotificationsPage() {
           regularItems.map((item) => (
             <div
               key={item.id}
-              className="command-card p-4 nvi-reveal"
+              className="command-card nvi-panel p-4 nvi-reveal"
             >
               <div className="flex items-center justify-between text-sm text-gold-300">
                 <label className="flex items-center gap-2">

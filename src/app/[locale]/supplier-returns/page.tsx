@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -22,6 +22,7 @@ import { getPermissionSet } from '@/lib/permissions';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Supplier = { id: string; name: string; status: string };
@@ -98,7 +99,7 @@ export default function SupplierReturnsPage() {
     purchaseOrderId: '',
     reason: '',
   });
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
   const [lines, setLines] = useState<SupplierReturnLine[]>([
     {
       id: crypto.randomUUID(),
@@ -124,6 +125,8 @@ export default function SupplierReturnsPage() {
     from: '',
     to: '',
   });
+  const effectiveFilterBranchId = resolveBranchId(filters.branchId) || '';
+  const effectiveFormBranchId = resolveBranchId(form.branchId) || '';
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchDraft, 350);
 
@@ -139,7 +142,7 @@ export default function SupplierReturnsPage() {
 
   const branchOptions = useMemo(
     () => [
-      { value: '', label: common('allBranches') },
+      { value: '', label: common('globalBranch') },
       ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
     ],
     [branches, common],
@@ -154,6 +157,14 @@ export default function SupplierReturnsPage() {
       })),
     ],
     [suppliers, common],
+  );
+  const pendingCount = useMemo(
+    () => returns.filter((entry) => entry.status === 'PENDING').length,
+    [returns],
+  );
+  const completedCount = useMemo(
+    () => returns.filter((entry) => entry.status === 'COMPLETED').length,
+    [returns],
   );
 
   useEffect(() => {
@@ -187,7 +198,7 @@ export default function SupplierReturnsPage() {
         cursor,
         search: filters.search || undefined,
         status: filters.status || undefined,
-        branchId: filters.branchId || undefined,
+        branchId: effectiveFilterBranchId || undefined,
         supplierId: filters.supplierId || undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
@@ -305,7 +316,7 @@ export default function SupplierReturnsPage() {
 
   const createReturn = async () => {
     const token = getAccessToken();
-    if (!token || !form.branchId || !form.supplierId) {
+    if (!token || !effectiveFormBranchId || !form.supplierId) {
       return;
     }
     const payloadLines = lines
@@ -327,7 +338,7 @@ export default function SupplierReturnsPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          branchId: form.branchId,
+          branchId: effectiveFormBranchId,
           supplierId: form.supplierId,
           purchaseId: form.purchaseId || undefined,
           purchaseOrderId: form.purchaseOrderId || undefined,
@@ -376,9 +387,18 @@ export default function SupplierReturnsPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-      <p className="text-sm text-gold-300">{t('subtitle')}</p>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Returns control"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Supplier returns</span>
+            <span className="status-chip">Live</span>
+          </>
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
       {approvalNotice ? (
         <div className="rounded border border-gold-500/60 bg-gold-500/10 p-3 text-sm text-gold-100">
@@ -390,51 +410,71 @@ export default function SupplierReturnsPage() {
           </p>
         </div>
       ) : null}
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.branchId}
-          onChange={(value) => pushFilters({ branchId: value })}
-          options={branchOptions}
-          placeholder={common('branch')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.supplierId}
-          onChange={(value) => pushFilters({ supplierId: value })}
-          options={supplierOptions}
-          placeholder={common('supplier')}
-          className="nvi-select-container"
-        />
-        <DatePickerInput
-          value={filters.from}
-          onChange={(value) => pushFilters({ from: value })}
-          placeholder={common('fromDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-        <DatePickerInput
-          value={filters.to}
-          onChange={(value) => pushFilters({ to: value })}
-          placeholder={common('toDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-      </ListFilters>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Open cases</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{returns.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Pending</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{pendingCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Completed</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{completedCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Linked receipts</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{receivings.length}</p>
+        </article>
+      </div>
+      <div className="command-card nvi-reveal nvi-panel p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={common('status')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.branchId}
+            onChange={(value) => pushFilters({ branchId: value })}
+            options={branchOptions}
+            placeholder={common('branch')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.supplierId}
+            onChange={(value) => pushFilters({ supplierId: value })}
+            options={supplierOptions}
+            placeholder={common('supplier')}
+            className="nvi-select-container"
+          />
+          <DatePickerInput
+            value={filters.from}
+            onChange={(value) => pushFilters({ from: value })}
+            placeholder={common('fromDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+          <DatePickerInput
+            value={filters.to}
+            onChange={(value) => pushFilters({ to: value })}
+            placeholder={common('toDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+        </ListFilters>
+      </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('createTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
@@ -603,7 +643,7 @@ export default function SupplierReturnsPage() {
           <button
             type="button"
             onClick={createReturn}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isCreating || !canWrite}
             title={!canWrite ? noAccess('title') : undefined}
           >
@@ -613,7 +653,7 @@ export default function SupplierReturnsPage() {
         </div>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('recentTitle')}</h3>
         <div className="space-y-3 text-sm text-gold-200">
           {returns.map((entry) => (

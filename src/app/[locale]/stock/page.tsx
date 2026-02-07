@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { SmartSelect } from '@/components/SmartSelect';
 import { Spinner } from '@/components/Spinner';
@@ -23,6 +23,7 @@ import { formatVariantLabel } from '@/lib/display';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Category = { id: string; name: string };
@@ -103,7 +104,9 @@ export default function StockOnHandPage() {
   });
   const [isSavingReorder, setIsSavingReorder] = useState(false);
   const [isLoadingReorder, setIsLoadingReorder] = useState(false);
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
+  const effectiveFilterBranchId = resolveBranchId(filters.branchId) || '';
+  const effectiveReorderBranchId = resolveBranchId(reorderForm.branchId) || '';
 
   const loadLookups = async () => {
     const token = getAccessToken();
@@ -141,7 +144,7 @@ export default function StockOnHandPage() {
       const query = buildCursorQuery({
         limit: effectivePageSize,
         cursor: cursor ?? undefined,
-        branchId: filters.branchId || undefined,
+        branchId: effectiveFilterBranchId || undefined,
         variantId: filters.variantId || undefined,
         search: filters.search || undefined,
         status: filters.status || undefined,
@@ -224,7 +227,9 @@ export default function StockOnHandPage() {
     if (!token) {
       return;
     }
-    const branchFilter = filters.branchId || reorderForm.branchId;
+    const branchFilter =
+      resolveBranchId(filters.branchId) ||
+      resolveBranchId(reorderForm.branchId);
     const query = branchFilter ? `?branchId=${branchFilter}` : '';
     setIsLoadingReorder(true);
     Promise.all([
@@ -273,7 +278,7 @@ export default function StockOnHandPage() {
 
   const branchOptions = useMemo(
     () => [
-      { value: '', label: common('allBranches') },
+      { value: '', label: common('globalBranch') },
       ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
     ],
     [branches, common],
@@ -322,7 +327,7 @@ export default function StockOnHandPage() {
     const token = getAccessToken();
     if (
       !token ||
-      !reorderForm.branchId ||
+      !effectiveReorderBranchId ||
       !reorderForm.variantId ||
       !reorderForm.minQuantity ||
       !reorderForm.reorderQuantity
@@ -336,7 +341,7 @@ export default function StockOnHandPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          branchId: reorderForm.branchId,
+          branchId: effectiveReorderBranchId,
           variantId: reorderForm.variantId,
           minQuantity: Number(reorderForm.minQuantity),
           reorderQuantity: Number(reorderForm.reorderQuantity),
@@ -348,8 +353,8 @@ export default function StockOnHandPage() {
         minQuantity: '',
         reorderQuantity: '',
       }));
-      const query = reorderForm.branchId
-        ? `?branchId=${reorderForm.branchId}`
+      const query = effectiveReorderBranchId
+        ? `?branchId=${effectiveReorderBranchId}`
         : '';
       const [pointsData, suggestionData] = await Promise.all([
         apiFetch<PaginatedResponse<ReorderPoint> | ReorderPoint[]>(
@@ -379,21 +384,48 @@ export default function StockOnHandPage() {
   }
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-[color:var(--foreground)]">
-            {t('title')}
-          </h2>
-          <p className="text-sm text-[color:var(--muted)]">{t('subtitle')}</p>
-        </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('title')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Snapshot rows
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{snapshots.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Reorder points
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{reorderPoints.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Suggestions
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{reorderSuggestions.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Active branch
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">
+            {activeBranch?.name ?? common('globalBranch')}
+          </p>
+        </article>
+      </div>
       <ListFilters
         searchValue={searchDraft}
         onSearchChange={setSearchDraft}
@@ -432,7 +464,7 @@ export default function StockOnHandPage() {
           className="nvi-select-container"
         />
       </ListFilters>
-      <div className="command-card p-4 nvi-reveal">
+      <div className="command-card nvi-panel p-4 nvi-reveal">
         {viewMode === 'table' ? (
           <div className="grid grid-cols-1 gap-2 text-sm text-[color:var(--foreground)] md:grid-cols-7">
             <span className="text-xs uppercase text-[color:var(--muted)]">
@@ -549,7 +581,7 @@ export default function StockOnHandPage() {
         </div>
       </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-gold-100">{t('reorderTitle')}</h3>
           {isLoadingReorder ? (
@@ -619,7 +651,7 @@ export default function StockOnHandPage() {
           onClick={saveReorderPoint}
           disabled={!canWrite || isSavingReorder}
           title={!canWrite ? noAccess('title') : undefined}
-          className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
         >
           {isSavingReorder ? <Spinner variant="orbit" size="xs" /> : null}
           {isSavingReorder ? t('saving') : t('saveReorder')}
@@ -651,7 +683,7 @@ export default function StockOnHandPage() {
         </div>
       </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">
           {t('reorderSuggestionsTitle')}
         </h3>

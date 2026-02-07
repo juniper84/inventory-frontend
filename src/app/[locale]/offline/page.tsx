@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -23,6 +23,7 @@ import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { StatusBanner } from '@/components/StatusBanner';
 import { getPermissionSet } from '@/lib/permissions';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type OfflineStatus = {
   device?: {
@@ -121,6 +122,12 @@ export default function OfflinePage() {
     };
     load();
   }, [deviceId]);
+  const queueUsagePercent = useMemo(() => {
+    if (!queueStats?.maxItems) {
+      return 0;
+    }
+    return Math.min(100, Math.round((queueStats.count / queueStats.maxItems) * 100));
+  }, [queueStats]);
 
   const registerDevice = async () => {
     const token = getAccessToken();
@@ -229,13 +236,40 @@ export default function OfflinePage() {
 
   return (
     <section className="space-y-4">
-      <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-      <p className="text-sm text-gold-300">
-        {t('subtitle')}
-      </p>
+      <PremiumPageHeader
+        eyebrow="OFFLINE COMMAND"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">DEVICE STATE</span>
+            <span className="nvi-badge">SYNC WATCH</span>
+          </>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">DEVICE</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {status?.device?.status ?? t('notRegistered')}
+          </p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">PENDING ACTIONS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{pendingCount}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">QUEUE LOAD</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{queueUsagePercent}%</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">LAST SYNC</p>
+          <p className="mt-2 text-sm font-semibold text-gold-100">{lastSyncAt ?? t('never')}</p>
+        </article>
+      </div>
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-        <div className="space-y-4 command-card p-6 nvi-reveal">
+        <div className="space-y-4 command-card nvi-panel p-6 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('deviceTitle')}</h3>
           <div className="text-sm text-gold-300">
             <p>{t('deviceId', { id: deviceId })}</p>
@@ -268,7 +302,7 @@ export default function OfflinePage() {
             <button
               type="button"
               onClick={registerDevice}
-              className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
+              className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
               disabled={isRegistering || !canWrite}
               title={!canWrite ? noAccess('title') : undefined}
             >
@@ -278,7 +312,7 @@ export default function OfflinePage() {
             <button
               type="button"
               onClick={syncNow}
-              className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
+              className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
               disabled={isSyncing || !canWrite}
               title={!canWrite ? noAccess('title') : undefined}
             >
@@ -306,7 +340,7 @@ export default function OfflinePage() {
           </div>
         </div>
 
-        <div className="space-y-4 command-card p-6 nvi-reveal">
+        <div className="space-y-4 command-card nvi-panel p-6 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('safeguards')}</h3>
           <div className="text-sm text-gold-300 space-y-2">
             <p>
@@ -375,7 +409,7 @@ export default function OfflinePage() {
           </div>
         </div>
       </div>
-      <div className="command-card p-6 nvi-reveal">
+      <div className="command-card nvi-panel p-6 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('receiptsTitle')}</h3>
         {receiptHistory.length === 0 ? (
           <StatusBanner message={t('noReceipts')} />

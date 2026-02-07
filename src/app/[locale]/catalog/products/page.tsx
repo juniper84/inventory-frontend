@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { Spinner } from '@/components/Spinner';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -22,6 +22,7 @@ import { getPermissionSet } from '@/lib/permissions';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Category = { id: string; name: string };
 type ProductImage = {
@@ -93,7 +94,7 @@ export default function ProductsPage() {
     1: null,
   });
   const [total, setTotal] = useState<number | null>(null);
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
   const { filters, pushFilters, resetFilters } = useListFilters({
     search: '',
     status: '',
@@ -132,6 +133,14 @@ export default function ProductsPage() {
       { value: 'no', label: common('no') },
     ],
     [common],
+  );
+  const withImagesCount = useMemo(
+    () => products.filter((product) => product.images.some((img) => img.status === 'ACTIVE')).length,
+    [products],
+  );
+  const activeCount = useMemo(
+    () => products.filter((product) => product.status === 'ACTIVE').length,
+    [products],
   );
 
   useEffect(() => {
@@ -272,11 +281,12 @@ export default function ProductsPage() {
       >(`/variants?limit=50&productId=${productId}`, { token });
       const variantsResult = normalizePaginated(variantData).items;
       const sampleVariants = variantsResult.slice(0, 6);
+      const scopedBranchId = resolveBranchId();
       const stockData = await Promise.all(
         sampleVariants.map((variant) =>
           apiFetch<PaginatedResponse<StockSnapshot> | StockSnapshot[]>(
             `/stock?limit=10&variantId=${variant.id}${
-              activeBranch?.id ? `&branchId=${activeBranch.id}` : ''
+              scopedBranchId ? `&branchId=${scopedBranchId}` : ''
             }`,
             { token },
           ),
@@ -289,7 +299,7 @@ export default function ProductsPage() {
         sampleVariants.map((variant) =>
           apiFetch<PaginatedResponse<StockMovement> | StockMovement[]>(
             `/stock/movements?limit=5&variantId=${variant.id}${
-              activeBranch?.id ? `&branchId=${activeBranch.id}` : ''
+              scopedBranchId ? `&branchId=${scopedBranchId}` : ''
             }`,
             { token },
           ),
@@ -414,58 +424,87 @@ export default function ProductsPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Catalog command"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Products</span>
+            <span className="status-chip">Media-aware</span>
+          </>
+        }
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.categoryId}
-          onChange={(value) => pushFilters({ categoryId: value })}
-          options={categoryOptions}
-          placeholder={common('category')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.hasVariants}
-          onChange={(value) => pushFilters({ hasVariants: value })}
-          options={yesNoOptions}
-          placeholder={t('hasVariants')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.hasImages}
-          onChange={(value) => pushFilters({ hasImages: value })}
-          options={yesNoOptions}
-          placeholder={t('hasImages')}
-          className="nvi-select-container"
-        />
-      </ListFilters>
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Products</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{products.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">With images</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{withImagesCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Catalog focus</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {filters.categoryId ? resolveCategoryName(filters.categoryId) : common('allCategories')}
+          </p>
+        </article>
+      </div>
+      <div className="command-card nvi-reveal nvi-panel p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.categoryId}
+            onChange={(value) => pushFilters({ categoryId: value })}
+            options={categoryOptions}
+            placeholder={common('category')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={common('status')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.hasVariants}
+            onChange={(value) => pushFilters({ hasVariants: value })}
+            options={yesNoOptions}
+            placeholder={t('hasVariants')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.hasImages}
+            onChange={(value) => pushFilters({ hasImages: value })}
+            options={yesNoOptions}
+            placeholder={t('hasImages')}
+            className="nvi-select-container"
+          />
+        </ListFilters>
+      </div>
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('newProduct')}</h3>
         <p className="text-xs text-gold-400">
           {t('wizardHint')}
@@ -514,7 +553,7 @@ export default function ProductsPage() {
           onClick={createProduct}
           disabled={!canWrite || isCreating}
           title={!canWrite ? noAccess('title') : undefined}
-          className="rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
         >
           <span className="inline-flex items-center gap-2">
             {isCreating ? <Spinner variant="orbit" size="xs" /> : null}
@@ -523,7 +562,7 @@ export default function ProductsPage() {
         </button>
       </div>
       {viewMode === 'table' ? (
-        <div className="command-card p-4 nvi-reveal">
+        <div className="command-card nvi-panel p-4 nvi-reveal">
           {!products.length ? (
             <StatusBanner message={t('noProducts')} />
           ) : (
@@ -604,7 +643,7 @@ export default function ProductsPage() {
           return (
             <div
               key={product.id}
-              className="command-card p-4 space-y-3 nvi-reveal"
+              className="command-card nvi-panel p-4 space-y-3 nvi-reveal"
             >
               <div className="flex items-start gap-3">
                 <div className="h-16 w-16 overflow-hidden rounded border border-gold-700/40 bg-black">

@@ -10,7 +10,7 @@ import {
   getApiErrorMessageFromResponse,
 } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -26,6 +26,7 @@ import { DatePickerInput } from '@/components/DatePickerInput';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type ExportJob = {
   id: string;
@@ -98,7 +99,7 @@ export default function ExportsPage() {
   const [workerStatus, setWorkerStatus] = useState<ExportWorkerStatus | null>(
     null,
   );
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
   const { filters, pushFilters, resetFilters } = useListFilters({
     search: '',
     status: '',
@@ -157,7 +158,7 @@ export default function ExportsPage() {
 
   const branchOptions = useMemo(
     () => [
-      { value: '', label: common('allBranches') },
+      { value: '', label: common('globalBranch') },
       ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
     ],
     [branches, common],
@@ -190,7 +191,7 @@ export default function ExportsPage() {
         search: filters.search || undefined,
         status: filters.status || undefined,
         type: filters.type || undefined,
-        branchId: filters.branchId || undefined,
+        branchId: resolveBranchId(filters.branchId) || undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
         includeTotal: targetPage === 1 ? '1' : undefined,
@@ -266,6 +267,15 @@ export default function ExportsPage() {
       setBranchId(activeBranch.id);
     }
   }, [activeBranch?.id, branchId]);
+  const completedJobs = useMemo(
+    () => jobs.filter((job) => job.status === 'COMPLETED').length,
+    [jobs],
+  );
+  const failedJobs = useMemo(
+    () => jobs.filter((job) => job.status === 'FAILED').length,
+    [jobs],
+  );
+  const queuePending = workerStatus?.queue.pending ?? 0;
 
   const createExport = async () => {
     const token = getAccessToken();
@@ -281,7 +291,7 @@ export default function ExportsPage() {
         body: JSON.stringify({
           type: exportType,
           acknowledgement: exportType === 'AUDIT_LOGS' && auditAck ? 'YES' : undefined,
-          branchId: branchId || undefined,
+          branchId: resolveBranchId(branchId) || undefined,
         }),
       });
       await loadJobs();
@@ -421,13 +431,38 @@ export default function ExportsPage() {
 
   return (
     <section className="space-y-4">
-      <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-      <p className="text-sm text-gold-300">
-        {t('subtitle')}
-      </p>
+      <PremiumPageHeader
+        eyebrow="DATA PIPELINE"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">QUEUE WATCH</span>
+            <span className="nvi-badge">IMPORT READY</span>
+          </>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">VISIBLE JOBS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{jobs.length}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">COMPLETED</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{completedJobs}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">FAILED</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{failedJobs}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">QUEUE PENDING</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{queuePending}</p>
+        </article>
+      </div>
       {message ? <StatusBanner message={message} /> : null}
       {workerStatus ? (
-        <div className="command-card p-4 text-sm text-gold-200 nvi-reveal">
+        <div className="command-card nvi-panel p-4 text-sm text-gold-200 nvi-reveal">
           <p className="text-gold-100 font-semibold">{t('workerTitle')}</p>
           <p>
             {t('workerStatus')}:{' '}
@@ -456,7 +491,7 @@ export default function ExportsPage() {
         </div>
       ) : null}
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('createExport')}</h3>
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-[220px]">
@@ -493,7 +528,7 @@ export default function ExportsPage() {
           <button
             type="button"
             onClick={createExport}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isCreating}
           >
             {isCreating ? <Spinner size="xs" variant="orbit" /> : null}
@@ -502,7 +537,7 @@ export default function ExportsPage() {
         </div>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-gold-100">{t('exportJobs')}</h3>
           <ViewToggle
@@ -683,7 +718,7 @@ export default function ExportsPage() {
         />
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('importPreview')}</h3>
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-[220px]">
@@ -706,7 +741,7 @@ export default function ExportsPage() {
           <button
             type="button"
             onClick={applyImport}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isApplying}
           >
             {isApplying ? <Spinner size="xs" variant="pulse" /> : null}

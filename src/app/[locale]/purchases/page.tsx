@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getOrCreateDeviceId } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import {
   enqueueOfflineAction,
   getOfflineCache,
@@ -31,6 +31,7 @@ import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Supplier = { id: string; name: string; status: string };
@@ -93,7 +94,7 @@ export default function PurchasesPage() {
     branchId: '',
     supplierId: '',
   });
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
   const [lines, setLines] = useState<PurchaseLine[]>([
     { id: crypto.randomUUID(), variantId: '', quantity: '', unitCost: '', unitId: '' },
   ]);
@@ -112,6 +113,8 @@ export default function PurchasesPage() {
     from: '',
     to: '',
   });
+  const effectiveFilterBranchId = resolveBranchId(filters.branchId) || '';
+  const effectiveFormBranchId = resolveBranchId(form.branchId) || '';
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchDraft, 350);
 
@@ -130,7 +133,7 @@ export default function PurchasesPage() {
 
   const branchOptions = useMemo(
     () => [
-      { value: '', label: common('allBranches') },
+      { value: '', label: common('globalBranch') },
       ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
     ],
     [branches, common],
@@ -213,7 +216,7 @@ export default function PurchasesPage() {
         cursor: cursor ?? undefined,
         search: filters.search || undefined,
         status: filters.status || undefined,
-        branchId: filters.branchId || undefined,
+        branchId: effectiveFilterBranchId || undefined,
         supplierId: filters.supplierId || undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
@@ -316,7 +319,7 @@ export default function PurchasesPage() {
 
   const createPurchase = async () => {
     const token = getAccessToken();
-    if (!token || !form.branchId || !form.supplierId) {
+    if (!token || !effectiveFormBranchId || !form.supplierId) {
       return;
     }
     const payloadLines = lines
@@ -353,7 +356,7 @@ export default function PurchasesPage() {
           actionType: 'PURCHASE_DRAFT',
           payload: {
             deviceId: getOrCreateDeviceId(),
-            branchId: form.branchId,
+            branchId: effectiveFormBranchId,
             supplierId: form.supplierId,
             lines: payloadLines,
             idempotencyKey: actionId,
@@ -387,7 +390,7 @@ export default function PurchasesPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          branchId: form.branchId,
+          branchId: effectiveFormBranchId,
           supplierId: form.supplierId,
           lines: payloadLines,
         }),
@@ -462,21 +465,48 @@ export default function PurchasesPage() {
   }
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-[color:var(--foreground)]">
-            {t('title')}
-          </h2>
-          <p className="text-sm text-[color:var(--muted)]">{t('subtitle')}</p>
-        </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('title')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Purchase rows
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{purchases.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Draft lines
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{lines.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Payment target
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">
+            {paymentForm.purchaseId ? 'Selected' : 'None'}
+          </p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Current page
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{page}</p>
+        </article>
+      </div>
       <ListFilters
         searchValue={searchDraft}
         onSearchChange={setSearchDraft}
@@ -551,7 +581,7 @@ export default function PurchasesPage() {
         </div>
       ) : null}
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('createTitle')}</h3>
         <div className="grid gap-3 sm:grid-cols-2">
           <SmartSelect
@@ -577,7 +607,7 @@ export default function PurchasesPage() {
             className="nvi-select-container"
           />
         </div>
-        <div className="space-y-2">
+        <div className="space-y-2 nvi-stagger">
           {lines.map((line) => (
             <div key={line.id} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               <SmartSelect
@@ -655,7 +685,7 @@ export default function PurchasesPage() {
           <button
             type="button"
             onClick={createPurchase}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canWrite || isCreating}
             title={!canWrite ? noAccess('title') : undefined}
           >
@@ -665,7 +695,7 @@ export default function PurchasesPage() {
         </div>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('paymentTitle')}</h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="md:col-span-2">
@@ -730,7 +760,7 @@ export default function PurchasesPage() {
         <button
           type="button"
           onClick={recordPayment}
-          className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={!canWrite || isRecording}
           title={!canWrite ? noAccess('title') : undefined}
         >
@@ -739,7 +769,7 @@ export default function PurchasesPage() {
         </button>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('listTitle')}</h3>
         {viewMode === 'table' ? (
           purchases.length === 0 ? (

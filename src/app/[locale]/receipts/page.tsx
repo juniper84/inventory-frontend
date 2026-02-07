@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -33,6 +33,7 @@ import { ReceiptPreview } from '@/components/receipts/ReceiptPreview';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type ReceiptData = ReceiptPrintData;
 
@@ -104,7 +105,7 @@ export default function ReceiptsPage() {
     reason: '',
   });
   const [returnToStock, setReturnToStock] = useState(true);
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
   const [returnItems, setReturnItems] = useState([
     { variantId: '', quantity: '', unitPrice: '' },
   ]);
@@ -121,12 +122,14 @@ export default function ReceiptsPage() {
     from: '',
     to: '',
   });
+  const effectiveFilterBranchId = resolveBranchId(filters.branchId) || '';
+  const effectiveReturnBranchId = resolveBranchId(returnForm.branchId) || '';
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchDraft, 350);
 
   const branchOptions = useMemo(
     () => [
-      { value: '', label: common('allBranches') },
+      { value: '', label: common('globalBranch') },
       ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
     ],
     [branches, common],
@@ -169,7 +172,7 @@ export default function ReceiptsPage() {
         limit: effectivePageSize,
         cursor: cursor ?? undefined,
         search: filters.search || undefined,
-        branchId: filters.branchId || undefined,
+        branchId: effectiveFilterBranchId || undefined,
         paymentMethod: filters.paymentMethod || undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
@@ -405,7 +408,7 @@ export default function ReceiptsPage() {
 
   const submitReturnWithoutReceipt = async () => {
     const token = getAccessToken();
-    if (!token || !returnForm.branchId) {
+    if (!token || !effectiveReturnBranchId) {
       return;
     }
     const items = returnItems
@@ -428,7 +431,7 @@ export default function ReceiptsPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          branchId: returnForm.branchId,
+          branchId: effectiveReturnBranchId,
           customerId: returnForm.customerId || undefined,
           reason: returnForm.reason || undefined,
           returnToStock,
@@ -499,39 +502,68 @@ export default function ReceiptsPage() {
   };
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={connectPrinter}
-            className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
-            disabled={isConnectingPrinter}
-          >
-            {isConnectingPrinter ? t('printerConnecting') : t('connectPrinter')}
-          </button>
-          <label className="flex items-center gap-2 text-xs text-gold-200">
-            <input
-              type="checkbox"
-              className="h-3 w-3 accent-gold-400"
-              checked={useHardwarePrint}
-              onChange={(event) => setUseHardwarePrint(event.target.checked)}
-              disabled={!printer}
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('title')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={connectPrinter}
+              className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
+              disabled={isConnectingPrinter}
+            >
+              {isConnectingPrinter ? t('printerConnecting') : t('connectPrinter')}
+            </button>
+            <label className="flex items-center gap-2 text-xs text-gold-200">
+              <input
+                type="checkbox"
+                className="h-3 w-3 accent-gold-400"
+                checked={useHardwarePrint}
+                onChange={(event) => setUseHardwarePrint(event.target.checked)}
+                disabled={!printer}
+              />
+              {t('hardwarePrint')}
+            </label>
+            <ViewToggle
+              value={viewMode}
+              onChange={setViewMode}
+              labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
             />
-            {t('hardwarePrint')}
-          </label>
-          <ViewToggle
-            value={viewMode}
-            onChange={setViewMode}
-            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-          />
-        </div>
-      </div>
+          </>
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Receipt rows
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{receipts.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Current page
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{page}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Outstanding
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{outstandingAmount.toFixed(2)}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Selected receipt
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">
+            {selected ? selected.receiptNumber : 'None'}
+          </p>
+        </article>
+      </div>
       <ListFilters
         searchValue={searchDraft}
         onSearchChange={setSearchDraft}
@@ -569,7 +601,7 @@ export default function ReceiptsPage() {
         />
       </ListFilters>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         {viewMode === 'table' ? (
           receipts.length === 0 ? (
             <StatusBanner message={t('noReceipts')} />
@@ -678,7 +710,7 @@ export default function ReceiptsPage() {
       </div>
 
       {selected ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-gold-100">
@@ -721,7 +753,7 @@ export default function ReceiptsPage() {
       ) : null}
 
       {selected?.sale && outstandingAmount > 0 ? (
-        <div className="command-card p-4 space-y-2 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-2 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">
             {t('settlementTitle')}
           </h3>
@@ -778,7 +810,7 @@ export default function ReceiptsPage() {
           </div>
           <button
             onClick={submitSettlement}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canWrite || isSettling}
             title={!canWrite ? noAccess('title') : undefined}
           >
@@ -789,7 +821,7 @@ export default function ReceiptsPage() {
       ) : null}
 
       {selected?.sale ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">
             {t('refundTitle')}
           </h3>
@@ -812,7 +844,7 @@ export default function ReceiptsPage() {
           <button
             type="button"
             onClick={refundSale}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canWrite || isRefunding}
             title={!canWrite ? noAccess('title') : undefined}
           >
@@ -822,7 +854,7 @@ export default function ReceiptsPage() {
         </div>
       ) : null}
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">
           {t('returnTitle')}
         </h3>
@@ -870,7 +902,7 @@ export default function ReceiptsPage() {
             {t('returnToStock')}
           </label>
         </div>
-        <div className="space-y-2">
+        <div className="space-y-2 nvi-stagger">
           {returnItems.map((item, index) => (
             <div key={`return-${index}`} className="grid gap-2 md:grid-cols-3">
               <SmartSelect
@@ -924,7 +956,7 @@ export default function ReceiptsPage() {
           <button
             type="button"
             onClick={submitReturnWithoutReceipt}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canWrite || isReturning}
             title={!canWrite ? noAccess('title') : undefined}
           >

@@ -22,6 +22,7 @@ import {
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Role = { id: string; name: string };
 type Branch = { id: string; name: string };
@@ -352,11 +353,36 @@ export default function UsersPage() {
 
   return (
     <section className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-semibold text-[color:var(--foreground)]">
-          {t('title')}
-        </h2>
-        <p className="text-sm text-[color:var(--muted)]">{t('subtitle')}</p>
+      <PremiumPageHeader
+        eyebrow="ACCESS CONTROL"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">TEAM OPS</span>
+            <span className="nvi-badge">ROLE SCOPED</span>
+          </>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">VISIBLE USERS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{users.length}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ACTIVE</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">
+            {users.filter((user) => user.status === 'ACTIVE').length}
+          </p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ROLES</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{roles.length}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">BRANCHES</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
+        </article>
       </div>
       {message ? <StatusBanner message={message} /> : null}
       <ListFilters
@@ -384,7 +410,7 @@ export default function UsersPage() {
         />
       </ListFilters>
 
-      <div className="command-card p-6 space-y-4 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('inviteTitle')}</h3>
         <div className="flex flex-col gap-3 md:flex-row">
           <input
@@ -407,7 +433,7 @@ export default function UsersPage() {
             onClick={invite}
             disabled={isInviting || !canInvite}
             title={!canInvite ? noAccess('title') : undefined}
-            className="rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:opacity-70"
+            className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
           >
             <span className="inline-flex items-center gap-2">
               {isInviting ? <Spinner variant="dots" size="xs" /> : null}
@@ -417,7 +443,7 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('currentUsers')}</h3>
         {!users.length ? <StatusBanner message={t('empty')} /> : null}
         <div className="space-y-3 nvi-stagger">
@@ -544,7 +570,7 @@ export default function UsersPage() {
                     onClick={saveEdit}
                     disabled={isSaving || !canEdit}
                     title={!canEdit ? noAccess('title') : undefined}
-                    className="rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black disabled:opacity-70"
+                    className="nvi-cta rounded px-3 py-1 text-xs font-semibold text-black disabled:opacity-70"
                   >
                     <span className="inline-flex items-center gap-2">
                       {isSaving ? <Spinner variant="grid" size="xs" /> : null}
@@ -579,7 +605,7 @@ export default function UsersPage() {
       </div>
 
       {roleTargetUserId ? (
-        <div className="command-card p-6 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gold-100">
               {t('roleAssignments')}
@@ -619,7 +645,7 @@ export default function UsersPage() {
               onClick={assignRole}
               disabled={isAssigning || !canEdit}
               title={!canEdit ? noAccess('title') : undefined}
-              className="rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:opacity-70"
+              className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
             >
               <span className="inline-flex items-center gap-2">
                 {isAssigning ? <Spinner variant="pulse" size="xs" /> : null}

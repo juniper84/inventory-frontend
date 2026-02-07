@@ -8,7 +8,7 @@ import { useToastState } from '@/lib/app-notifications';
 import type { Dispatch, SetStateAction } from 'react';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -27,6 +27,7 @@ import { getPermissionSet } from '@/lib/permissions';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Supplier = { id: string; name: string; status: string; leadTimeDays?: number | null };
@@ -96,7 +97,7 @@ export default function PurchaseOrdersPage() {
     approvalId?: string;
   } | null>(null);
   const [form, setForm] = useState({ branchId: '', supplierId: '', expectedAt: '' });
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
   const [lines, setLines] = useState<PurchaseOrderLine[]>([
     { id: crypto.randomUUID(), variantId: '', quantity: '', unitCost: '', unitId: '' },
   ]);
@@ -117,6 +118,8 @@ export default function PurchaseOrdersPage() {
     from: '',
     to: '',
   });
+  const effectiveFilterBranchId = resolveBranchId(filters.branchId) || '';
+  const effectiveFormBranchId = resolveBranchId(form.branchId) || '';
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchDraft, 350);
 
@@ -136,7 +139,7 @@ export default function PurchaseOrdersPage() {
 
   const branchOptions = useMemo(
     () => [
-      { value: '', label: common('allBranches') },
+      { value: '', label: common('globalBranch') },
       ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
     ],
     [branches, common],
@@ -195,6 +198,25 @@ export default function PurchaseOrdersPage() {
       ? parts.join(' • ')
       : formatEntityLabel({ id: order.id }, common('unknown'));
   };
+  const pendingApprovalCount = useMemo(
+    () => orders.filter((order) => order.status === 'PENDING_APPROVAL').length,
+    [orders],
+  );
+  const approvedCount = useMemo(
+    () =>
+      orders.filter((order) =>
+        ['APPROVED', 'PARTIALLY_RECEIVED', 'FULLY_RECEIVED'].includes(order.status),
+      ).length,
+    [orders],
+  );
+  const expectedSoonCount = useMemo(() => {
+    const inAWeek = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    return orders.filter((order) => {
+      if (!order.expectedAt) return false;
+      const ts = new Date(order.expectedAt).getTime();
+      return Number.isFinite(ts) && ts <= inAWeek;
+    }).length;
+  }, [orders]);
 
   const load = async (targetPage = 1, nextPageSize?: number) => {
     setIsLoading(true);
@@ -212,7 +234,7 @@ export default function PurchaseOrdersPage() {
         cursor: cursor ?? undefined,
         search: filters.search || undefined,
         status: filters.status || undefined,
-        branchId: filters.branchId || undefined,
+        branchId: effectiveFilterBranchId || undefined,
         supplierId: filters.supplierId || undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
@@ -288,13 +310,13 @@ export default function PurchaseOrdersPage() {
 
   useEffect(() => {
     const token = getAccessToken();
-    if (!token || !form.branchId) {
+    if (!token || !effectiveFormBranchId) {
       setReorderSuggestions([]);
       return;
     }
     setIsLoadingSuggestions(true);
     apiFetch<ReorderSuggestion[]>(
-      `/stock/reorder-suggestions?branchId=${form.branchId}`,
+      `/stock/reorder-suggestions?branchId=${effectiveFormBranchId}`,
       { token },
     )
       .then((data) => setReorderSuggestions(data))
@@ -307,7 +329,7 @@ export default function PurchaseOrdersPage() {
         });
       })
       .finally(() => setIsLoadingSuggestions(false));
-  }, [form.branchId]);
+  }, [effectiveFormBranchId]);
 
   const updateLine = (
     id: string,
@@ -341,7 +363,7 @@ export default function PurchaseOrdersPage() {
 
   const createOrder = async () => {
     const token = getAccessToken();
-    if (!token || !form.branchId || !form.supplierId) {
+    if (!token || !effectiveFormBranchId || !form.supplierId) {
       return;
     }
     const payloadLines = lines
@@ -362,7 +384,7 @@ export default function PurchaseOrdersPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          branchId: form.branchId,
+          branchId: effectiveFormBranchId,
           supplierId: form.supplierId,
           expectedAt: form.expectedAt || undefined,
           lines: payloadLines,
@@ -512,26 +534,33 @@ export default function PurchaseOrdersPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href={`/${locale}/purchase-orders/wizard`}
-            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-          >
-            {t('openWizard')}
-          </Link>
-          <ViewToggle
-            value={viewMode}
-            onChange={setViewMode}
-            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-          />
-        </div>
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Procurement command"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Live</span>
+            <span className="status-chip">Warehouse</span>
+          </>
+        }
+        actions={
+          <>
+            <Link
+              href={`/${locale}/purchase-orders/wizard`}
+              className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+            >
+              {t('openWizard')}
+            </Link>
+            <ViewToggle
+              value={viewMode}
+              onChange={setViewMode}
+              labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+            />
+          </>
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
       {approvalNotice ? (
         <div className="rounded border border-gold-500/60 bg-gold-500/10 p-3 text-sm text-gold-100">
@@ -541,51 +570,79 @@ export default function PurchaseOrdersPage() {
           </p>
         </div>
       ) : null}
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.branchId}
-          onChange={(value) => pushFilters({ branchId: value })}
-          options={branchOptions}
-          placeholder={common('branch')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.supplierId}
-          onChange={(value) => pushFilters({ supplierId: value })}
-          options={supplierOptions}
-          placeholder={common('supplier')}
-          className="nvi-select-container"
-        />
-        <DatePickerInput
-          value={filters.from}
-          onChange={(value) => pushFilters({ from: value })}
-          placeholder={common('fromDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-        <DatePickerInput
-          value={filters.to}
-          onChange={(value) => pushFilters({ to: value })}
-          placeholder={common('toDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-      </ListFilters>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Open orders
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{orders.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Pending approval
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{pendingApprovalCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Approved flow
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{approvedCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Due in 7 days
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{expectedSoonCount}</p>
+        </article>
+      </div>
+      <div className="command-card nvi-reveal nvi-panel p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={common('status')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.branchId}
+            onChange={(value) => pushFilters({ branchId: value })}
+            options={branchOptions}
+            placeholder={common('branch')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.supplierId}
+            onChange={(value) => pushFilters({ supplierId: value })}
+            options={supplierOptions}
+            placeholder={common('supplier')}
+            className="nvi-select-container"
+          />
+          <DatePickerInput
+            value={filters.from}
+            onChange={(value) => pushFilters({ from: value })}
+            placeholder={common('fromDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+          <DatePickerInput
+            value={filters.to}
+            onChange={(value) => pushFilters({ to: value })}
+            placeholder={common('toDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+        </ListFilters>
+      </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('createTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
@@ -728,7 +785,7 @@ export default function PurchaseOrdersPage() {
           <button
             type="button"
             onClick={createOrder}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canWrite || isCreating}
             title={!canWrite ? noAccess('title') : undefined}
           >
@@ -738,7 +795,7 @@ export default function PurchaseOrdersPage() {
         </div>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('updateTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
@@ -852,7 +909,7 @@ export default function PurchaseOrdersPage() {
           <button
             type="button"
             onClick={updateOrder}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canWrite || isUpdating}
             title={!canWrite ? noAccess('title') : undefined}
           >
@@ -862,7 +919,7 @@ export default function PurchaseOrdersPage() {
         </div>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('recentTitle')}</h3>
         {viewMode === 'table' ? (
           <div className="overflow-auto text-sm text-gold-200">

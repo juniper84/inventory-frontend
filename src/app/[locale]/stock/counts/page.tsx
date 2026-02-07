@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -21,6 +21,7 @@ import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { formatVariantLabel } from '@/lib/display';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Variant = {
@@ -70,7 +71,8 @@ export default function StockCountsPage() {
     reason: '',
     batchId: '',
   });
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
+  const effectiveBranchId = resolveBranchId(form.branchId) || '';
 
   useEffect(() => {
     const load = async () => {
@@ -120,7 +122,7 @@ export default function StockCountsPage() {
       try {
         const query = buildCursorQuery({
           limit: 50,
-          branchId: form.branchId || undefined,
+          branchId: effectiveBranchId || undefined,
         });
         const data = await apiFetch<
           PaginatedResponse<StockMovement> | StockMovement[]
@@ -137,7 +139,7 @@ export default function StockCountsPage() {
       }
     };
     loadCounts();
-  }, [form.branchId]);
+  }, [effectiveBranchId]);
 
   useEffect(() => {
     if (activeBranch?.id && !form.branchId) {
@@ -148,18 +150,18 @@ export default function StockCountsPage() {
   useEffect(() => {
     const loadBatches = async () => {
       const token = getAccessToken();
-      if (!token || !form.branchId || !form.variantId) {
+      if (!token || !effectiveBranchId || !form.variantId) {
         setBatches([]);
         return;
       }
       const data = await apiFetch<PaginatedResponse<Batch> | Batch[]>(
-        `/stock/batches?branchId=${form.branchId}&variantId=${form.variantId}`,
+        `/stock/batches?branchId=${effectiveBranchId}&variantId=${form.variantId}`,
         { token },
       );
       setBatches(normalizePaginated(data).items);
     };
     loadBatches().catch(() => setBatches([]));
-  }, [form.branchId, form.variantId]);
+  }, [effectiveBranchId, form.variantId]);
 
   useEffect(() => {
     if (!form.variantId) {
@@ -176,12 +178,12 @@ export default function StockCountsPage() {
   }, [form.variantId, variants]);
 
   const expected = snapshots.find(
-    (item) => item.branchId === form.branchId && item.variantId === form.variantId,
+    (item) => item.branchId === effectiveBranchId && item.variantId === form.variantId,
   )?.quantity;
 
   const submit = async () => {
     const token = getAccessToken();
-    if (!token || !form.branchId || !form.variantId || !form.countedQuantity) {
+    if (!token || !effectiveBranchId || !form.variantId || !form.countedQuantity) {
       return;
     }
     setMessage(null);
@@ -191,7 +193,7 @@ export default function StockCountsPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          branchId: form.branchId,
+          branchId: effectiveBranchId,
           variantId: form.variantId,
           countedQuantity: Number(form.countedQuantity),
           unitId: form.unitId || undefined,
@@ -224,21 +226,50 @@ export default function StockCountsPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <Link
-          href={`/${locale}/stock/counts/wizard`}
-          className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-        >
-          {t('openWizard')}
-        </Link>
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('title')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <Link
+            href={`/${locale}/stock/counts/wizard`}
+            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+          >
+            {t('openWizard')}
+          </Link>
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Recent counts
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{recentCounts.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Variants
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Branches
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Pending form
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">
+            {form.variantId ? 'Ready' : 'Waiting'}
+          </p>
+        </article>
+      </div>
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
             value={form.branchId}
@@ -317,7 +348,7 @@ export default function StockCountsPage() {
         />
         <button
           onClick={submit}
-          className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isSubmitting || !canWrite}
           title={!canWrite ? noAccess('title') : undefined}
         >
@@ -325,7 +356,7 @@ export default function StockCountsPage() {
           {isSubmitting ? t('submitting') : t('submitCount')}
         </button>
       </div>
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-gold-100">{t('recentTitle')}</h3>
           <ViewToggle
@@ -392,7 +423,7 @@ export default function StockCountsPage() {
             </div>
           )
         ) : (
-          <div className="space-y-2 text-sm text-gold-200">
+          <div className="space-y-2 nvi-stagger text-sm text-gold-200">
             {recentCounts.map((movement) => {
               const unit = movement.unitId
                 ? units.find((item) => item.id === movement.unitId) ?? null

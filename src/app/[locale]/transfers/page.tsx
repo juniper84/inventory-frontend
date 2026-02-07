@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -21,6 +21,7 @@ import {
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Variant = { id: string; name: string; product?: { name?: string | null } };
@@ -99,7 +100,8 @@ export default function TransfersPage() {
   const [receiveQuantities, setReceiveQuantities] = useState<
     Record<string, Record<string, string>>
   >({});
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
+  const effectiveSourceBranchId = resolveBranchId(form.sourceBranchId) || '';
 
   const load = async (targetPage = 1, nextPageSize?: number) => {
     setIsLoading(true);
@@ -206,7 +208,7 @@ export default function TransfersPage() {
 
   const submitTransfer = async () => {
     const token = getAccessToken();
-    if (!token || !form.sourceBranchId || !form.destinationBranchId) {
+    if (!token || !effectiveSourceBranchId || !form.destinationBranchId) {
       return;
     }
     const payloadItems = items
@@ -227,7 +229,7 @@ export default function TransfersPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          sourceBranchId: form.sourceBranchId,
+          sourceBranchId: effectiveSourceBranchId,
           destinationBranchId: form.destinationBranchId,
           items: payloadItems,
           feeAmount: form.feeAmount ? Number(form.feeAmount) : undefined,
@@ -343,29 +345,58 @@ export default function TransfersPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href={`/${locale}/transfers/wizard`}
-            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-          >
-            {t('openWizard')}
-          </Link>
-          <ViewToggle
-            value={viewMode}
-            onChange={setViewMode}
-            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-          />
-        </div>
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('title')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <>
+            <Link
+              href={`/${locale}/transfers/wizard`}
+              className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+            >
+              {t('openWizard')}
+            </Link>
+            <ViewToggle
+              value={viewMode}
+              onChange={setViewMode}
+              labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+            />
+          </>
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Transfer rows
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{transfers.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Draft items
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{items.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Current page
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{page}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Source branch
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">
+            {effectiveSourceBranchId ? 'Selected' : 'Not selected'}
+          </p>
+        </article>
+      </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('newTransfer')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
@@ -396,7 +427,7 @@ export default function TransfersPage() {
           />
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 nvi-stagger">
           {items.map((item, index) => (
             <div
               key={`item-${index}`}
@@ -406,8 +437,8 @@ export default function TransfersPage() {
                 value={item.variantId}
                 onChange={(value) => {
                   updateItem(index, { variantId: value, batchId: '' });
-                  if (form.sourceBranchId && value && batchTrackingEnabled) {
-                    loadBatches(form.sourceBranchId, value).catch(() => null);
+                  if (effectiveSourceBranchId && value && batchTrackingEnabled) {
+                    loadBatches(effectiveSourceBranchId, value).catch(() => null);
                   }
                 }}
                 options={variants.map((variant) => ({
@@ -434,7 +465,7 @@ export default function TransfersPage() {
                 value={item.batchId ?? ''}
                 onChange={(value) => updateItem(index, { batchId: value })}
                 options={(
-                  batchOptions[`${form.sourceBranchId}-${item.variantId}`] || []
+                  batchOptions[`${effectiveSourceBranchId}-${item.variantId}`] || []
                 ).map((batch) => ({
                   value: batch.id,
                   label: batch.code,
@@ -501,7 +532,7 @@ export default function TransfersPage() {
           </button>
           <button
             onClick={submitTransfer}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canWrite || isCreating}
             title={!canWrite ? noAccess('title') : undefined}
           >
@@ -512,7 +543,7 @@ export default function TransfersPage() {
       </div>
 
       {viewMode === 'table' ? (
-        <div className="command-card p-4 nvi-reveal">
+        <div className="command-card nvi-panel p-4 nvi-reveal">
           {transfers.length === 0 ? (
             <StatusBanner message={t('noTransfers')} />
           ) : (
@@ -562,7 +593,7 @@ export default function TransfersPage() {
           transfers.map((transfer) => (
           <div
             key={transfer.id}
-            className="command-card p-4 space-y-3 nvi-reveal"
+            className="command-card nvi-panel p-4 space-y-3 nvi-reveal"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>

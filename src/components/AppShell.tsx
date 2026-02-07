@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -18,12 +18,16 @@ import {
   clearSession,
   decodeJwt,
   getAccessToken,
+  getPlatformAccessToken,
   getRefreshToken,
 } from '@/lib/auth';
 import {
   getActiveBranch,
   setActiveBranch,
 } from '@/lib/branch-context';
+import {
+  isBranchSelectorVisible,
+} from '@/lib/branch-policy';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { Spinner } from '@/components/Spinner';
 import {
@@ -68,6 +72,28 @@ const NAV_VISIBILITY_POLICY: Record<string, 'hide' | 'disabled'> = {
   'offline.read': 'disabled',
 };
 
+const parsePositiveInt = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+};
+
+const IDLE_TIMEOUT_MINUTES = parsePositiveInt(
+  process.env.NEXT_PUBLIC_IDLE_TIMEOUT_MINUTES,
+  30,
+);
+const IDLE_WARNING_SECONDS = parsePositiveInt(
+  process.env.NEXT_PUBLIC_IDLE_WARNING_SECONDS,
+  60,
+);
+const IDLE_TIMEOUT_MS = IDLE_TIMEOUT_MINUTES * 60 * 1000;
+const IDLE_WARNING_MS = Math.min(
+  IDLE_TIMEOUT_MS - 1000,
+  Math.max(10000, IDLE_WARNING_SECONDS * 1000),
+);
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -82,7 +108,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isPlatformRoute = pathname.includes('/platform');
   const locale = pathname.split('/')[1] || 'en';
   const base = `/${locale}`;
+  const showBranchSelector = !isPlatformRoute && isBranchSelectorVisible(pathname);
   const token = typeof window !== 'undefined' ? getAccessToken() : null;
+  const platformToken =
+    typeof window !== 'undefined' ? getPlatformAccessToken() : null;
   const payload = token
     ? decodeJwt<{ permissions?: string[]; scope?: string }>(token)
     : null;
@@ -91,6 +120,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const refreshToken = typeof window !== 'undefined' ? getRefreshToken() : null;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [activeBranchId, setActiveBranchId] = useState('');
@@ -116,8 +147,63 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const retryTimerRef = useRef<number | null>(null);
   const retryAttemptRef = useRef(0);
   const paletteInputRef = useRef<HTMLInputElement | null>(null);
+  const lastActivityRef = useRef(0);
+  const idleLogoutTriggeredRef = useRef(false);
   const isReadOnly = readOnlyState?.enabled ?? false;
   const canForceOnboarding = permissions.has('settings.write');
+  const [idleCountdownSeconds, setIdleCountdownSeconds] = useState<
+    number | null
+  >(null);
+  const isPlatformLoginRoute = pathname.includes('/platform/login');
+  const idleTimerEnabled = isPlatformRoute
+    ? Boolean(platformToken) && !isPlatformLoginRoute
+    : Boolean(token) && !isAuthRoute;
+
+  const handleLogout = useCallback(async () => {
+    if (isLoggingOut) {
+      return;
+    }
+    setIsLoggingOut(true);
+    setIdleCountdownSeconds(null);
+    if (isPlatformRoute) {
+      clearPlatformSession();
+      router.replace(`/${pathname.split('/')[1]}/platform/login`);
+      return;
+    }
+    if (token && refreshToken) {
+      try {
+        await apiFetch('/auth/logout', {
+          method: 'POST',
+          token,
+          body: JSON.stringify({ refreshToken }),
+        });
+      } catch (err) {
+        console.warn('Server logout failed', err);
+        // Best-effort logout on the server.
+      }
+    }
+    await rotateOfflineKey();
+    await clearOfflineData();
+    clearSession();
+    router.replace(`/${locale}/login`);
+  }, [
+    isLoggingOut,
+    isPlatformRoute,
+    locale,
+    pathname,
+    refreshToken,
+    router,
+    token,
+  ]);
+
+  const markActivity = useCallback(() => {
+    if (!idleTimerEnabled || isLoggingOut) {
+      return;
+    }
+    lastActivityRef.current = Date.now();
+    idleLogoutTriggeredRef.current = false;
+    setIdleCountdownSeconds((current) => (current === null ? current : null));
+  }, [idleTimerEnabled, isLoggingOut]);
 
   useEffect(() => {
     if (!token || isPlatformRoute) {
@@ -211,6 +297,66 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       active = false;
     };
   }, [token, isPlatformRoute]);
+
+  useEffect(() => {
+    if (!idleTimerEnabled || isLoggingOut) {
+      setIdleCountdownSeconds(null);
+      return;
+    }
+    lastActivityRef.current = Date.now();
+    idleLogoutTriggeredRef.current = false;
+    let lastHandledAt = 0;
+    const events: Array<keyof WindowEventMap> = [
+      'pointerdown',
+      'keydown',
+      'touchstart',
+      'scroll',
+      'mousemove',
+    ];
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastHandledAt < 1000) {
+        return;
+      }
+      lastHandledAt = now;
+      markActivity();
+    };
+    events.forEach((eventName) =>
+      window.addEventListener(eventName, onActivity, { passive: true }),
+    );
+    return () => {
+      events.forEach((eventName) =>
+        window.removeEventListener(eventName, onActivity),
+      );
+    };
+  }, [idleTimerEnabled, isLoggingOut, markActivity]);
+
+  useEffect(() => {
+    if (!idleTimerEnabled || isLoggingOut) {
+      setIdleCountdownSeconds(null);
+      return;
+    }
+    const tick = () => {
+      const elapsed = Date.now() - lastActivityRef.current;
+      const remaining = IDLE_TIMEOUT_MS - elapsed;
+      if (remaining <= 0) {
+        setIdleCountdownSeconds(0);
+        if (!idleLogoutTriggeredRef.current) {
+          idleLogoutTriggeredRef.current = true;
+          void handleLogout();
+        }
+        return;
+      }
+      if (remaining <= IDLE_WARNING_MS) {
+        setIdleCountdownSeconds(Math.ceil(remaining / 1000));
+        return;
+      }
+      setIdleCountdownSeconds((current) => (current === null ? current : null));
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [handleLogout, idleTimerEnabled, isLoggingOut]);
 
   const clearRetryTimer = () => {
     if (retryTimerRef.current) {
@@ -318,6 +464,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+    setMobileControlsOpen(false);
+  }, [pathname]);
 
   const offlineDuration = useMemo(() => {
     if (!offlineState.isOffline || !offlineState.offlineSince) {
@@ -598,14 +749,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     },
   ];
 
+  const visibleNavSections = useMemo(
+    () =>
+      navSections
+        .map((section) => {
+          const items = section.items
+            .map((item) => {
+              const allowed = permissions.has(item.permission);
+              const visibility = NAV_VISIBILITY_POLICY[item.permission] ?? 'hide';
+              if (!allowed && visibility === 'hide') {
+                return null;
+              }
+              return { ...item, disabled: !allowed };
+            })
+            .filter(Boolean) as Array<
+            (typeof section.items)[number] & { disabled: boolean }
+          >;
+          return { ...section, items };
+        })
+        .filter((section) => section.items.length > 0),
+    [navSections, permissions],
+  );
+
   const navItems = useMemo(
     () =>
-      navSections.flatMap((section) =>
+      visibleNavSections.flatMap((section) =>
         section.items
-          .filter((item) => permissions.has(item.permission))
+          .filter((item) => !item.disabled)
           .map((item) => ({ ...item, group: section.title })),
       ),
-    [navSections, permissions],
+    [visibleNavSections],
   );
 
   const routePermissions = useMemo(() => {
@@ -637,6 +810,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const missingPermission =
     activeRoutePermission &&
     !permissions.has(activeRoutePermission.permission);
+
+  const getBadgeForHref = useCallback(
+    (href: string) => {
+      if (href.endsWith('/notifications')) {
+        return notificationCount;
+      }
+      if (href.endsWith('/approvals')) {
+        return approvalCount;
+      }
+      if (href.endsWith('/offline')) {
+        return offlineState.pendingCount;
+      }
+      return 0;
+    },
+    [approvalCount, notificationCount, offlineState.pendingCount],
+  );
+
+  const quickNavItems = useMemo(
+    () =>
+      [
+        navItems.find((item) => item.href === `${base}/`),
+        navItems.find((item) => item.href === `${base}/pos`),
+        navItems.find((item) => item.href === `${base}/stock`),
+        navItems.find((item) => item.href === `${base}/notifications`),
+      ].filter(Boolean) as Array<(typeof navItems)[number]>,
+    [base, navItems],
+  );
 
   const paletteActions = useMemo(
     () => [
@@ -775,15 +975,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <PlatformAuthGate>
         <div className="min-h-screen bg-[color:var(--background)] text-[color:var(--foreground)]">
+          {!isLoggingOut && idleCountdownSeconds !== null ? (
+            <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+              <div className="w-full max-w-md space-y-3 rounded-2xl border border-gold-600/40 bg-black/90 p-6 text-gold-100 shadow-[0_30px_120px_rgba(0,0,0,0.6)]">
+                <h3 className="text-lg font-semibold">
+                  {shellT('sessionExpiringTitle')}
+                </h3>
+                <p className="text-sm text-gold-300">
+                  {shellT('sessionExpiringDesc', { seconds: idleCountdownSeconds })}
+                </p>
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={markActivity}
+                    className="rounded border border-gold-700/50 px-3 py-2 text-sm text-gold-100"
+                  >
+                    {shellT('staySignedIn')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
+                  >
+                    {shellT('logoutNow')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
           <header className="flex items-center justify-between border-b border-gold-700/40 px-6 py-4">
             <h1 className="text-lg font-semibold text-gold-100">
               {t('brand')} {navT('platform')}
             </h1>
             <button
-              onClick={() => {
-                clearPlatformSession();
-                router.replace(`/${pathname.split('/')[1]}/platform/login`);
-              }}
+              onClick={handleLogout}
               className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
             >
               {actionsT('logout')}
@@ -848,29 +1073,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const handleLogout = async () => {
-    if (isLoggingOut) {
-      return;
-    }
-    setIsLoggingOut(true);
-    if (token && refreshToken) {
-      try {
-        await apiFetch('/auth/logout', {
-          method: 'POST',
-          token,
-          body: JSON.stringify({ refreshToken }),
-        });
-      } catch (err) {
-        console.warn('Server logout failed', err);
-        // Best-effort logout on the server.
-      }
-    }
-    await rotateOfflineKey();
-    await clearOfflineData();
-    clearSession();
-    router.replace(`/${locale}/login`);
-  };
-
   return (
     <AuthGate>
       <div className="min-h-screen bg-[color:var(--background)] text-[color:var(--foreground)]">
@@ -883,6 +1085,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <p className="text-xs text-gold-300 animate-pulse">
                   {shellT('loggingOut')}
                 </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {!isLoggingOut && idleCountdownSeconds !== null ? (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+            <div className="w-full max-w-md space-y-3 rounded-2xl border border-gold-600/40 bg-black/90 p-6 text-gold-100 shadow-[0_30px_120px_rgba(0,0,0,0.6)]">
+              <h3 className="text-lg font-semibold">
+                {shellT('sessionExpiringTitle')}
+              </h3>
+              <p className="text-sm text-gold-300">
+                {shellT('sessionExpiringDesc', { seconds: idleCountdownSeconds })}
+              </p>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={markActivity}
+                  className="rounded border border-gold-700/50 px-3 py-2 text-sm text-gold-100"
+                >
+                  {shellT('staySignedIn')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
+                >
+                  {shellT('logoutNow')}
+                </button>
               </div>
             </div>
           </div>
@@ -954,21 +1184,52 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ) : null}
         <NotificationSurface locale={locale} />
         <LocalToastSurface />
-        <header className="sticky top-0 z-30 border-b border-[color:var(--border)] bg-[color:var(--surface-soft)] px-6 py-4 backdrop-blur">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <h1 className="text-lg font-semibold tracking-[0.2em] text-[color:var(--foreground)]">
+        <header className="sticky top-0 z-30 border-b border-[color:var(--border)] bg-[color:var(--surface-soft)] px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen((prev) => !prev)}
+                className="rounded border border-[color:var(--border)] px-2 py-1 text-xs text-[color:var(--foreground)] md:hidden"
+              >
+                ☰
+              </button>
+              <h1 className="text-sm font-semibold tracking-[0.15em] text-[color:var(--foreground)] sm:text-lg sm:tracking-[0.2em]">
                 {t('brand')}
               </h1>
               {isReadOnly ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-red-500/40 bg-red-950/60 px-3 py-1 text-[10px] uppercase tracking-[0.3em] text-red-100">
+                <span className="hidden items-center gap-2 rounded-full border border-red-500/40 bg-red-950/60 px-3 py-1 text-[10px] uppercase tracking-[0.3em] text-red-100 sm:inline-flex">
                   🔒 {shellT('readOnlyBadge')}
                 </span>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-[color:var(--muted)]">
+            <div className="flex items-center gap-2 text-sm text-[color:var(--muted)] md:hidden">
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                className="rounded border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)]"
+              >
+                ⌘K
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileControlsOpen((prev) => !prev)}
+                className="rounded border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)]"
+              >
+                {shellT('jump')}
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className="rounded border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)]"
+              >
+                {actionsT('logout')}
+              </button>
+            </div>
+            <div className="hidden flex-wrap items-center gap-3 text-sm text-[color:var(--muted)] md:flex">
               <BusinessSwitcher />
-              {!isPlatformRoute ? (
+              {showBranchSelector ? (
                 <div className="flex items-center gap-2">
                   <span className="text-xs uppercase tracking-[0.25em]">
                     {shellT('branch')}
@@ -990,7 +1251,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         setActiveBranch({ id: selected.id, name: selected.name });
                       }
                     }}
-                    className="min-w-[180px] text-xs"
+                    className="min-w-[150px] lg:min-w-[180px] text-xs"
                   />
                 </div>
               ) : null}
@@ -1001,10 +1262,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <SmartSelect
                   instanceId="jump-select"
                   value=""
-                  options={navSections.map((section) => ({
+                  options={visibleNavSections.map((section) => ({
                     label: section.title,
                     options: section.items
-                      .filter((item) => permissions.has(item.permission))
+                      .filter((item) => !item.disabled)
                       .map((item) => ({ value: item.href, label: item.label })),
                   }))}
                   placeholder={shellT('select')}
@@ -1013,7 +1274,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       router.push(value);
                     }
                   }}
-                  className="min-w-[180px] text-xs"
+                  className="min-w-[150px] lg:min-w-[180px] text-xs"
                 />
                 <button
                   type="button"
@@ -1046,43 +1307,88 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
           </div>
-        </header>
-        <div className="flex">
-          <nav className="hidden w-72 border-r border-[color:var(--border)] px-6 py-6 lg:block">
-            <div className="space-y-6 text-sm text-[color:var(--muted)]">
-              {navSections.map((section) => {
-                const visibleItems = section.items
-                  .map((item) => {
-                    const allowed = permissions.has(item.permission);
-                    const visibility =
-                      NAV_VISIBILITY_POLICY[item.permission] ?? 'hide';
-                    if (!allowed && visibility === 'hide') {
-                      return null;
+          {mobileControlsOpen ? (
+            <div className="mt-3 grid gap-2 border-t border-[color:var(--border)] pt-3 md:hidden">
+              <BusinessSwitcher />
+              {showBranchSelector ? (
+                <SmartSelect
+                  instanceId="branch-select-mobile"
+                  value={activeBranchId}
+                  options={branches.map((branch) => ({
+                    value: branch.id,
+                    label: branch.name,
+                  }))}
+                  placeholder={shellT('selectBranch')}
+                  onChange={(nextId) => {
+                    setActiveBranchId(nextId);
+                    const selected = branches.find(
+                      (branch) => branch.id === nextId,
+                    );
+                    if (selected) {
+                      setActiveBranch({ id: selected.id, name: selected.name });
                     }
-                    return { ...item, disabled: !allowed };
-                  })
-                  .filter(Boolean) as Array<
-                    (typeof section.items)[number] & { disabled?: boolean }
-                  >;
-                if (!visibleItems.length) {
-                  return null;
-                }
-                return (
+                  }}
+                  className="text-xs"
+                />
+              ) : null}
+              <SmartSelect
+                instanceId="jump-select-mobile"
+                value=""
+                options={visibleNavSections.map((section) => ({
+                  label: section.title,
+                  options: section.items
+                    .filter((item) => !item.disabled)
+                    .map((item) => ({ value: item.href, label: item.label })),
+                }))}
+                placeholder={shellT('select')}
+                onChange={(value) => {
+                  if (value) {
+                    router.push(value);
+                    setMobileControlsOpen(false);
+                  }
+                }}
+                className="text-xs"
+              />
+              <div className="flex items-center gap-3 text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                <span>{shellT('lang')}</span>
+                <Link href="/en" className="text-[color:var(--foreground)]">
+                  EN
+                </Link>
+                <Link href="/sw" className="text-[color:var(--foreground)]">
+                  SW
+                </Link>
+              </div>
+            </div>
+          ) : null}
+        </header>
+        {mobileNavOpen ? (
+          <div className="fixed inset-0 z-40 bg-black/70 md:hidden" onClick={() => setMobileNavOpen(false)}>
+            <div
+              className="h-full w-[84vw] max-w-xs overflow-y-auto border-r border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-5"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs uppercase tracking-[0.28em] text-[color:var(--foreground)]">
+                  {t('brand')}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMobileNavOpen(false)}
+                  className="rounded border border-[color:var(--border)] px-2 py-1 text-xs"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="space-y-5 text-sm text-[color:var(--muted)]">
+                {visibleNavSections.map((section) => (
                   <div key={section.title} className="space-y-2">
                     <p className="text-[10px] uppercase tracking-[0.35em] text-[color:var(--foreground)]">
                       {section.title}
                     </p>
                     <ul className="space-y-1">
-                      {visibleItems.map((item) => {
+                      {section.items.map((item) => {
                         const isActive = pathname === item.href;
-                        const badge =
-                          item.href.endsWith('/notifications')
-                            ? notificationCount
-                          : item.href.endsWith('/approvals')
-                            ? approvalCount
-                            : item.href.endsWith('/offline')
-                              ? offlineState.pendingCount
-                              : 0;
+                        const badge = getBadgeForHref(item.href);
                         if (item.disabled) {
                           return (
                             <li key={item.href}>
@@ -1107,6 +1413,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                               href={item.href}
                               data-active={isActive ? 'true' : 'false'}
                               className="nav-pill group flex items-center justify-between rounded px-3 py-2 transition hover:bg-[color:var(--accent-soft)] hover:text-[color:var(--foreground)]"
+                              onClick={() => setMobileNavOpen(false)}
                             >
                               <span className="flex items-center gap-2">
                                 {item.icon ? (
@@ -1114,33 +1421,123 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                 ) : null}
                                 {item.label}
                               </span>
-                              <span className="flex items-center gap-2 text-[10px] text-[color:var(--muted)]">
-                                {badge > 0 ? (
-                                  <span className="rounded-full border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-0.5 text-[10px] text-[color:var(--foreground)]">
-                                    {badge > 99 ? '99+' : badge}
-                                  </span>
-                                ) : null}
-                                <span className="opacity-0 transition group-hover:opacity-100">
-                                  ↗
+                              {badge > 0 ? (
+                                <span className="rounded-full border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-0.5 text-[10px] text-[color:var(--foreground)]">
+                                  {badge > 99 ? '99+' : badge}
                                 </span>
-                              </span>
+                              ) : null}
                             </Link>
                           </li>
                         );
                       })}
                     </ul>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <div className="flex">
+          <nav className="hidden w-20 border-r border-[color:var(--border)] px-2 py-6 md:block xl:w-72 xl:px-6">
+            <div className="space-y-6 text-sm text-[color:var(--muted)]">
+              {visibleNavSections.map((section) => (
+                <div key={section.title} className="space-y-2">
+                  <p className="hidden text-[10px] uppercase tracking-[0.35em] text-[color:var(--foreground)] xl:block">
+                    {section.title}
+                  </p>
+                  <ul className="space-y-1">
+                    {section.items.map((item) => {
+                      const isActive = pathname === item.href;
+                      const badge = getBadgeForHref(item.href);
+                      if (item.disabled) {
+                        return (
+                          <li key={item.href}>
+                            <div
+                              className="nav-pill flex items-center justify-center rounded px-2 py-2 opacity-50 xl:justify-between xl:px-3"
+                              aria-disabled="true"
+                              title={shellT('noAccess')}
+                            >
+                              <span className="flex items-center gap-2">
+                                {item.icon ? (
+                                  <NavIcon name={item.icon} className="h-4 w-4" />
+                                ) : null}
+                                <span className="hidden xl:inline">{item.label}</span>
+                              </span>
+                            </div>
+                          </li>
+                        );
+                      }
+                      return (
+                        <li key={item.href}>
+                          <Link
+                            href={item.href}
+                            data-active={isActive ? 'true' : 'false'}
+                            className="nav-pill group flex items-center justify-center rounded px-2 py-2 transition hover:bg-[color:var(--accent-soft)] hover:text-[color:var(--foreground)] xl:justify-between xl:px-3"
+                            title={item.label}
+                          >
+                            <span className="flex items-center gap-2">
+                              {item.icon ? (
+                                <NavIcon name={item.icon} className="h-4 w-4" />
+                              ) : null}
+                              <span className="hidden xl:inline">{item.label}</span>
+                            </span>
+                            <span className="hidden items-center gap-2 text-[10px] text-[color:var(--muted)] xl:flex">
+                              {badge > 0 ? (
+                                <span className="rounded-full border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-0.5 text-[10px] text-[color:var(--foreground)]">
+                                  {badge > 99 ? '99+' : badge}
+                                </span>
+                              ) : null}
+                              <span className="opacity-0 transition group-hover:opacity-100">
+                                ↗
+                              </span>
+                            </span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
             </div>
           </nav>
           <main
-            className="read-only-zone flex-1 px-6 py-8"
+            className="read-only-zone flex-1 px-4 py-6 pb-24 sm:px-6 md:py-8 md:pb-8"
             data-readonly={isReadOnly ? 'true' : 'false'}
           >
             {mainContent}
           </main>
         </div>
+        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-2 backdrop-blur md:hidden">
+          <div className="grid grid-cols-5 gap-1 text-[10px] uppercase tracking-[0.15em] text-[color:var(--muted)]">
+            {quickNavItems.map((item) => {
+              const isActive = pathname === item.href;
+              const badge = getBadgeForHref(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex flex-col items-center gap-1 rounded px-1 py-2 ${isActive ? 'bg-[color:var(--accent-soft)] text-[color:var(--foreground)]' : ''}`}
+                >
+                  {item.icon ? <NavIcon name={item.icon} className="h-4 w-4" /> : null}
+                  <span className="truncate">{item.label}</span>
+                  {badge > 0 ? (
+                    <span className="rounded-full border border-[color:var(--border)] px-1.5 py-0.5 text-[9px] text-[color:var(--foreground)]">
+                      {badge > 99 ? '99+' : badge}
+                    </span>
+                  ) : null}
+                </Link>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="flex flex-col items-center gap-1 rounded px-1 py-2"
+            >
+              <span className="text-sm leading-none">☰</span>
+              <span>{shellT('menu')}</span>
+            </button>
+          </div>
+        </nav>
         {paletteOpen ? (
           <div
             className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 px-4 py-24"

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { promptAction, useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { decodeJwt, getPlatformAccessToken } from '@/lib/auth';
@@ -22,16 +24,18 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  ArcElement,
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Line } from 'react-chartjs-2';
+import { Doughnut, Line } from 'react-chartjs-2';
 
 ChartJS.register(
   CategoryScale,
   LinearScale,
   PointElement,
   LineElement,
+  ArcElement,
   Tooltip,
   Legend,
 );
@@ -159,12 +163,16 @@ type Metrics = {
 
 export function PlatformConsole({
   view = 'overview',
+  focusBusinessId,
 }: {
   view?: PlatformView;
+  focusBusinessId?: string;
 }) {
   const t = useTranslations('platformConsole');
   const actions = useTranslations('actions');
   const common = useTranslations('common');
+  const params = useParams<{ locale?: string }>();
+  const locale = typeof params?.locale === 'string' ? params.locale : 'en';
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMoreBusinesses, setIsLoadingMoreBusinesses] = useState(false);
   const [isLoadingMoreSupport, setIsLoadingMoreSupport] = useState(false);
@@ -287,10 +295,29 @@ export function PlatformConsole({
   const [exportDeliveryBusinessId, setExportDeliveryBusinessId] = useState('');
   const [businessSearch, setBusinessSearch] = useState('');
   const [businessStatusFilter, setBusinessStatusFilter] = useState<
-    'ACTIVE' | 'ARCHIVED' | 'DELETED'
+    'ACTIVE' | 'UNDER_REVIEW' | 'ARCHIVED' | 'DELETED'
   >('ACTIVE');
   const [selectedBusinessId, setSelectedBusinessId] = useState('');
-  const [openedBusinessId, setOpenedBusinessId] = useState('');
+  const [openedBusinessId, setOpenedBusinessId] = useState(focusBusinessId ?? '');
+  const [businessDrawerTab, setBusinessDrawerTab] = useState<
+    'SUMMARY' | 'SUBSCRIPTION' | 'RISK_STATUS' | 'ACCESS' | 'DEVICES' | 'DANGER'
+  >('SUMMARY');
+  const [businessTrendRange, setBusinessTrendRange] = useState<'7d' | '30d'>('7d');
+  const [businessActionModal, setBusinessActionModal] = useState<{
+    businessId: string;
+    action:
+      | 'SUSPEND'
+      | 'READ_ONLY'
+      | 'FORCE_LOGOUT'
+      | 'ARCHIVE'
+      | 'DELETE_READY'
+      | 'RESTORE'
+      | 'PURGE';
+    step: 1 | 2 | 3;
+    reason: string;
+    confirmBusinessId: string;
+    confirmText: string;
+  } | null>(null);
   const [pinnedBusinessIds, setPinnedBusinessIds] = useState<string[]>([]);
   const [supportNotes, setSupportNotes] = useState<Record<string, string>>({});
   const [revokeReasonTarget, setRevokeReasonTarget] = useState('');
@@ -338,10 +365,17 @@ export function PlatformConsole({
   const showAnnouncements = view === 'announcements';
   const showAudit = view === 'audit';
   const showIncidents = view === 'incidents';
+  const showBusinessDetailPage = showBusinesses && Boolean(focusBusinessId);
   const [quickActions, setQuickActions] = useState<
     Record<string, { reason: string; trialDays: string }>
   >({});
   const [purgingBusinessId, setPurgingBusinessId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (focusBusinessId) {
+      setOpenedBusinessId(focusBusinessId);
+    }
+  }, [focusBusinessId]);
 
   const withAction = useCallback(
     async (key: string, task: () => void | Promise<void>) => {
@@ -506,8 +540,10 @@ export function PlatformConsole({
     () => new Map(businesses.map((biz) => [biz.id, biz])),
     [businesses],
   );
-  const openedBusiness = openedBusinessId
-    ? businessLookup.get(openedBusinessId) ?? null
+  const resolvedBusinessId =
+    showBusinessDetailPage && focusBusinessId ? focusBusinessId : openedBusinessId;
+  const openedBusiness = resolvedBusinessId
+    ? businessLookup.get(resolvedBusinessId) ?? null
     : null;
 
   const businessSelectOptions = useMemo(
@@ -529,6 +565,8 @@ export function PlatformConsole({
               !['ARCHIVED', 'DELETED'].includes(biz.status) &&
               biz.status !== 'SUSPENDED',
           )
+        : businessStatusFilter === 'UNDER_REVIEW'
+          ? businesses.filter((biz) => Boolean(biz.underReview))
         : businesses.filter((biz) => biz.status === businessStatusFilter);
     const base = query
       ? byStatus.filter((biz) =>
@@ -549,10 +587,14 @@ export function PlatformConsole({
   );
 
   useEffect(() => {
-    if (openedBusinessId && !filteredBusinessIds.has(openedBusinessId)) {
+    if (
+      !showBusinessDetailPage &&
+      openedBusinessId &&
+      !filteredBusinessIds.has(openedBusinessId)
+    ) {
       setOpenedBusinessId('');
     }
-  }, [openedBusinessId, filteredBusinessIds]);
+  }, [openedBusinessId, filteredBusinessIds, showBusinessDetailPage]);
   const [subscriptionHistory, setSubscriptionHistory] = useState<
     {
       previousStatus?: string | null;
@@ -1529,6 +1571,103 @@ export function PlatformConsole({
     }
   };
 
+  const openBusinessActionModal = (
+    businessId: string,
+    action:
+      | 'SUSPEND'
+      | 'READ_ONLY'
+      | 'FORCE_LOGOUT'
+      | 'ARCHIVE'
+      | 'DELETE_READY'
+      | 'RESTORE'
+      | 'PURGE',
+  ) => {
+    setBusinessActionModal({
+      businessId,
+      action,
+      step: 1,
+      reason: '',
+      confirmBusinessId: '',
+      confirmText: '',
+    });
+  };
+
+  const executeBusinessActionModal = async () => {
+    if (!businessActionModal || !token) {
+      return;
+    }
+    const { businessId, action, reason, confirmBusinessId, confirmText } =
+      businessActionModal;
+    if (!reason.trim()) {
+      setMessage(t('quickActionReasonRequired'));
+      return;
+    }
+    if (action === 'PURGE') {
+      if (confirmBusinessId.trim() !== businessId || confirmText.trim() !== 'DELETE') {
+        setMessage(t('purgeConfirmMismatch'));
+        return;
+      }
+    }
+    const actionKey = `business:modal:${action.toLowerCase()}:${businessId}`;
+    await withAction(actionKey, async () => {
+      if (action === 'SUSPEND') {
+        await updateStatusOverride(businessId, 'SUSPENDED', reason);
+      } else if (action === 'READ_ONLY') {
+        await updateReadOnlyOverride(businessId, true, reason);
+      } else if (action === 'FORCE_LOGOUT') {
+        const response = await apiFetch<{ revokedCount: number }>(
+          `/platform/businesses/${businessId}/revoke-sessions`,
+          {
+            token,
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          },
+        );
+        setMessage(
+          t('forceLogoutSuccess', { value: response.revokedCount ?? 0 }),
+        );
+      } else if (action === 'ARCHIVE') {
+        await updateStatusOverride(businessId, 'ARCHIVED', reason);
+      } else if (action === 'DELETE_READY') {
+        await updateStatusOverride(businessId, 'DELETED', reason);
+      } else if (action === 'RESTORE') {
+        await updateStatusOverride(businessId, 'ACTIVE', reason);
+      } else if (action === 'PURGE') {
+        await apiFetch(`/platform/businesses/${businessId}/purge`, {
+          token,
+          method: 'POST',
+          body: JSON.stringify({
+            reason,
+            confirmBusinessId,
+            confirmText,
+          }),
+        });
+        setMessage(t('purgeSuccess'));
+        await loadData();
+      }
+    });
+    setBusinessActionModal(null);
+  };
+
+  const getBusinessRiskScore = (business: Business) => {
+    let score = 15;
+    if (business.underReview) score += 35;
+    if (business.status === 'SUSPENDED') score += 35;
+    if (business.status === 'GRACE') score += 20;
+    if (business.status === 'EXPIRED') score += 30;
+    if (business.status === 'ARCHIVED') score += 10;
+    if (business.status === 'DELETED') score += 20;
+    return Math.min(100, score);
+  };
+
+  const businessTrendSeries = useMemo(() => {
+    if (!metrics?.series?.length) {
+      return [];
+    }
+    const points = businessTrendRange === '7d' ? 7 : 30;
+    return metrics.series.slice(-points);
+  }, [businessTrendRange, metrics]);
+
   const fetchAuditLogs = async (
     event?: React.FormEvent,
     cursor?: string,
@@ -1726,6 +1865,30 @@ export function PlatformConsole({
     () => businesses.filter((business) => business.underReview),
     [businesses],
   );
+
+  const subscriptionHistoryStats = useMemo(() => {
+    const statusChanges = subscriptionHistory.filter(
+      (entry) => entry.previousStatus !== entry.newStatus,
+    ).length;
+    const tierChanges = subscriptionHistory.filter(
+      (entry) => entry.previousTier !== entry.newTier,
+    ).length;
+    const unchanged = subscriptionHistory.filter(
+      (entry) =>
+        entry.previousStatus === entry.newStatus &&
+        entry.previousTier === entry.newTier,
+    ).length;
+    const total = Math.max(1, statusChanges + tierChanges + unchanged);
+    return {
+      statusChanges,
+      tierChanges,
+      unchanged,
+      total,
+      statusPct: Math.round((statusChanges / total) * 100),
+      tierPct: Math.round((tierChanges / total) * 100),
+      unchangedPct: Math.round((unchanged / total) * 100),
+    };
+  }, [subscriptionHistory]);
 
   if (isLoading) {
     return <PageSkeleton />;
@@ -2390,911 +2553,509 @@ export function PlatformConsole({
       ) : null}
 
       {showBusinesses ? (
-        <section className="command-card p-6 space-y-4 nvi-reveal">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-xl font-semibold">{t('businessRegistryTitle')}</h3>
-          <button
-            type="button"
-            onClick={() => withAction('businesses:load', () => loadBusinesses())}
-            className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
-          >
-            <span className="inline-flex items-center gap-2">
-              {actionLoading['businesses:load'] ? (
-                <Spinner size="xs" variant="grid" />
-              ) : null}
-              {t('loadBusinesses')}
-            </span>
-          </button>
-        </div>
-        <div className="grid gap-3 md:grid-cols-[2fr_1fr_auto]">
-          <TypeaheadInput
-            value={businessSearch}
-            onChange={setBusinessSearch}
-            onSelect={(option) => {
-              setBusinessSearch(option.label);
-              setSelectedBusinessId(option.id);
-            }}
-            options={businessOptions}
-            placeholder={t('searchBusinesses')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <SmartSelect
-            value={selectedBusinessId}
-            onChange={setSelectedBusinessId}
-            options={businessSelectOptions}
-            placeholder={t('selectBusiness')}
-          />
-          <button
-            type="button"
-            onClick={() =>
-              withAction('businesses:apply', async () => applySelectedBusiness())
-            }
-            className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
-          >
-            <span className="inline-flex items-center gap-2">
-              {actionLoading['businesses:apply'] ? (
-                <Spinner size="xs" variant="dots" />
-              ) : null}
-              {t('useSelectedBusiness')}
-            </span>
-          </button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {[
-            { value: 'ACTIVE', label: t('statusActive') },
-            { value: 'ARCHIVED', label: t('statusArchived') },
-            { value: 'DELETED', label: t('statusDeletedReady') },
-          ].map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() =>
-                setBusinessStatusFilter(
-                  option.value as 'ACTIVE' | 'ARCHIVED' | 'DELETED',
-                )
-              }
-              className={`rounded border px-3 py-1 text-[10px] uppercase tracking-[0.25em] ${
-                businessStatusFilter === option.value
-                  ? 'border-gold-500 text-gold-100'
-                  : 'border-gold-800/60 text-gold-500'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <p className="text-[11px] text-gold-500">
-          {t('deletedReadyNote')} {t('purgedRemovedNote')}
-        </p>
-        <div className="overflow-x-auto rounded border border-gold-700/30 bg-black/40">
-          <table className="min-w-full text-xs text-gold-200">
-            <thead>
-              <tr className="border-b border-gold-700/40 text-left text-[11px] uppercase tracking-[0.25em] text-gold-400">
-                <th className="px-3 py-2">{t('tableBusiness')}</th>
-                <th className="px-3 py-2">{t('tableStatus')}</th>
-                <th className="px-3 py-2">{t('tableTier')}</th>
-                <th className="px-3 py-2">{t('tableBranches')}</th>
-                <th className="px-3 py-2">{t('tableUsers')}</th>
-                <th className="px-3 py-2">{t('tableDevices')}</th>
-                <th className="px-3 py-2">{t('tableLastActivity')}</th>
-                <th className="px-3 py-2">{t('tableActions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredBusinesses.map((business) => (
-                <tr
-                  key={`${business.id}-row`}
-                  className="border-b border-gold-800/40 last:border-0"
-                >
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => togglePinnedBusiness(business.id)}
-                        className="rounded border border-gold-700/60 px-2 py-0.5 text-[10px] text-gold-200"
-                      >
-                        {pinnedBusinessIds.includes(business.id)
-                          ? t('pinned')
-                          : t('pin')}
-                      </button>
-                      <span className="text-gold-100">{business.name}</span>
-                      {business.status === 'ARCHIVED' ? (
-                        <span className="rounded border border-gold-600/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.25em] text-gold-300">
-                          {t('statusArchived')}
-                        </span>
-                      ) : null}
-                      {business.status === 'DELETED' ? (
-                        <span className="rounded border border-red-500/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.25em] text-red-200">
-                          {t('statusDeletedReady')}
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="text-[10px] text-gold-500">{business.id}</p>
-                    {(() => {
-                      const endDate =
-                        business.subscription?.expiresAt ??
-                        business.subscription?.graceEndsAt ??
-                        business.subscription?.trialEndsAt ??
-                        null;
-                      const daysRemaining = getDaysRemaining(endDate);
-                      if (daysRemaining === null) {
-                        return null;
-                      }
-                      return (
-                        <p className="text-[10px] text-gold-300">
-                          {t('subscriptionEndsIn', { value: daysRemaining })}
-                        </p>
-                      );
-                    })()}
-                  </td>
-                  <td className="px-3 py-2">{business.status}</td>
-                  <td className="px-3 py-2">
-                    {business.subscription?.tier ?? t('notAvailable')}
-                  </td>
-                  <td className="px-3 py-2">
-                    {business.counts?.branches ?? 0}
-                  </td>
-                  <td className="px-3 py-2">
-                    {business.counts?.users ?? 0}
-                  </td>
-                  <td className="px-3 py-2">
-                    {business.counts?.offlineDevices ?? 0}
-                  </td>
-                  <td className="px-3 py-2">
-                    {business.lastActivityAt
-                      ? new Date(business.lastActivityAt).toLocaleDateString()
-                      : t('notAvailable')}
-                  </td>
-                  <td className="px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => setOpenedBusinessId(business.id)}
-                      className="rounded border border-gold-700/60 px-2 py-1 text-[10px] text-gold-200"
-                    >
-                      {openedBusinessId === business.id
-                        ? t('opened')
-                        : ['ARCHIVED', 'DELETED', 'SUSPENDED'].includes(
-                              business.status,
-                            )
-                          ? t('view')
-                          : t('open')}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!filteredBusinesses.length ? (
-                <tr>
-                  <td colSpan={8} className="px-3 py-4 text-gold-400">
-                    {t('noBusinesses')}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-        <div className="space-y-4">
-          {openedBusiness ? (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm uppercase tracking-[0.25em] text-gold-400">
-                {t('businessDetailsTitle')}
+        <section className="command-card p-6 space-y-5 nvi-reveal">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-gold-400">
+                {showBusinessDetailPage ? 'Business workspace' : 'Business command center'}
               </p>
-              <button
-                type="button"
-                onClick={() => setOpenedBusinessId('')}
-                className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
-              >
-                {t('closeDetails')}
-              </button>
+              <h3 className="text-xl font-semibold text-gold-100">
+                {showBusinessDetailPage ? (openedBusiness?.name ?? t('businessRegistryTitle')) : t('businessRegistryTitle')}
+              </h3>
             </div>
-          ) : (
-            <p className="text-sm text-gold-400">{t('selectBusinessDetails')}</p>
-          )}
-          {(openedBusiness ? [openedBusiness] : []).map((business) => {
-            const subscription = subscriptionEdits[business.id];
-            const readOnly = readOnlyEdits[business.id];
-            const statusEdit = statusEdits[business.id];
-            const reviewEdit = reviewEdits[business.id];
-            const rateEdit = rateLimitEdits[business.id];
-            const health = healthMap[business.id];
-            const devices = devicesMap[business.id] ?? [];
-            const quick = quickActions[business.id] ?? {
-              reason: '',
-              trialDays: '7',
-            };
-            return (
-              <div
-                key={business.id}
-                id={`biz-${business.id}`}
-                className="rounded border border-gold-700/40 bg-black/40 p-4 space-y-3"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-lg text-gold-100">{business.name}</p>
-                    <p className="text-xs text-gold-400">{business.id}</p>
-                    <p className="text-xs text-gold-400">
-                      {t('statusTier', {
-                        status: business.status,
-                        tier: business.subscription?.tier ?? t('notAvailable'),
-                      })}
-                    </p>
-                    {business.underReview ? (
-                      <p className="text-xs text-amber-200">
-                        {t('riskFlag', {
-                          reason: business.reviewReason ?? t('underReview'),
-                        })}
-                      </p>
-                    ) : null}
-                    <p className="text-xs text-gold-400">
-                      {t('countsSummary', {
-                        branches: business.counts?.branches ?? 0,
-                        users: business.counts?.users ?? 0,
-                        devices: business.counts?.offlineDevices ?? 0,
-                      })}
-                    </p>
-                    <p className="text-xs text-gold-400">
-                      {t('lastActivity', {
-                        value: business.lastActivityAt
-                          ? new Date(business.lastActivityAt).toLocaleString()
-                          : t('notAvailable'),
-                      })}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {reviewEdit?.underReview ? (
-                      <span className="rounded-full border border-amber-500/60 px-2 py-1 text-[10px] text-amber-200">
-                        {t('riskFlaggedBadge')}
-                      </span>
-                    ) : null}
-                    {health ? (
-                      <span className="rounded-full border border-gold-700/60 px-2 py-1 text-[10px] text-gold-200">
-                        {health.offlineFailed > 0
-                          ? t('syncErrors')
-                          : t('syncOk')}
-                      </span>
-                    ) : null}
-                    {health?.exportsPending ? (
-                      <span className="rounded-full border border-gold-700/60 px-2 py-1 text-[10px] text-gold-200">
-                        {t('exportBacklog')}
-                      </span>
-                    ) : null}
-                    {health &&
-                    health.offlineFailed + health.exportsPending > 0 ? (
-                      <span className="rounded-full border border-amber-500/60 px-2 py-1 text-[10px] text-amber-200">
-                        {t('errorsCount', {
-                          value: health.offlineFailed + health.exportsPending,
-                        })}
-                      </span>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        withAction(`business:health:${business.id}`, () =>
-                          loadBusinessHealth(business.id),
-                        )
-                      }
-                      className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`business:health:${business.id}`] ? (
-                          <Spinner size="xs" variant="grid" />
-                        ) : null}
-                        {t('loadHealth')}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        withAction(`business:export:${business.id}`, () =>
-                          exportOnExit(business.id),
-                        )
-                      }
-                      className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`business:export:${business.id}`] ? (
-                          <Spinner size="xs" variant="pulse" />
-                        ) : null}
-                        {t('exportOnExit')}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        withAction(`business:devices:${business.id}`, () =>
-                          loadDevices(business.id),
-                        )
-                      }
-                      className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`business:devices:${business.id}`] ? (
-                          <Spinner size="xs" variant="dots" />
-                        ) : null}
-                        {t('devices')}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-                {health ? (
-                  <div className="rounded border border-gold-700/30 bg-black/30 p-3 text-xs text-gold-300">
-                    <p>{t('subscriptionStatus', { status: health.subscriptionStatus })}</p>
-                    <p>{t('offlineFailed', { value: health.offlineFailed })}</p>
-                    <p>{t('exportsPending', { value: health.exportsPending })}</p>
-                    <p>{t('healthScore', { value: health.score })}</p>
-                  </div>
+            <button
+              type="button"
+              onClick={() => withAction('businesses:load', () => loadBusinesses())}
+              className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
+            >
+              <span className="inline-flex items-center gap-2">
+                {actionLoading['businesses:load'] ? (
+                  <Spinner size="xs" variant="grid" />
                 ) : null}
-                <div className="rounded border border-gold-700/30 bg-black/30 p-3 text-xs text-gold-300 space-y-2">
-                  <p className="text-gold-100">{t('quickActions')}</p>
-                  <div className="grid gap-2 md:grid-cols-[2fr_1fr_auto_auto_auto_auto_auto_auto]">
-                    <input
-                      value={quick.reason}
-                      onChange={(event) =>
-                        setQuickActions((prev) => ({
-                          ...prev,
-                          [business.id]: {
-                            ...quick,
-                            reason: event.target.value,
-                          },
-                        }))
-                      }
-                      placeholder={t('actionReasonPlaceholder')}
-                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                    />
-                    <input
-                      value={quick.trialDays}
-                      onChange={(event) =>
-                        setQuickActions((prev) => ({
-                          ...prev,
-                          [business.id]: {
-                            ...quick,
-                            trialDays: event.target.value,
-                          },
-                        }))
-                      }
-                      placeholder={t('trialDaysPlaceholder')}
-                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        withAction(`quick:suspend:${business.id}`, () =>
-                          runQuickStatus(business.id, 'SUSPENDED'),
-                        )
-                      }
-                      className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`quick:suspend:${business.id}`] ? (
-                          <Spinner size="xs" variant="bars" />
-                        ) : null}
-                        {t('suspend')}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        withAction(`quick:readonly:${business.id}`, () =>
-                          runQuickReadOnly(business.id),
-                        )
-                      }
-                      className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`quick:readonly:${business.id}`] ? (
-                          <Spinner size="xs" variant="pulse" />
-                        ) : null}
-                        {t('readOnly')}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        withAction(`quick:extend:${business.id}`, () =>
-                          runQuickExtendTrial(business.id),
-                        )
-                      }
-                      className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`quick:extend:${business.id}`] ? (
-                          <Spinner size="xs" variant="ring" />
-                        ) : null}
-                        {t('extendTrial')}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRevokeReasonTarget(business.id)}
-                      className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                    >
-                      {t('forceLogout')}
-                    </button>
-                    {['ARCHIVED', 'DELETED'].includes(business.status) ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          withAction(`business:restore:${business.id}`, () =>
-                            updateStatusOverride(
-                              business.id,
-                              'ACTIVE',
-                              quick.reason,
-                            ),
-                          )
-                        }
-                        className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          {actionLoading[`business:restore:${business.id}`] ? (
-                            <Spinner size="xs" variant="orbit" />
-                          ) : null}
-                          {t('restore')}
-                        </span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          withAction(`business:archive:${business.id}`, () =>
-                            updateStatusOverride(
-                              business.id,
-                              'ARCHIVED',
-                              quick.reason,
-                            ),
-                          )
-                        }
-                        className="rounded border border-red-500/60 px-3 py-2 text-xs text-red-200"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          {actionLoading[`business:archive:${business.id}`] ? (
-                            <Spinner size="xs" variant="bars" />
-                          ) : null}
-                          {t('archive')}
-                        </span>
-                      </button>
-                    )}
-                    {['ARCHIVED', 'DELETED'].includes(business.status) ? (
-                      <button
-                        type="button"
-                        onClick={() => purgeBusiness(business.id)}
-                        disabled={purgingBusinessId === business.id}
-                        className="rounded border border-red-500/60 px-3 py-2 text-xs text-red-200 disabled:opacity-70"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          {purgingBusinessId === business.id ? (
-                            <Spinner size="xs" variant="dots" />
-                          ) : null}
-                          {purgingBusinessId === business.id
-                            ? t('purging')
-                            : t('purge')}
-                        </span>
-                      </button>
+                {t('loadBusinesses')}
+              </span>
+            </button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+            <div className="nvi-tile p-3">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">
+                Total
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-gold-100">{businesses.length}</p>
+            </div>
+            <div className="nvi-tile p-3">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">
+                Active
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-gold-100">
+                {businesses.filter((business) => business.status === 'ACTIVE').length}
+              </p>
+            </div>
+            <div className="nvi-tile p-3">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">
+                Under review
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-amber-200">
+                {businesses.filter((business) => business.underReview).length}
+              </p>
+            </div>
+            <div className="nvi-tile p-3">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">
+                Archived
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-gold-100">
+                {businesses.filter((business) => business.status === 'ARCHIVED').length}
+              </p>
+            </div>
+            <div className="nvi-tile p-3">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">
+                Deleted-ready
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-red-200">
+                {businesses.filter((business) => business.status === 'DELETED').length}
+              </p>
+            </div>
+            <div className="nvi-tile p-3">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">
+                High risk
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-amber-200">
+                {businesses.filter((business) => getBusinessRiskScore(business) >= 60).length}
+              </p>
+            </div>
+          </div>
+
+          <div
+            className={`grid gap-4 ${
+              showBusinessDetailPage ? 'grid-cols-1' : 'xl:grid-cols-1'
+            }`}
+          >
+            {!showBusinessDetailPage ? (
+              <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-[2fr_1fr_auto]">
+                <TypeaheadInput
+                  value={businessSearch}
+                  onChange={setBusinessSearch}
+                  onSelect={(option) => {
+                    setBusinessSearch(option.label);
+                    setSelectedBusinessId(option.id);
+                  }}
+                  options={businessOptions}
+                  placeholder={t('searchBusinesses')}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                />
+                <SmartSelect
+                  value={selectedBusinessId}
+                  onChange={setSelectedBusinessId}
+                  options={businessSelectOptions}
+                  placeholder={t('selectBusiness')}
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    withAction('businesses:apply', async () => applySelectedBusiness())
+                  }
+                  className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    {actionLoading['businesses:apply'] ? (
+                      <Spinner size="xs" variant="dots" />
                     ) : null}
-                  </div>
+                    {t('useSelectedBusiness')}
+                  </span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  {[
+                    { value: 'ACTIVE', label: t('statusActive') },
+                    { value: 'UNDER_REVIEW', label: t('underReview') },
+                    { value: 'ARCHIVED', label: t('statusArchived') },
+                    { value: 'DELETED', label: t('statusDeletedReady') },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() =>
+                        setBusinessStatusFilter(
+                          option.value as 'ACTIVE' | 'UNDER_REVIEW' | 'ARCHIVED' | 'DELETED',
+                        )
+                      }
+                      className={`rounded border px-3 py-1 text-[10px] uppercase tracking-[0.25em] transition ${
+                        businessStatusFilter === option.value
+                          ? 'border-gold-500 bg-gold-500/15 text-gold-100'
+                          : 'border-gold-800/60 text-gold-500'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
-                {revokeReasonTarget === business.id ? (
-                  <div className="rounded border border-gold-700/30 bg-black/30 p-3 text-xs text-gold-300 space-y-2">
-                    <p className="text-gold-100">{t('forceLogoutTitle')}</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <input
-                        value={revokeReason}
-                        onChange={(event) => setRevokeReason(event.target.value)}
-                        placeholder={t('forceLogoutReasonPlaceholder')}
-                        className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          withAction(`business:revoke:${business.id}`, () =>
-                            revokeBusinessSessions(business.id),
-                          )
-                        }
-                        disabled={isRevokingSessions}
-                        className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black disabled:opacity-70"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          {isRevokingSessions ? (
-                            <Spinner size="xs" variant="dots" />
-                          ) : null}
-                          {isRevokingSessions
-                            ? t('forceLogoutWorking')
-                            : t('forceLogoutAction')}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRevokeReason('');
-                          setRevokeReasonTarget('');
-                        }}
-                        className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                      >
-                        {t('cancel')}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="rounded border border-gold-700/30 bg-black/30 p-3 text-xs text-gold-300 space-y-2">
-                  <p className="text-gold-100">{t('supportNotes')}</p>
-                  <textarea
-                    value={supportNotes[business.id] ?? ''}
-                    onChange={(event) =>
-                      setSupportNotes((prev) => ({
-                        ...prev,
-                        [business.id]: event.target.value,
-                      }))
-                    }
-                    placeholder={t('supportNotesPlaceholder')}
-                    className="min-h-[80px] w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  />
-                </div>
-                {devices.length ? (
-                  <div className="rounded border border-gold-700/30 bg-black/30 p-3 text-xs text-gold-300 space-y-2">
-                    <p className="text-gold-100">{t('offlineDevices')}</p>
-                    {devices.map((device) => (
-                      <div key={device.id} className="flex items-center justify-between">
-                        <span>
-                          {device.deviceName ?? t('unnamedDeviceShort')} • {device.status}
-                        </span>
-                        {device.status !== 'REVOKED' ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              withAction(`business:device:${device.id}`, () =>
-                                revokeDevice(device.id, business.id),
-                              )
-                            }
-                            className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
-                          >
-                            <span className="inline-flex items-center gap-2">
-                              {actionLoading[`business:device:${device.id}`] ? (
-                                <Spinner size="xs" variant="dots" />
-                              ) : null}
-                              {t('revoke')}
+                <p className="text-[11px] text-gold-500">
+                  Showing {filteredBusinesses.length} of {businesses.length} businesses
+                </p>
+              </div>
+
+              <div className="overflow-x-auto rounded border border-gold-700/30 bg-black/40">
+                <table className="min-w-full text-[13px] text-gold-200">
+                  <thead>
+                    <tr className="border-b border-gold-700/40 text-left text-xs uppercase tracking-[0.22em] text-gold-400">
+                      <th className="px-3 py-2">{t('tableBusiness')}</th>
+                      <th className="px-3 py-2">{t('tableStatus')}</th>
+                      <th className="px-3 py-2">{t('tableTier')}</th>
+                      <th className="px-3 py-2">Risk</th>
+                      <th className="px-3 py-2">{t('tableLastActivity')}</th>
+                      <th className="px-3 py-2">{t('tableActions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredBusinesses.map((business) => {
+                      const riskScore = getBusinessRiskScore(business);
+                      return (
+                        <tr
+                          key={`${business.id}-row`}
+                          className="border-b border-gold-800/40 last:border-0 hover:bg-gold-500/5"
+                        >
+                          <td className="px-3 py-2">
+                            <p className="text-base text-gold-100">{business.name}</p>
+                            <p className="text-xs text-gold-500">{business.id}</p>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className="rounded-full border border-gold-700/50 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-gold-200">
+                              {business.status}
                             </span>
-                          </button>
-                        ) : null}
-                      </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            {business.subscription?.tier ?? t('notAvailable')}
+                          </td>
+                          <td className="px-3 py-2">{riskScore}</td>
+                          <td className="px-3 py-2">
+                            {business.lastActivityAt
+                              ? new Date(business.lastActivityAt).toLocaleDateString()
+                              : t('notAvailable')}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Link
+                                href={`/${locale}/platform/businesses/${business.id}`}
+                                className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-200"
+                              >
+                                {t('open')}
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => togglePinnedBusiness(business.id)}
+                                className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-200"
+                              >
+                                {pinnedBusinessIds.includes(business.id) ? t('pinned') : t('pin')}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  withAction(`review:flag:${business.id}`, async () => {
+                                    await updateReview(business.id, {
+                                      underReview: true,
+                                      reason: 'Flagged from registry command center',
+                                      severity: 'MEDIUM',
+                                    });
+                                  })
+                                }
+                                className="rounded border border-amber-500/60 px-2 py-1 text-xs text-amber-200"
+                              >
+                                Mark risk
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {!filteredBusinesses.length ? (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-4 text-gold-400">
+                          {t('noBusinesses')}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+
+              {nextBusinessCursor ? (
+                <div className="flex justify-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      withAction('businesses:loadMore', () =>
+                        loadBusinesses(nextBusinessCursor, true),
+                      )
+                    }
+                    className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-4 py-2 text-sm text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
+                    disabled={isLoadingMoreBusinesses}
+                  >
+                    {isLoadingMoreBusinesses ? (
+                      <Spinner size="xs" variant="grid" />
+                    ) : actionLoading['businesses:loadMore'] ? (
+                      <Spinner size="xs" variant="grid" />
+                    ) : null}
+                    {isLoadingMoreBusinesses ? t('loading') : t('loadMoreBusinesses')}
+                  </button>
+                </div>
+              ) : null}
+              </div>
+            ) : null}
+
+            {showBusinessDetailPage ? (
+              <aside className="rounded border border-gold-700/40 bg-black/40 p-4 space-y-4">
+              {!openedBusiness ? (
+                <p className="text-sm text-gold-400">{t('selectBusinessDetails')}</p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-semibold text-gold-100">
+                        {openedBusiness.name}
+                      </p>
+                      <p className="text-xs text-gold-500">{openedBusiness.id}</p>
+                    </div>
+                    <Link
+                      href={`/${locale}/platform/businesses`}
+                      className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
+                    >
+                      Back to registry
+                    </Link>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {[
+                      { value: 'SUMMARY', label: 'Summary' },
+                      { value: 'SUBSCRIPTION', label: 'Subscription' },
+                      { value: 'RISK_STATUS', label: 'Risk & Status' },
+                      { value: 'ACCESS', label: 'Access' },
+                      { value: 'DEVICES', label: 'Devices' },
+                      { value: 'DANGER', label: 'Danger zone' },
+                    ].map((tab) => (
+                      <button
+                        key={tab.value}
+                        type="button"
+                        onClick={() =>
+                          setBusinessDrawerTab(
+                            tab.value as
+                              | 'SUMMARY'
+                              | 'SUBSCRIPTION'
+                              | 'RISK_STATUS'
+                              | 'ACCESS'
+                              | 'DEVICES'
+                              | 'DANGER',
+                          )
+                        }
+                        className={`rounded border px-2 py-1 text-[10px] uppercase tracking-[0.2em] transition ${
+                          businessDrawerTab === tab.value
+                            ? 'border-gold-500 bg-gold-500/15 text-gold-100'
+                            : 'border-gold-700/50 text-gold-400'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
                     ))}
                   </div>
-                ) : loadingDevices[business.id] ? (
-                  <div className="flex items-center gap-2 text-xs text-gold-300">
-                    <Spinner size="xs" variant="grid" /> {t('loadingDevices')}
-                  </div>
-                ) : null}
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-[0.25em] text-gold-400">
-                      {t('statusReview')}
-                    </p>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      <SmartSelect
-                        value={statusEdit?.status ?? business.status}
-                        onChange={(value) =>
-                          setStatusEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                status: business.status,
-                                reason: '',
-                              }),
-                              status: value,
-                            },
-                          }))
-                        }
-                        options={[
-                          { value: 'ACTIVE', label: t('statusActive') },
-                          { value: 'GRACE', label: t('statusGrace') },
-                          { value: 'EXPIRED', label: t('statusExpired') },
-                          { value: 'SUSPENDED', label: t('statusSuspended') },
-                          { value: 'ARCHIVED', label: t('statusArchived') },
-                          { value: 'DELETED', label: t('statusDeleted') },
-                        ]}
-                      />
-                      <input
-                        value={statusEdit?.reason ?? ''}
-                        onChange={(event) =>
-                          setStatusEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                status: business.status,
-                                reason: '',
-                              }),
-                              reason: event.target.value,
-                            },
-                        }))
-                      }
-                      placeholder={t('statusReasonPlaceholder')}
-                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                    />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          withAction(`status:update:${business.id}`, () =>
-                            updateStatus(business.id),
-                          )
-                        }
-                      className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`status:update:${business.id}`] ? (
-                          <Spinner size="xs" variant="orbit" />
-                        ) : null}
-                        {t('updateStatus')}
-                      </span>
-                    </button>
-                      <div className="flex items-center gap-2 text-xs text-gold-300">
-                        <input
-                          type="checkbox"
-                          checked={reviewEdit?.underReview ?? false}
-                          onChange={(event) =>
-                            setReviewEdits((prev) => ({
-                              ...prev,
-                              [business.id]: {
-                                ...(prev[business.id] ?? {
-                                  underReview: false,
-                                  reason: '',
-                                  severity: 'MEDIUM',
-                                }),
-                                underReview: event.target.checked,
-                              },
-                            }))
-                          }
-                        />
-                        {t('underReview')}
+
+                  {businessDrawerTab === 'SUMMARY' ? (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="nvi-tile p-3">
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">Status</p>
+                          <p className="mt-1 text-sm text-gold-100">{openedBusiness.status}</p>
+                        </div>
+                        <div className="nvi-tile p-3">
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">Tier</p>
+                          <p className="mt-1 text-sm text-gold-100">
+                            {openedBusiness.subscription?.tier ?? t('notAvailable')}
+                          </p>
+                        </div>
                       </div>
-                      <SmartSelect
-                        value={reviewEdit?.severity ?? 'MEDIUM'}
-                        onChange={(value) =>
-                          setReviewEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                underReview: false,
-                                reason: '',
-                                severity: 'MEDIUM',
-                              }),
-                              severity: value,
-                            },
-                          }))
-                        }
-                        options={incidentSeverityOptions}
-                      />
-                      <input
-                        value={reviewEdit?.reason ?? ''}
-                        onChange={(event) =>
-                          setReviewEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                underReview: false,
-                                reason: '',
-                                severity: 'MEDIUM',
-                              }),
-                              reason: event.target.value,
-                            },
-                        }))
-                      }
-                      placeholder={t('reviewReasonPlaceholder')}
-                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                    />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          withAction(`review:update:${business.id}`, () =>
-                            updateReview(business.id),
-                          )
-                        }
-                      className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`review:update:${business.id}`] ? (
-                          <Spinner size="xs" variant="pulse" />
-                        ) : null}
-                        {t('saveReviewFlag')}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-[0.25em] text-gold-400">
-                    {t('subscriptionTitle')}
-                  </p>
-                  <div className="grid gap-2 text-xs text-gold-300 md:grid-cols-2">
-                    <div>
-                      <p className="uppercase tracking-[0.2em] text-gold-500">
-                        {t('trialEndsLabel')}
-                      </p>
-                      <p>{formatDateLabel(business.subscription?.trialEndsAt)}</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded border border-gold-700/40 bg-black/30 p-3">
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">Health score</p>
+                          <div className="mt-2 flex items-center gap-3">
+                            <div
+                              className="h-14 w-14 rounded-full"
+                              style={{
+                                background: `conic-gradient(#f59e0b ${
+                                  Math.max(0, Math.min(100, healthMap[openedBusiness.id]?.score ?? 0))
+                                }%, rgba(245,158,11,0.15) 0)`,
+                              }}
+                            >
+                              <div className="m-[4px] flex h-[48px] w-[48px] items-center justify-center rounded-full bg-black text-xs text-gold-100">
+                                {Math.max(0, Math.min(100, healthMap[openedBusiness.id]?.score ?? 0))}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                withAction(`business:health:${openedBusiness.id}`, () =>
+                                  loadBusinessHealth(openedBusiness.id),
+                                )
+                              }
+                              className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
+                            >
+                              {t('loadHealth')}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="rounded border border-gold-700/40 bg-black/30 p-3">
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">Risk score</p>
+                          <div className="mt-2 flex items-center gap-3">
+                            <div
+                              className="h-14 w-14 rounded-full"
+                              style={{
+                                background: `conic-gradient(#f97316 ${getBusinessRiskScore(
+                                  openedBusiness,
+                                )}%, rgba(249,115,22,0.15) 0)`,
+                              }}
+                            >
+                              <div className="m-[4px] flex h-[48px] w-[48px] items-center justify-center rounded-full bg-black text-xs text-gold-100">
+                                {getBusinessRiskScore(openedBusiness)}
+                              </div>
+                            </div>
+                            <p className="text-xs text-gold-300">
+                              {openedBusiness.underReview ? 'Flagged for review' : 'No current risk flag'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="rounded border border-gold-700/40 bg-black/30 p-3">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
+                          Operational composition
+                        </p>
+                        <div className="mt-2 max-w-[260px]">
+                          <Doughnut
+                            data={{
+                              labels: ['Branches', 'Users', 'Offline devices'],
+                              datasets: [
+                                {
+                                  data: [
+                                    openedBusiness.counts?.branches ?? 0,
+                                    openedBusiness.counts?.users ?? 0,
+                                    openedBusiness.counts?.offlineDevices ?? 0,
+                                  ],
+                                  backgroundColor: ['#f59e0b', '#f97316', '#78350f'],
+                                  borderColor: ['#f59e0b', '#f97316', '#78350f'],
+                                },
+                              ],
+                            }}
+                            options={{
+                              plugins: { legend: { labels: { color: '#fcd34d' } } },
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="rounded border border-gold-700/40 bg-black/30 p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">Activity trend</p>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setBusinessTrendRange('7d')}
+                              className={`rounded border px-2 py-0.5 text-[10px] ${
+                                businessTrendRange === '7d'
+                                  ? 'border-gold-500 text-gold-100'
+                                  : 'border-gold-700/50 text-gold-400'
+                              }`}
+                            >
+                              7d
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setBusinessTrendRange('30d')}
+                              className={`rounded border px-2 py-0.5 text-[10px] ${
+                                businessTrendRange === '30d'
+                                  ? 'border-gold-500 text-gold-100'
+                                  : 'border-gold-700/50 text-gold-400'
+                              }`}
+                            >
+                              30d
+                            </button>
+                          </div>
+                        </div>
+                        {businessTrendSeries.length ? (
+                          <Line
+                            data={{
+                              labels: businessTrendSeries.map((point) => point.label),
+                              datasets: [
+                                {
+                                  label: 'Offline failures',
+                                  data: businessTrendSeries.map((point) => point.offlineFailed),
+                                  borderColor: '#f97316',
+                                  backgroundColor: 'rgba(249, 115, 22, 0.25)',
+                                  fill: true,
+                                  tension: 0.3,
+                                },
+                                {
+                                  label: 'Pending exports',
+                                  data: businessTrendSeries.map((point) => point.exportsPending),
+                                  borderColor: '#f59e0b',
+                                  backgroundColor: 'rgba(245, 158, 11, 0.2)',
+                                  tension: 0.3,
+                                },
+                              ],
+                            }}
+                            options={{
+                              plugins: { legend: { labels: { color: '#facc15' } } },
+                              scales: {
+                                x: { ticks: { color: '#fcd34d' }, grid: { color: 'rgba(234,179,8,0.1)' } },
+                                y: { ticks: { color: '#fcd34d' }, grid: { color: 'rgba(234,179,8,0.1)' } },
+                              },
+                            }}
+                          />
+                        ) : (
+                          <p className="text-xs text-gold-500">No trend data available for this period.</p>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <p className="uppercase tracking-[0.2em] text-gold-500">
-                        {t('graceEndsLabel')}
-                      </p>
-                      <p>{formatDateLabel(business.subscription?.graceEndsAt)}</p>
-                    </div>
-                    <div>
-                      <p className="uppercase tracking-[0.2em] text-gold-500">
-                        {t('expiresAtLabel')}
-                      </p>
-                      <p>{formatDateLabel(business.subscription?.expiresAt)}</p>
-                    </div>
-                    <div>
-                      <p className="uppercase tracking-[0.2em] text-gold-500">
-                        {t('daysRemainingLabel')}
-                      </p>
-                      <p>
-                        {(() => {
-                          const endDate =
-                            business.subscription?.expiresAt ??
-                            business.subscription?.graceEndsAt ??
-                            business.subscription?.trialEndsAt ??
-                            null;
-                          const daysRemaining = getDaysRemaining(endDate);
-                          return daysRemaining !== null
-                            ? t('daysRemainingValue', { value: daysRemaining })
-                            : t('notAvailable');
-                        })()}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid gap-2 md:grid-cols-2">
-                      <SmartSelect
-                        value={subscription?.tier ?? 'BUSINESS'}
-                        onChange={(value) =>
-                          setSubscriptionEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                tier: 'BUSINESS',
-                                status: 'TRIAL',
-                                reason: '',
-                              }),
-                              tier: value,
-                            },
-                          }))
-                        }
-                        options={[
-                          { value: 'STARTER', label: t('tierStarter') },
-                          { value: 'BUSINESS', label: t('tierBusiness') },
-                          { value: 'ENTERPRISE', label: t('tierEnterprise') },
-                        ]}
-                      />
-                      <SmartSelect
-                        value={subscription?.status ?? 'TRIAL'}
-                        onChange={(value) =>
-                          setSubscriptionEdits((prev) => {
-                            const current = prev[business.id] ?? {
-                              tier: 'BUSINESS',
-                              status: 'TRIAL',
-                              reason: '',
-                              trialEndsAt: '',
-                              graceEndsAt: '',
-                              expiresAt: '',
-                              durationDays: '',
-                            };
-                            const next = { ...current, status: value };
-                            if (value === 'TRIAL' && !next.trialEndsAt) {
-                              const trialDays =
-                                next.tier === 'ENTERPRISE' ? 7 : 14;
-                              next.trialEndsAt = formatLocalDateTime(
-                                new Date(
-                                  Date.now() + trialDays * 24 * 60 * 60 * 1000,
-                                ),
-                              );
-                            }
-                            if (value === 'GRACE' && !next.graceEndsAt) {
-                              const graceDays = 7;
-                              next.graceEndsAt = formatLocalDateTime(
-                                new Date(
-                                  Date.now() + graceDays * 24 * 60 * 60 * 1000,
-                                ),
-                              );
-                            }
-                            return { ...prev, [business.id]: next };
-                          })
-                        }
-                        options={[
-                          { value: 'TRIAL', label: t('statusTrial') },
-                          { value: 'ACTIVE', label: t('statusActive') },
-                          { value: 'GRACE', label: t('statusGrace') },
-                          { value: 'EXPIRED', label: t('statusExpired') },
-                          { value: 'SUSPENDED', label: t('statusSuspended') },
-                        ]}
-                      />
-                      <input
-                        value={subscription?.reason ?? ''}
-                        onChange={(event) =>
-                          setSubscriptionEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                tier: 'BUSINESS',
-                                status: 'TRIAL',
-                                reason: '',
-                              }),
-                              reason: event.target.value,
-                            },
-                        }))
-                      }
-                      placeholder={t('subscriptionReasonPlaceholder')}
-                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                    />
-                      <DateTimePickerInput
-                        value={subscription?.trialEndsAt ?? ''}
-                        onChange={(value) =>
-                          setSubscriptionEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                tier: 'BUSINESS',
-                                status: 'TRIAL',
-                                reason: '',
-                                trialEndsAt: '',
-                                graceEndsAt: '',
-                                expiresAt: '',
-                                durationDays: '',
-                              }),
-                              trialEndsAt: value,
-                            },
-                          }))
-                        }
-                        placeholder={t('trialEndsPlaceholder')}
-                        className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 text-xs"
-                      />
-                      <DateTimePickerInput
-                        value={subscription?.graceEndsAt ?? ''}
-                        onChange={(value) =>
-                          setSubscriptionEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                tier: 'BUSINESS',
-                                status: 'TRIAL',
-                                reason: '',
-                                trialEndsAt: '',
-                                graceEndsAt: '',
-                                expiresAt: '',
-                                durationDays: '',
-                              }),
-                              graceEndsAt: value,
-                            },
-                          }))
-                        }
-                        placeholder={t('graceEndsPlaceholder')}
-                        className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 text-xs"
-                      />
-                      <DateTimePickerInput
-                        value={subscription?.expiresAt ?? ''}
-                        onChange={(value) =>
-                          setSubscriptionEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                tier: 'BUSINESS',
-                                status: 'TRIAL',
-                                reason: '',
-                                trialEndsAt: '',
-                                graceEndsAt: '',
-                                expiresAt: '',
-                                durationDays: '',
-                              }),
-                              expiresAt: value,
-                            },
-                          }))
-                        }
-                        placeholder={t('expiresAtPlaceholder')}
-                        className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 text-xs"
-                      />
-                      <div className="flex flex-wrap items-center gap-2">
-                        <input
-                          type="number"
-                          value={subscription?.durationDays ?? ''}
-                          onChange={(event) =>
+                  ) : null}
+
+                  {businessDrawerTab === 'SUBSCRIPTION' ? (
+                    <div className="space-y-3">
+                      <div className="grid gap-2 text-xs text-gold-300 md:grid-cols-2">
+                        <div>
+                          <p className="uppercase tracking-[0.2em] text-gold-500">{t('trialEndsLabel')}</p>
+                          <p>{formatDateLabel(openedBusiness.subscription?.trialEndsAt)}</p>
+                        </div>
+                        <div>
+                          <p className="uppercase tracking-[0.2em] text-gold-500">{t('graceEndsLabel')}</p>
+                          <p>{formatDateLabel(openedBusiness.subscription?.graceEndsAt)}</p>
+                        </div>
+                        <div>
+                          <p className="uppercase tracking-[0.2em] text-gold-500">{t('expiresAtLabel')}</p>
+                          <p>{formatDateLabel(openedBusiness.subscription?.expiresAt)}</p>
+                        </div>
+                        <div>
+                          <p className="uppercase tracking-[0.2em] text-gold-500">{t('daysRemainingLabel')}</p>
+                          <p>
+                            {(() => {
+                              const endDate =
+                                openedBusiness.subscription?.expiresAt ??
+                                openedBusiness.subscription?.graceEndsAt ??
+                                openedBusiness.subscription?.trialEndsAt ??
+                                null;
+                              const daysRemaining = getDaysRemaining(endDate);
+                              return daysRemaining !== null
+                                ? t('daysRemainingValue', { value: daysRemaining })
+                                : t('notAvailable');
+                            })()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <SmartSelect
+                          value={subscriptionEdits[openedBusiness.id]?.tier ?? 'BUSINESS'}
+                          onChange={(value) =>
                             setSubscriptionEdits((prev) => ({
                               ...prev,
-                              [business.id]: {
-                                ...(prev[business.id] ?? {
+                              [openedBusiness.id]: {
+                                ...(prev[openedBusiness.id] ?? {
                                   tier: 'BUSINESS',
                                   status: 'TRIAL',
                                   reason: '',
@@ -3303,310 +3064,623 @@ export function PlatformConsole({
                                   expiresAt: '',
                                   durationDays: '',
                                 }),
-                                durationDays: event.target.value,
+                                tier: value,
                               },
                             }))
                           }
-                          placeholder={t('subscriptionDurationPlaceholder')}
+                          options={[
+                            { value: 'STARTER', label: t('tierStarter') },
+                            { value: 'BUSINESS', label: t('tierBusiness') },
+                            { value: 'ENTERPRISE', label: t('tierEnterprise') },
+                          ]}
+                        />
+                        <SmartSelect
+                          value={subscriptionEdits[openedBusiness.id]?.status ?? 'TRIAL'}
+                          onChange={(value) =>
+                            setSubscriptionEdits((prev) => ({
+                              ...prev,
+                              [openedBusiness.id]: {
+                                ...(prev[openedBusiness.id] ?? {
+                                  tier: 'BUSINESS',
+                                  status: 'TRIAL',
+                                  reason: '',
+                                  trialEndsAt: '',
+                                  graceEndsAt: '',
+                                  expiresAt: '',
+                                  durationDays: '',
+                                }),
+                                status: value,
+                              },
+                            }))
+                          }
+                          options={[
+                            { value: 'TRIAL', label: t('statusTrial') },
+                            { value: 'ACTIVE', label: t('statusActive') },
+                            { value: 'GRACE', label: t('statusGrace') },
+                            { value: 'EXPIRED', label: t('statusExpired') },
+                            { value: 'SUSPENDED', label: t('statusSuspended') },
+                          ]}
+                        />
+                        <input
+                          value={subscriptionEdits[openedBusiness.id]?.reason ?? ''}
+                          onChange={(event) =>
+                            setSubscriptionEdits((prev) => ({
+                              ...prev,
+                              [openedBusiness.id]: {
+                                ...(prev[openedBusiness.id] ?? {
+                                  tier: 'BUSINESS',
+                                  status: 'TRIAL',
+                                  reason: '',
+                                  trialEndsAt: '',
+                                  graceEndsAt: '',
+                                  expiresAt: '',
+                                  durationDays: '',
+                                }),
+                                reason: event.target.value,
+                              },
+                            }))
+                          }
+                          placeholder={t('subscriptionReasonPlaceholder')}
+                          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              withAction(`subscription:update:${openedBusiness.id}`, () =>
+                                updateSubscription(openedBusiness.id),
+                              )
+                            }
+                            className="flex-1 rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
+                          >
+                            {t('updateSubscription')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              withAction(`subscription:reset:${openedBusiness.id}`, () =>
+                                resetSubscriptionLimits(openedBusiness.id),
+                              )
+                            }
+                            className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
+                          >
+                            {t('resetSubscriptionLimits')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {businessDrawerTab === 'RISK_STATUS' ? (
+                    <div className="space-y-3">
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <SmartSelect
+                          value={statusEdits[openedBusiness.id]?.status ?? openedBusiness.status}
+                          onChange={(value) =>
+                            setStatusEdits((prev) => ({
+                              ...prev,
+                              [openedBusiness.id]: {
+                                ...(prev[openedBusiness.id] ?? {
+                                  status: openedBusiness.status,
+                                  reason: '',
+                                }),
+                                status: value,
+                              },
+                            }))
+                          }
+                          options={[
+                            { value: 'ACTIVE', label: t('statusActive') },
+                            { value: 'GRACE', label: t('statusGrace') },
+                            { value: 'EXPIRED', label: t('statusExpired') },
+                            { value: 'SUSPENDED', label: t('statusSuspended') },
+                            { value: 'ARCHIVED', label: t('statusArchived') },
+                            { value: 'DELETED', label: t('statusDeleted') },
+                          ]}
+                        />
+                        <input
+                          value={statusEdits[openedBusiness.id]?.reason ?? ''}
+                          onChange={(event) =>
+                            setStatusEdits((prev) => ({
+                              ...prev,
+                              [openedBusiness.id]: {
+                                ...(prev[openedBusiness.id] ?? {
+                                  status: openedBusiness.status,
+                                  reason: '',
+                                }),
+                                reason: event.target.value,
+                              },
+                            }))
+                          }
+                          placeholder={t('statusReasonPlaceholder')}
+                          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                        />
+                        <div className="flex items-center gap-2 text-xs text-gold-300">
+                          <input
+                            type="checkbox"
+                            checked={reviewEdits[openedBusiness.id]?.underReview ?? false}
+                            onChange={(event) =>
+                              setReviewEdits((prev) => ({
+                                ...prev,
+                                [openedBusiness.id]: {
+                                  ...(prev[openedBusiness.id] ?? {
+                                    underReview: false,
+                                    reason: '',
+                                    severity: 'MEDIUM',
+                                  }),
+                                  underReview: event.target.checked,
+                                },
+                              }))
+                            }
+                          />
+                          {t('underReview')}
+                        </div>
+                        <SmartSelect
+                          value={reviewEdits[openedBusiness.id]?.severity ?? 'MEDIUM'}
+                          onChange={(value) =>
+                            setReviewEdits((prev) => ({
+                              ...prev,
+                              [openedBusiness.id]: {
+                                ...(prev[openedBusiness.id] ?? {
+                                  underReview: false,
+                                  reason: '',
+                                  severity: 'MEDIUM',
+                                }),
+                                severity: value,
+                              },
+                            }))
+                          }
+                          options={incidentSeverityOptions}
+                        />
+                        <input
+                          value={reviewEdits[openedBusiness.id]?.reason ?? ''}
+                          onChange={(event) =>
+                            setReviewEdits((prev) => ({
+                              ...prev,
+                              [openedBusiness.id]: {
+                                ...(prev[openedBusiness.id] ?? {
+                                  underReview: false,
+                                  reason: '',
+                                  severity: 'MEDIUM',
+                                }),
+                                reason: event.target.value,
+                              },
+                            }))
+                          }
+                          placeholder={t('reviewReasonPlaceholder')}
+                          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 md:col-span-2"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            withAction(`status:update:${openedBusiness.id}`, () =>
+                              updateStatus(openedBusiness.id),
+                            )
+                          }
+                          className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
+                        >
+                          {t('updateStatus')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            withAction(`review:update:${openedBusiness.id}`, () =>
+                              updateReview(openedBusiness.id),
+                            )
+                          }
+                          className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
+                        >
+                          {t('saveReviewFlag')}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {businessDrawerTab === 'ACCESS' ? (
+                    <div className="space-y-3">
+                      <textarea
+                        value={supportNotes[openedBusiness.id] ?? ''}
+                        onChange={(event) =>
+                          setSupportNotes((prev) => ({
+                            ...prev,
+                            [openedBusiness.id]: event.target.value,
+                          }))
+                        }
+                        placeholder={t('supportNotesPlaceholder')}
+                        className="min-h-[100px] w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                      />
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <label className="flex items-center gap-2 text-xs text-gold-300">
+                          <input
+                            type="checkbox"
+                            checked={readOnlyEdits[openedBusiness.id]?.enabled ?? false}
+                            onChange={(event) =>
+                              setReadOnlyEdits((prev) => ({
+                                ...prev,
+                                [openedBusiness.id]: {
+                                  ...(prev[openedBusiness.id] ?? {
+                                    enabled: false,
+                                    reason: '',
+                                  }),
+                                  enabled: event.target.checked,
+                                },
+                              }))
+                            }
+                          />
+                          {t('enableReadOnly')}
+                        </label>
+                        <input
+                          value={readOnlyEdits[openedBusiness.id]?.reason ?? ''}
+                          onChange={(event) =>
+                            setReadOnlyEdits((prev) => ({
+                              ...prev,
+                              [openedBusiness.id]: {
+                                ...(prev[openedBusiness.id] ?? {
+                                  enabled: false,
+                                  reason: '',
+                                }),
+                                reason: event.target.value,
+                              },
+                            }))
+                          }
+                          placeholder={t('readOnlyReasonPlaceholder')}
+                          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            withAction(`readonly:update:${openedBusiness.id}`, () =>
+                              updateReadOnly(openedBusiness.id),
+                            )
+                          }
+                          className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
+                        >
+                          {t('applyReadOnly')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openBusinessActionModal(openedBusiness.id, 'FORCE_LOGOUT')
+                          }
+                          className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
+                        >
+                          {t('forceLogout')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            withAction(`business:export:${openedBusiness.id}`, () =>
+                              exportOnExit(openedBusiness.id),
+                            )
+                          }
+                          className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
+                        >
+                          {t('exportOnExit')}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {businessDrawerTab === 'DEVICES' ? (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <input
+                          value={deviceRevokeReason}
+                          onChange={(event) => setDeviceRevokeReason(event.target.value)}
+                          placeholder={t('actionReasonPlaceholder')}
                           className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                         />
                         <button
                           type="button"
                           onClick={() =>
-                            withAction(`subscription:duration:${business.id}`, () =>
-                              applySubscriptionDuration(business.id),
+                            withAction(`business:devices:${openedBusiness.id}`, () =>
+                              loadDevices(openedBusiness.id),
                             )
                           }
                           className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
                         >
-                          <span className="inline-flex items-center gap-2">
-                            {actionLoading[`subscription:duration:${business.id}`] ? (
-                              <Spinner size="xs" variant="ring" />
-                            ) : null}
-                            {t('applyDuration')}
-                          </span>
+                          {t('loadDevices')}
                         </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          withAction(`subscription:update:${business.id}`, () =>
-                            updateSubscription(business.id),
-                          )
-                        }
-                      className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`subscription:update:${business.id}`] ? (
-                          <Spinner size="xs" variant="dots" />
-                        ) : null}
-                        {t('updateSubscription')}
-                      </span>
-                    </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          withAction(`subscription:reset:${business.id}`, () =>
-                            resetSubscriptionLimits(business.id),
-                          )
-                        }
-                        className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          {actionLoading[`subscription:reset:${business.id}`] ? (
-                            <Spinner size="xs" variant="grid" />
-                          ) : null}
-                          {t('resetSubscriptionLimits')}
-                        </span>
-                      </button>
-                  </div>
+                      {(devicesMap[openedBusiness.id] ?? []).length ? (
+                        <div className="space-y-2">
+                          {(devicesMap[openedBusiness.id] ?? []).map((device) => (
+                            <div
+                              key={device.id}
+                              className="flex items-center justify-between rounded border border-gold-700/40 bg-black/30 px-3 py-2 text-xs"
+                            >
+                              <span className="text-gold-200">
+                                {device.deviceName ?? t('unnamedDeviceShort')} - {device.status}
+                              </span>
+                              {device.status !== 'REVOKED' ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    withAction(`business:device:${device.id}`, () =>
+                                      revokeDevice(
+                                        device.id,
+                                        openedBusiness.id,
+                                        deviceRevokeReason,
+                                      ),
+                                    )
+                                  }
+                                  className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
+                                >
+                                  {t('revoke')}
+                                </button>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : loadingDevices[openedBusiness.id] ? (
+                        <div className="flex items-center gap-2 text-xs text-gold-300">
+                          <Spinner size="xs" variant="grid" /> {t('loadingDevices')}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gold-500">No devices loaded yet.</p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {businessDrawerTab === 'DANGER' ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-gold-400">
+                        Sensitive actions are guarded with a 3-step confirmation.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openBusinessActionModal(openedBusiness.id, 'SUSPEND')}
+                          className="rounded border border-amber-500/60 px-3 py-2 text-xs text-amber-200"
+                        >
+                          {t('suspend')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openBusinessActionModal(openedBusiness.id, 'ARCHIVE')}
+                          className="rounded border border-red-500/60 px-3 py-2 text-xs text-red-200"
+                        >
+                          {t('archive')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openBusinessActionModal(openedBusiness.id, 'DELETE_READY')
+                          }
+                          className="rounded border border-red-500/60 px-3 py-2 text-xs text-red-200"
+                        >
+                          Mark delete-ready
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openBusinessActionModal(openedBusiness.id, 'RESTORE')}
+                          className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
+                        >
+                          {t('restore')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openBusinessActionModal(openedBusiness.id, 'PURGE')}
+                          className="rounded border border-red-500/60 px-3 py-2 text-xs text-red-200"
+                        >
+                          {t('purge')}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </aside>
+            ) : null}
+          </div>
+
+          {businessActionModal ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/70 p-4">
+              <div className="w-full max-w-lg rounded border border-gold-700/60 bg-[#080b10] p-4 shadow-2xl">
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="text-lg font-semibold text-gold-100">
+                    Action guard: {businessActionModal.action}
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => setBusinessActionModal(null)}
+                    className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
+                  >
+                    Close
+                  </button>
                 </div>
-                <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-[0.25em] text-gold-400">
-                    {t('readOnlyTitle')}
-                  </p>
-                  <div className="grid gap-2 md:grid-cols-2">
-                      <label className="flex items-center gap-2 text-xs text-gold-300">
-                        <input
-                          type="checkbox"
-                          checked={readOnly?.enabled ?? false}
-                          onChange={(event) =>
-                            setReadOnlyEdits((prev) => ({
-                              ...prev,
-                              [business.id]: {
-                                ...(prev[business.id] ?? {
-                                  enabled: false,
-                                  reason: '',
-                                }),
-                                enabled: event.target.checked,
-                              },
-                        }))
-                      }
-                    />
-                        {t('enableReadOnly')}
-                      </label>
-                      <input
-                        value={readOnly?.reason ?? ''}
-                        onChange={(event) =>
-                          setReadOnlyEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                enabled: false,
-                                reason: '',
-                              }),
-                              reason: event.target.value,
-                            },
-                        }))
-                      }
-                      placeholder={t('readOnlyReasonPlaceholder')}
-                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                    />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          withAction(`readonly:update:${business.id}`, () =>
-                            updateReadOnly(business.id),
-                          )
-                        }
-                      className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`readonly:update:${business.id}`] ? (
-                          <Spinner size="xs" variant="pulse" />
-                        ) : null}
-                        {t('applyReadOnly')}
-                      </span>
-                    </button>
+
+                {businessActionModal.step === 1 ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-gold-300">
+                      Review impact before continuing. This action is audited and may affect access, billing, or data retention.
+                    </p>
+                    <ul className="list-disc space-y-1 pl-5 text-xs text-gold-400">
+                      <li>Business: {businessActionModal.businessId}</li>
+                      <li>Action: {businessActionModal.action}</li>
+                      <li>Immediate effect will be visible to business users.</li>
+                    </ul>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-[0.25em] text-gold-400">
-                    {t('rateLimitTitle')}
-                  </p>
-                  <div className="grid gap-2 md:grid-cols-2">
-                      <input
-                        value={rateEdit?.limit ?? ''}
-                        onChange={(event) =>
-                          setRateLimitEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                limit: '',
-                                ttlSeconds: '',
-                                expiresAt: '',
-                                reason: '',
-                              }),
-                              limit: event.target.value,
-                            },
-                        }))
+                ) : null}
+
+                {businessActionModal.step >= 2 ? (
+                  <div className="space-y-3">
+                    <label className="block text-xs uppercase tracking-[0.2em] text-gold-400">
+                      Reason (required)
+                    </label>
+                    <textarea
+                      value={businessActionModal.reason}
+                      onChange={(event) =>
+                        setBusinessActionModal((prev) =>
+                          prev ? { ...prev, reason: event.target.value } : prev,
+                        )
                       }
-                      placeholder={t('rateLimitPlaceholder')}
-                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                      className="min-h-[90px] w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                      placeholder={t('actionReasonPlaceholder')}
                     />
-                      <input
-                        value={rateEdit?.ttlSeconds ?? ''}
-                        onChange={(event) =>
-                          setRateLimitEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                limit: '',
-                                ttlSeconds: '',
-                                expiresAt: '',
-                                reason: '',
-                              }),
-                              ttlSeconds: event.target.value,
-                            },
-                        }))
-                      }
-                      placeholder={t('rateLimitTtlPlaceholder')}
-                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                    />
-                      <input
-                        value={rateEdit?.expiresAt ?? ''}
-                        onChange={(event) =>
-                          setRateLimitEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                limit: '',
-                                ttlSeconds: '',
-                                expiresAt: '',
-                                reason: '',
-                              }),
-                              expiresAt: event.target.value,
-                            },
-                        }))
-                      }
-                      placeholder={t('expiresAtPlaceholder')}
-                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                    />
-                      <input
-                        value={rateEdit?.reason ?? ''}
-                        onChange={(event) =>
-                          setRateLimitEdits((prev) => ({
-                            ...prev,
-                            [business.id]: {
-                              ...(prev[business.id] ?? {
-                                limit: '',
-                                ttlSeconds: '',
-                                expiresAt: '',
-                                reason: '',
-                              }),
-                              reason: event.target.value,
-                            },
-                        }))
-                      }
-                      placeholder={t('overrideReasonPlaceholder')}
-                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                    />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          withAction(`ratelimit:update:${business.id}`, () =>
-                            updateRateLimits(business.id),
-                          )
-                        }
-                      className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {actionLoading[`ratelimit:update:${business.id}`] ? (
-                          <Spinner size="xs" variant="bars" />
-                        ) : null}
-                        {t('applyOverride')}
-                      </span>
-                    </button>
                   </div>
-                </div>
+                ) : null}
+
+                {businessActionModal.step === 3 && businessActionModal.action === 'PURGE' ? (
+                  <div className="mt-3 grid gap-2">
+                    <input
+                      value={businessActionModal.confirmBusinessId}
+                      onChange={(event) =>
+                        setBusinessActionModal((prev) =>
+                          prev ? { ...prev, confirmBusinessId: event.target.value } : prev,
+                        )
+                      }
+                      placeholder={t('purgeBusinessIdPlaceholder')}
+                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                    />
+                    <input
+                      value={businessActionModal.confirmText}
+                      onChange={(event) =>
+                        setBusinessActionModal((prev) =>
+                          prev ? { ...prev, confirmText: event.target.value } : prev,
+                        )
+                      }
+                      placeholder={t('purgeConfirmPlaceholder')}
+                      className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                    />
+                  </div>
+                ) : null}
+
+                <div className="mt-4 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setBusinessActionModal((prev) =>
+                        prev
+                          ? { ...prev, step: (Math.max(1, prev.step - 1) as 1 | 2 | 3) }
+                          : prev,
+                      )
+                    }
+                    disabled={businessActionModal.step === 1}
+                    className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100 disabled:opacity-50"
+                  >
+                    Back
+                  </button>
+                  {businessActionModal.step < 3 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBusinessActionModal((prev) =>
+                          prev
+                            ? { ...prev, step: (Math.min(3, prev.step + 1) as 1 | 2 | 3) }
+                            : prev,
+                        )
+                      }
+                      className="rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black"
+                    >
+                      Next
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={executeBusinessActionModal}
+                      className="rounded border border-red-500/60 px-3 py-1 text-xs text-red-200"
+                    >
+                      Confirm {businessActionModal.action}
+                    </button>
+                  )}
                 </div>
               </div>
-            );
-          })}
-        </div>
-        {nextBusinessCursor ? (
-          <div className="flex justify-center pt-2">
-            <button
-              type="button"
-              onClick={() =>
-                withAction('businesses:loadMore', () =>
-                  loadBusinesses(nextBusinessCursor, true),
-                )
-              }
-              className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-4 py-2 text-sm text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-              disabled={isLoadingMoreBusinesses}
-            >
-              {isLoadingMoreBusinesses ? (
-                <Spinner size="xs" variant="grid" />
-              ) : actionLoading['businesses:loadMore'] ? (
-                <Spinner size="xs" variant="grid" />
-              ) : null}
-              {isLoadingMoreBusinesses ? t('loading') : t('loadMoreBusinesses')}
-            </button>
-          </div>
-        ) : null}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
-      {showBusinesses ? (
-        <section className="command-card p-6 space-y-4 nvi-reveal">
-        <h3 className="text-xl font-semibold">{t('provisionTitle')}</h3>
-        <form className="grid gap-3 md:grid-cols-2" onSubmit={createBusiness}>
-          <input
-            value={createForm.businessName}
-            onChange={(event) =>
-              setCreateForm({ ...createForm, businessName: event.target.value })
-            }
-            placeholder={t('businessNamePlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={createForm.ownerName}
-            onChange={(event) =>
-              setCreateForm({ ...createForm, ownerName: event.target.value })
-            }
-            placeholder={t('ownerNamePlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={createForm.ownerEmail}
-            onChange={(event) =>
-              setCreateForm({ ...createForm, ownerEmail: event.target.value })
-            }
-            placeholder={t('ownerEmailPlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={createForm.ownerTempPassword}
-            onChange={(event) =>
-              setCreateForm({
-                ...createForm,
-                ownerTempPassword: event.target.value,
-              })
-            }
-            placeholder={t('tempPasswordPlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <SmartSelect
-            value={createForm.tier}
-            onChange={(value) =>
-              setCreateForm({ ...createForm, tier: value })
-            }
-            options={[
-              { value: 'STARTER', label: t('tierStarter') },
-              { value: 'BUSINESS', label: t('tierBusiness') },
-              { value: 'ENTERPRISE', label: t('tierEnterprise') },
-            ]}
-          />
-          <button
-            type="submit"
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={creatingBusiness}
-          >
-            {creatingBusiness ? <Spinner size="xs" variant="orbit" /> : null}
-            {creatingBusiness ? t('creating') : t('createBusiness')}
-          </button>
-        </form>
+      {showBusinesses && !showBusinessDetailPage ? (
+        <section className="command-card p-6 space-y-5 nvi-reveal">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-gold-400">
+                Business onboarding
+              </p>
+              <h3 className="text-xl font-semibold text-gold-100">{t('provisionTitle')}</h3>
+              <p className="text-xs text-gold-400">
+                Create a new tenant with clear ownership and subscription tier.
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="nvi-tile p-2 text-center">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-gold-500">Starter</p>
+                <p className="mt-1 text-sm text-gold-100">
+                  {businesses.filter((business) => business.subscription?.tier === 'STARTER').length}
+                </p>
+              </div>
+              <div className="nvi-tile p-2 text-center">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-gold-500">Business</p>
+                <p className="mt-1 text-sm text-gold-100">
+                  {businesses.filter((business) => business.subscription?.tier === 'BUSINESS').length}
+                </p>
+              </div>
+              <div className="nvi-tile p-2 text-center">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-gold-500">Enterprise</p>
+                <p className="mt-1 text-sm text-gold-100">
+                  {businesses.filter((business) => business.subscription?.tier === 'ENTERPRISE').length}
+                </p>
+              </div>
+            </div>
+          </div>
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={createBusiness}>
+            <input
+              value={createForm.businessName}
+              onChange={(event) =>
+                setCreateForm({ ...createForm, businessName: event.target.value })
+              }
+              placeholder={t('businessNamePlaceholder')}
+              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            />
+            <input
+              value={createForm.ownerName}
+              onChange={(event) =>
+                setCreateForm({ ...createForm, ownerName: event.target.value })
+              }
+              placeholder={t('ownerNamePlaceholder')}
+              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            />
+            <input
+              value={createForm.ownerEmail}
+              onChange={(event) =>
+                setCreateForm({ ...createForm, ownerEmail: event.target.value })
+              }
+              placeholder={t('ownerEmailPlaceholder')}
+              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            />
+            <input
+              value={createForm.ownerTempPassword}
+              onChange={(event) =>
+                setCreateForm({
+                  ...createForm,
+                  ownerTempPassword: event.target.value,
+                })
+              }
+              placeholder={t('tempPasswordPlaceholder')}
+              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            />
+            <SmartSelect
+              value={createForm.tier}
+              onChange={(value) =>
+                setCreateForm({ ...createForm, tier: value })
+              }
+              options={[
+                { value: 'STARTER', label: t('tierStarter') },
+                { value: 'BUSINESS', label: t('tierBusiness') },
+                { value: 'ENTERPRISE', label: t('tierEnterprise') },
+              ]}
+            />
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={creatingBusiness}
+            >
+              {creatingBusiness ? <Spinner size="xs" variant="orbit" /> : null}
+              {creatingBusiness ? t('creating') : t('createBusiness')}
+            </button>
+          </form>
         </section>
       ) : null}
 
@@ -3793,56 +3867,115 @@ export function PlatformConsole({
         </section>
       ) : null}
 
-      {showBusinesses ? (
-        <section className="command-card p-6 space-y-4 nvi-reveal">
-        <h3 className="text-xl font-semibold">{t('subscriptionHistoryTitle')}</h3>
-        <div className="flex flex-wrap items-center gap-3">
-          <SmartSelect
-            value={historyBusinessId}
-            onChange={setHistoryBusinessId}
-            options={businessSelectOptions}
-            placeholder={t('selectBusiness')}
-          />
-          <button
-            type="button"
-            onClick={() =>
-              withAction('subscription:history', loadSubscriptionHistory)
-            }
-            className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
-          >
-            <span className="inline-flex items-center gap-2">
-              {loadingHistory ? <Spinner size="xs" variant="ring" /> : null}
-              {loadingHistory ? t('loading') : t('loadHistory')}
-            </span>
-          </button>
-        </div>
-        <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
-          {subscriptionHistory.map((entry, index) => (
-            <div
-              key={`${entry.createdAt}-${index}`}
-              className="rounded border border-gold-700/40 bg-black/40 p-3"
-            >
-              <p className="text-gold-100">
-                {entry.previousStatus ?? t('notAvailable')} →{' '}
-                {entry.newStatus ?? t('notAvailable')} •{' '}
-                {entry.previousTier ?? t('notAvailable')} →{' '}
-                {entry.newTier ?? t('notAvailable')}
-              </p>
-              <p>{new Date(entry.createdAt).toLocaleString()}</p>
-              {entry.changedByPlatformAdminId ? (
-                <p>
-                  {t('adminLabel', { admin: entry.changedByPlatformAdminId })}
-                </p>
-              ) : null}
-              {entry.reason ? (
-                <p>{t('reasonLabel', { reason: entry.reason })}</p>
-              ) : null}
+      {showBusinesses && !showBusinessDetailPage ? (
+        <section className="command-card p-6 space-y-5 nvi-reveal">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-gold-400">
+              Subscription intelligence
+            </p>
+            <h3 className="text-xl font-semibold text-gold-100">{t('subscriptionHistoryTitle')}</h3>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                <SmartSelect
+                  value={historyBusinessId}
+                  onChange={setHistoryBusinessId}
+                  options={businessSelectOptions}
+                  placeholder={t('selectBusiness')}
+                />
+                <input
+                  value={historyBusinessId}
+                  onChange={(event) => setHistoryBusinessId(event.target.value)}
+                  placeholder="Or paste business ID (supports purged lookups)"
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    withAction('subscription:history', loadSubscriptionHistory)
+                  }
+                  className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    {loadingHistory ? <Spinner size="xs" variant="ring" /> : null}
+                    {loadingHistory ? t('loading') : t('loadHistory')}
+                  </span>
+                </button>
+              </div>
+              <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
+                {subscriptionHistory.map((entry, index) => (
+                  <div
+                    key={`${entry.createdAt}-${index}`}
+                    className="rounded border border-gold-700/40 bg-black/40 p-3"
+                  >
+                    <p className="text-gold-100">
+                      {entry.previousStatus ?? t('notAvailable')} →{' '}
+                      {entry.newStatus ?? t('notAvailable')} •{' '}
+                      {entry.previousTier ?? t('notAvailable')} →{' '}
+                      {entry.newTier ?? t('notAvailable')}
+                    </p>
+                    <p>{new Date(entry.createdAt).toLocaleString()}</p>
+                    {entry.changedByPlatformAdminId ? (
+                      <p>
+                        {t('adminLabel', { admin: entry.changedByPlatformAdminId })}
+                      </p>
+                    ) : null}
+                    {entry.reason ? (
+                      <p>{t('reasonLabel', { reason: entry.reason })}</p>
+                    ) : null}
+                  </div>
+                ))}
+                {!subscriptionHistory.length ? (
+                  <p className="text-gold-400">{t('noHistory')}</p>
+                ) : null}
+              </div>
             </div>
-          ))}
-          {!subscriptionHistory.length ? (
-            <p className="text-gold-400">{t('noHistory')}</p>
-          ) : null}
-        </div>
+            <div className="rounded border border-gold-700/40 bg-black/30 p-3">
+              <p className="text-xs uppercase tracking-[0.2em] text-gold-500">Change mix</p>
+              <p className="mt-1 text-xs text-gold-400">
+                This chart explains what kind of subscription edits happened in the loaded history.
+              </p>
+              <div className="mt-3">
+                <Doughnut
+                  data={{
+                    labels: ['Status changes', 'Tier changes', 'Other'],
+                    datasets: [
+                      {
+                        data: [
+                          subscriptionHistoryStats.statusChanges,
+                          subscriptionHistoryStats.tierChanges,
+                          subscriptionHistoryStats.unchanged,
+                        ],
+                        backgroundColor: ['#f59e0b', '#f97316', '#78350f'],
+                        borderColor: ['#f59e0b', '#f97316', '#78350f'],
+                      },
+                    ],
+                  }}
+                  options={{
+                    plugins: { legend: { labels: { color: '#fcd34d' } } },
+                  }}
+                />
+              </div>
+              <div className="mt-3 space-y-1 text-xs text-gold-300">
+                <p>
+                  Status changes: {subscriptionHistoryStats.statusChanges} (
+                  {subscriptionHistoryStats.statusPct}%)
+                </p>
+                <p>
+                  Tier changes: {subscriptionHistoryStats.tierChanges} (
+                  {subscriptionHistoryStats.tierPct}%)
+                </p>
+                <p>
+                  Other/no-diff events: {subscriptionHistoryStats.unchanged} (
+                  {subscriptionHistoryStats.unchangedPct}%)
+                </p>
+                <p className="text-gold-500">
+                  Total events analyzed: {subscriptionHistory.length}
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
       ) : null}
 

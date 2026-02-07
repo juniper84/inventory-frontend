@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { StatusBanner } from '@/components/StatusBanner';
@@ -13,6 +13,7 @@ import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { SmartSelect } from '@/components/SmartSelect';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { ListFilters } from '@/components/ListFilters';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 import {
   buildCursorQuery,
   normalizePaginated,
@@ -68,7 +69,7 @@ export default function StockMovementsPage() {
   const [message, setMessage] = useToastState();
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
   const { filters, pushFilters, resetFilters } = useListFilters({
     search: '',
     branchId: '',
@@ -82,7 +83,7 @@ export default function StockMovementsPage() {
 
   const branchOptions = useMemo(
     () => [
-      { value: '', label: common('allBranches') },
+      { value: '', label: common('globalBranch') },
       ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
     ],
     [branches, common],
@@ -165,7 +166,7 @@ export default function StockMovementsPage() {
       const query = buildCursorQuery({
         limit: 50,
         cursor,
-        branchId: filters.branchId || undefined,
+        branchId: resolveBranchId(filters.branchId) || undefined,
         type: filters.type || undefined,
         actorId: filters.actorId || undefined,
         from: filters.from || undefined,
@@ -213,19 +214,50 @@ export default function StockMovementsPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('title')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Movement rows
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{movements.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Actor options
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{actorOptions.length - 1}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            View mode
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">
+            {viewMode === 'table' ? 'Table' : 'Cards'}
+          </p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            More pages
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">
+            {nextCursor ? 'Available' : 'Complete'}
+          </p>
+        </article>
+      </div>
       <ListFilters
         searchValue={searchDraft}
         onSearchChange={setSearchDraft}
@@ -269,7 +301,7 @@ export default function StockMovementsPage() {
           className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
         />
       </ListFilters>
-      <div className="command-card p-4 nvi-reveal">
+      <div className="command-card nvi-panel p-4 nvi-reveal">
         {!movements.length ? <StatusBanner message={t('emptyState')} /> : null}
         {viewMode === 'table' ? (
           <div className="grid grid-cols-1 gap-2 text-sm text-gold-100 md:grid-cols-[56px_160px_140px_minmax(180px,1fr)_140px_80px_120px_140px] md:items-center md:gap-3">
@@ -330,7 +362,7 @@ export default function StockMovementsPage() {
             ))}
           </div>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 nvi-stagger md:grid-cols-2">
             {movements.map((movement) => (
               <div
                 key={movement.id}

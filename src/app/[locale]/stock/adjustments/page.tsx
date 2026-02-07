@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getOrCreateDeviceId } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import {
   enqueueOfflineAction,
   getOfflineCache,
@@ -30,6 +30,7 @@ import { formatVariantLabel } from '@/lib/display';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Variant = {
@@ -121,7 +122,10 @@ export default function StockAdjustmentsPage() {
     code: '',
     expiryDate: '',
   });
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
+  const effectiveAdjustmentBranchId = resolveBranchId(adjustmentFilters.branchId) || '';
+  const effectiveFormBranchId = resolveBranchId(form.branchId) || '';
+  const effectiveBatchFormBranchId = resolveBranchId(batchForm.branchId) || '';
   const lossReasons = [
     { value: 'DAMAGED', label: t('lossDamaged') },
     { value: 'LOST', label: t('lossLost') },
@@ -133,7 +137,7 @@ export default function StockAdjustmentsPage() {
 
   const adjustmentBranchOptions = useMemo(
     () => [
-      { value: '', label: common('allBranches') },
+      { value: '', label: common('globalBranch') },
       ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
     ],
     [branches, common],
@@ -250,7 +254,7 @@ export default function StockAdjustmentsPage() {
       try {
         const query = buildCursorQuery({
           limit: 50,
-          branchId: adjustmentFilters.branchId || undefined,
+          branchId: effectiveAdjustmentBranchId || undefined,
           type: adjustmentFilters.type || undefined,
           search: adjustmentFilters.search || undefined,
           reason: adjustmentFilters.reason || undefined,
@@ -278,7 +282,7 @@ export default function StockAdjustmentsPage() {
     };
     loadAdjustments();
   }, [
-    adjustmentFilters.branchId,
+    effectiveAdjustmentBranchId,
     adjustmentFilters.type,
     adjustmentFilters.search,
     adjustmentFilters.reason,
@@ -314,7 +318,7 @@ export default function StockAdjustmentsPage() {
   useEffect(() => {
     const loadBatches = async () => {
       const token = getAccessToken();
-      if (!form.branchId || !form.variantId) {
+      if (!effectiveFormBranchId || !form.variantId) {
         setBatches([]);
         return;
       }
@@ -322,13 +326,14 @@ export default function StockAdjustmentsPage() {
         const cache = await getOfflineCache<{ batches?: Batch[] }>('snapshot');
         const cached = (cache?.batches ?? []).filter(
           (batch) =>
-            batch.branchId === form.branchId && batch.variantId === form.variantId,
+            batch.branchId === effectiveFormBranchId &&
+            batch.variantId === form.variantId,
         );
         setBatches(cached);
         return;
       }
       const data = await apiFetch<PaginatedResponse<Batch> | Batch[]>(
-        `/stock/batches?branchId=${form.branchId}&variantId=${form.variantId}`,
+        `/stock/batches?branchId=${effectiveFormBranchId}&variantId=${form.variantId}`,
         { token },
       );
       setBatches(normalizePaginated(data).items);
@@ -341,11 +346,11 @@ export default function StockAdjustmentsPage() {
         message: getApiErrorMessage(err, t('loadFailed')),
       });
     });
-  }, [form.branchId, form.variantId]);
+  }, [effectiveFormBranchId, form.variantId]);
 
   const submit = async () => {
     const token = getAccessToken();
-    if (!token || !form.branchId || !form.variantId || !form.quantity) {
+    if (!token || !effectiveFormBranchId || !form.variantId || !form.quantity) {
       return;
     }
     if (form.type === 'NEGATIVE' && !form.lossReason) {
@@ -375,7 +380,7 @@ export default function StockAdjustmentsPage() {
           actionType: 'STOCK_ADJUSTMENT',
           payload: {
             deviceId: getOrCreateDeviceId(),
-            branchId: form.branchId,
+            branchId: effectiveFormBranchId,
             variantId: form.variantId,
             quantity: Number(form.quantity),
             unitId: form.unitId || undefined,
@@ -414,7 +419,7 @@ export default function StockAdjustmentsPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          branchId: form.branchId,
+          branchId: effectiveFormBranchId,
           variantId: form.variantId,
           quantity: Number(form.quantity),
           unitId: form.unitId || undefined,
@@ -448,7 +453,7 @@ export default function StockAdjustmentsPage() {
 
   const createBatch = async () => {
     const token = getAccessToken();
-    if (!token || !batchForm.branchId || !batchForm.variantId || !batchForm.code) {
+    if (!token || !effectiveBatchFormBranchId || !batchForm.variantId || !batchForm.code) {
       return;
     }
     setMessage(null);
@@ -458,7 +463,7 @@ export default function StockAdjustmentsPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          branchId: batchForm.branchId,
+          branchId: effectiveBatchFormBranchId,
           variantId: batchForm.variantId,
           code: batchForm.code,
           expiryDate: batchForm.expiryDate || undefined,
@@ -482,9 +487,12 @@ export default function StockAdjustmentsPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-      <p className="text-sm text-gold-300">{t('subtitle')}</p>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('title')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+      />
       {message ? <StatusBanner message={message} /> : null}
       {offline && pinRequired && !pinVerified ? (
         <div className="rounded border border-red-600/40 bg-red-950/50 p-3 text-xs text-red-200">
@@ -516,7 +524,35 @@ export default function StockAdjustmentsPage() {
           </div>
         </div>
       ) : null}
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Recent adjustments
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{recentAdjustments.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Catalog variants
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Open branches
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Batch tracking
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">
+            {batches.length ? 'Active' : 'No batches'}
+          </p>
+        </article>
+      </div>
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
             value={form.branchId}
@@ -609,7 +645,7 @@ export default function StockAdjustmentsPage() {
         />
         <button
           onClick={submit}
-          className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isSubmitting || !canWrite}
           title={!canWrite ? noAccess('title') : undefined}
         >
@@ -617,7 +653,7 @@ export default function StockAdjustmentsPage() {
           {isSubmitting ? t('submitting') : t('submitAdjustment')}
         </button>
       </div>
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('createBatch')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
@@ -663,7 +699,7 @@ export default function StockAdjustmentsPage() {
         </div>
         <button
           onClick={createBatch}
-          className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-4 py-2 text-sm text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isCreatingBatch || !canWrite}
           title={!canWrite ? noAccess('title') : undefined}
         >
@@ -671,7 +707,7 @@ export default function StockAdjustmentsPage() {
           {isCreatingBatch ? t('creating') : t('createBatchAction')}
         </button>
       </div>
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-gold-100">{t('recentTitle')}</h3>
           <ViewToggle
@@ -804,7 +840,7 @@ export default function StockAdjustmentsPage() {
             </div>
           )
         ) : (
-          <div className="space-y-2 text-sm text-gold-200">
+          <div className="space-y-2 nvi-stagger text-sm text-gold-200">
             {recentAdjustments.map((movement) => {
               const unit = movement.unitId
                 ? units.find((item) => item.id === movement.unitId) ?? null

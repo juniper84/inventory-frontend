@@ -9,6 +9,12 @@ import { PageSkeleton } from '@/components/PageSkeleton';
 import { StatusBanner } from '@/components/StatusBanner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { getPermissionSet } from '@/lib/permissions';
+import {
+  PERMISSION_CATALOG,
+  PERMISSION_MODULES,
+  PermissionCatalogEntry,
+} from '@/lib/permission-catalog';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type ProfileResponse = {
   user: {
@@ -34,6 +40,8 @@ export default function ProfilePage() {
   const t = useTranslations('profilePage');
   const common = useTranslations('common');
   const actions = useTranslations('actions');
+  const permissionCatalog = useTranslations('permissions');
+  const moduleLabels = useTranslations('permissionModules');
   const [message, setMessage] = useToastState();
   const [isLoading, setIsLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
@@ -48,39 +56,62 @@ export default function ProfilePage() {
     [permissionSet],
   );
 
+  const catalogByCode = useMemo(
+    () =>
+      new Map<string, PermissionCatalogEntry>(
+        PERMISSION_CATALOG.map((entry) => [entry.code, entry]),
+      ),
+    [],
+  );
+
   const groupedPermissions = useMemo(() => {
-    const groups: Record<string, string[]> = {};
-    permissionList.forEach((code) => {
-      const [moduleName, action] = code.split('.');
-      const key = moduleName || 'other';
-      if (!groups[key]) {
-        groups[key] = [];
+    const moduleKeys = new Set(PERMISSION_MODULES.map((module) => module.key));
+    const groups: Record<
+      string,
+      {
+        moduleLabel: string;
+        items: Array<{ code: string; label: string }>;
       }
-      const value = action || code;
-      if (!groups[key].includes(value)) {
-        groups[key].push(value);
+    > = {};
+
+    permissionList.forEach((code) => {
+      const meta = catalogByCode.get(code);
+      const fallbackModule = code.split('.')[0] || 'system';
+      const moduleKey = meta?.module ?? fallbackModule;
+      const isKnownModule = moduleKeys.has(
+        moduleKey as PermissionCatalogEntry['module'],
+      );
+      const moduleLabel = isKnownModule
+        ? moduleLabels(moduleKey)
+        : moduleKey.replace(/[-_]/g, ' ');
+      const label = meta ? permissionCatalog(`${meta.labelKey}.title`) : code;
+      if (!groups[moduleKey]) {
+        groups[moduleKey] = { moduleLabel, items: [] };
+      }
+      if (!groups[moduleKey].items.some((item) => item.code === code)) {
+        groups[moduleKey].items.push({ code, label });
       }
     });
-    return groups;
-  }, [permissionList]);
 
-  const permissionOptions = [
-    'users.read',
-    'users.update',
-    'roles.read',
-    'roles.update',
-    'catalog.read',
-    'catalog.write',
-    'stock.read',
-    'stock.write',
-    'sales.read',
-    'sales.write',
-    'purchases.read',
-    'purchases.write',
-    'reports.read',
-    'expenses.write',
-    'exports.read',
-  ].map((code) => ({ value: code, label: code }));
+    Object.values(groups).forEach((group) => {
+      group.items.sort((a, b) => a.label.localeCompare(b.label));
+    });
+
+    return Object.entries(groups).sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
+  }, [catalogByCode, moduleLabels, permissionCatalog, permissionList]);
+
+  const permissionOptions = useMemo(
+    () =>
+      PERMISSION_CATALOG.filter((entry) => !permissionSet.has(entry.code))
+        .sort((a, b) => a.code.localeCompare(b.code))
+        .map((entry) => ({
+          value: entry.code,
+          label: `${permissionCatalog(`${entry.labelKey}.title`)} (${entry.code})`,
+        })),
+    [permissionCatalog, permissionSet],
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -149,16 +180,39 @@ export default function ProfilePage() {
 
   return (
     <section className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-semibold text-[color:var(--foreground)]">
-          {t('title')}
-        </h2>
-        <p className="text-sm text-[color:var(--muted)]">{t('subtitle')}</p>
+      <PremiumPageHeader
+        eyebrow="ACCOUNT CONTROL"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">ROLE MAPPED</span>
+            <span className="nvi-badge">ACCESS REQUESTS</span>
+          </>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ROLES</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{profile?.roles.length ?? 0}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">PERMISSIONS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{permissionList.length}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">STATUS</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{profile?.user.status ?? '—'}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">MEMBERSHIP</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{profile?.membership.status ?? '—'}</p>
+        </article>
       </div>
       {message ? <StatusBanner message={message} /> : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="command-card p-4 space-y-2 lg:col-span-2 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-2 lg:col-span-2 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('profileTitle')}</h3>
           <div className="text-sm text-gold-200">
             <p className="font-semibold text-gold-100">{displayName}</p>
@@ -188,7 +242,7 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('rolesTitle')}</h3>
           {profile?.roles.length ? (
             <div className="space-y-2 text-sm text-gold-200 nvi-stagger">
@@ -207,25 +261,26 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <div>
           <h3 className="text-lg font-semibold text-gold-100">{t('permissionsTitle')}</h3>
           <p className="text-xs text-gold-400">{t('permissionsSubtitle')}</p>
         </div>
         {permissionList.length ? (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 nvi-stagger">
-            {Object.entries(groupedPermissions).map(([moduleKey, actionsList]) => (
+            {groupedPermissions.map(([moduleKey, group]) => (
               <div key={moduleKey} className="rounded border border-gold-700/40 bg-black/40 p-3">
                 <p className="text-xs uppercase tracking-[0.2em] text-gold-400">
-                  {t('moduleLabel', { module: moduleKey.replace(/-/g, ' ') })}
+                  {t('moduleLabel', { module: group.moduleLabel })}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs text-gold-200">
-                  {actionsList.map((action) => (
+                  {group.items.map((item) => (
                     <span
-                      key={`${moduleKey}-${action}`}
+                      key={`${moduleKey}-${item.code}`}
+                      title={item.code}
                       className="rounded-full border border-gold-700/50 px-2 py-1"
                     >
-                      {action}
+                      {item.label}
                     </span>
                   ))}
                 </div>
@@ -237,7 +292,7 @@ export default function ProfilePage() {
         )}
       </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <div>
           <h3 className="text-lg font-semibold text-gold-100">{t('requestAccessTitle')}</h3>
           <p className="text-xs text-gold-400">{t('requestAccessHint')}</p>
@@ -250,6 +305,7 @@ export default function ProfilePage() {
             }
             options={permissionOptions}
             placeholder={t('requestPermission')}
+            noOptionsMessage={() => t('allPermissionsGranted')}
             isClearable
             className="nvi-select-container"
           />
@@ -266,7 +322,7 @@ export default function ProfilePage() {
           type="button"
           onClick={requestAccess}
           disabled={!requestForm.permission || isRequesting}
-          className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+          className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
         >
           {isRequesting ? actions('sending') : t('requestAccessAction')}
         </button>

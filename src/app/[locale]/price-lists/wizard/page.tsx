@@ -14,6 +14,7 @@ import { StatusBanner } from '@/components/StatusBanner';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type PriceListItem = {
   id: string;
@@ -181,24 +182,50 @@ export default function PriceListWizardPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-gold-500">{t('eyebrow')}</p>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <Link
-          href={`/${locale}/price-lists`}
-          className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-        >
-          {t('backToPriceLists')}
-        </Link>
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('eyebrow')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Bulk update</span>
+            <span className="status-chip">{step}</span>
+          </>
+        }
+        actions={
+          <Link
+            href={`/${locale}/price-lists`}
+            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+          >
+            {t('backToPriceLists')}
+          </Link>
+        }
+      />
 
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Current step</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{t(`${step}Step`)}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Target variants</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{targetVariants.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Preview rows</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{previewRows.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Selected list</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {selectedList?.name ?? common('unknown')}
+          </p>
+        </article>
+      </div>
 
-      <div className="flex flex-wrap gap-2 text-xs text-gold-300">
+      <div className="flex flex-wrap gap-2 text-xs text-gold-300 command-card nvi-panel p-3 nvi-reveal">
         {steps.map((entry) => (
           <span
             key={entry}
@@ -214,7 +241,7 @@ export default function PriceListWizardPage() {
       </div>
 
       {step === 'scope' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('scopeTitle')}</h3>
           <SmartSelect
             value={form.listId}
@@ -239,7 +266,7 @@ export default function PriceListWizardPage() {
             type="button"
             onClick={() => setStep('adjust')}
             disabled={!form.listId}
-            className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
           >
             {actions('next')}
           </button>
@@ -247,7 +274,7 @@ export default function PriceListWizardPage() {
       ) : null}
 
       {step === 'adjust' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('adjustTitle')}</h3>
           <div className="grid gap-3 md:grid-cols-2">
             <SmartSelect
@@ -275,7 +302,7 @@ export default function PriceListWizardPage() {
               type="button"
               onClick={() => setStep('preview')}
               disabled={!form.value}
-              className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+              className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
             >
               {actions('next')}
             </button>
@@ -291,7 +318,7 @@ export default function PriceListWizardPage() {
       ) : null}
 
       {step === 'preview' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('previewTitle')}</h3>
           {previewRows.length ? (
             <div className="space-y-2 text-sm text-gold-200">
@@ -321,7 +348,7 @@ export default function PriceListWizardPage() {
             <button
               type="button"
               onClick={() => setStep('apply')}
-              className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black"
+              className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black"
             >
               {actions('next')}
             </button>
@@ -337,7 +364,7 @@ export default function PriceListWizardPage() {
       ) : null}
 
       {step === 'apply' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('applyTitle')}</h3>
           <p className="text-sm text-gold-300">
             {t('applyHint', { count: targetVariants.length })}
@@ -346,7 +373,7 @@ export default function PriceListWizardPage() {
             type="button"
             onClick={applyChanges}
             disabled={!canManage || isApplying}
-            className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
             title={!canManage ? noAccess('title') : undefined}
           >
             {isApplying ? <Spinner size="xs" variant="dots" /> : null}

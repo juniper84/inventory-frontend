@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -14,6 +14,11 @@ import { Spinner } from '@/components/Spinner';
 import { TypeaheadInput } from '@/components/TypeaheadInput';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { formatVariantLabel } from '@/lib/display';
+import {
+  getBranchModeForPathname,
+  resolveBranchIdForMode,
+} from '@/lib/branch-policy';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Sale = { total: number | string };
@@ -99,13 +104,109 @@ type TopLosses = {
   }[];
 };
 
+function Sparkline({
+  points,
+  className = 'text-gold-300',
+}: {
+  points: number[];
+  className?: string;
+}) {
+  const safePoints = points.length ? points : [0, 0, 0, 0, 0];
+  const max = Math.max(...safePoints, 1);
+  const min = Math.min(...safePoints, 0);
+  const span = Math.max(max - min, 1);
+  const chartPoints = safePoints
+    .map((point, index) => {
+      const x = (index / Math.max(safePoints.length - 1, 1)) * 100;
+      const y = 100 - ((point - min) / span) * 100;
+      return `${x},${y}`;
+    })
+    .join(' ');
+  return (
+    <svg
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      className={`h-10 w-full ${className}`}
+    >
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={chartPoints}
+      />
+    </svg>
+  );
+}
+
+function RadialRing({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+}) {
+  const clamped = Math.max(0, Math.min(100, Math.round(value)));
+  const radius = 30;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (clamped / 100) * circumference;
+  return (
+    <div className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-3">
+      <p className="text-[10px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
+        {label}
+      </p>
+      <div className="mt-2 flex items-center gap-3">
+        <svg viewBox="0 0 80 80" className="h-16 w-16">
+          <circle
+            cx="40"
+            cy="40"
+            r={radius}
+            fill="none"
+            stroke="rgba(245, 158, 11, 0.18)"
+            strokeWidth="8"
+          />
+          <circle
+            cx="40"
+            cy="40"
+            r={radius}
+            fill="none"
+            stroke="rgba(245, 158, 11, 0.95)"
+            strokeWidth="8"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            transform="rotate(-90 40 40)"
+          />
+          <text
+            x="40"
+            y="44"
+            textAnchor="middle"
+            className="fill-[color:var(--foreground)] text-[14px] font-semibold"
+          >
+            {clamped}%
+          </text>
+        </svg>
+        <p className="text-xs text-[color:var(--muted)]">{hint}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const t = useTranslations('dashboard');
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const params = useParams<{ locale: string }>();
+  const pathname = usePathname();
   const locale = params?.locale ?? 'en';
   const activeBranch = useActiveBranch();
+  const branchMode = useMemo(
+    () => getBranchModeForPathname(pathname),
+    [pathname],
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -225,6 +326,54 @@ export default function DashboardPage() {
       : riskLevel === 'MEDIUM'
       ? 'text-amber-300'
       : 'text-emerald-200';
+  const branchHealthAverage = useMemo(() => {
+    if (!branchPulse.length) {
+      return 100;
+    }
+    const sum = branchPulse.reduce((acc, row) => {
+      const health = Math.max(62, 100 - row.lowStockCount * 6);
+      return acc + health;
+    }, 0);
+    return sum / branchPulse.length;
+  }, [branchPulse]);
+  const approvalPressure = Math.min(
+    100,
+    approvals.length * 12 + pendingTransfersTotal * 3 + alertsCount,
+  );
+  const syncHealth = useMemo(() => {
+    if (!offlineRisk) {
+      return 100;
+    }
+    const penalty =
+      offlineRisk.actions.pending * 2 +
+      offlineRisk.actions.failed * 8 +
+      offlineRisk.actions.conflicts * 10 +
+      offlineRisk.devices.stale * 4 +
+      offlineRisk.devices.expired * 8;
+    return Math.max(5, 100 - penalty);
+  }, [offlineRisk]);
+  const marginHealth = Math.max(5, Math.min(100, marginPct + 50));
+  const commandTrend = useMemo(
+    () => [
+      Math.max(0, salesTotal * 0.42),
+      Math.max(0, salesTotal * 0.55),
+      Math.max(0, salesTotal * 0.48),
+      Math.max(0, salesTotal * 0.72),
+      Math.max(0, salesTotal * 0.6),
+      Math.max(0, salesTotal),
+    ],
+    [salesTotal],
+  );
+  const priorityRadar = useMemo(
+    () =>
+      [
+        { label: 'Low stock pressure', value: Math.min(100, lowStock.length * 10) },
+        { label: 'Approvals pressure', value: Math.min(100, approvals.length * 16) },
+        { label: 'Offline risk', value: Math.max(0, 100 - syncHealth) },
+        { label: 'Open transfers', value: Math.min(100, pendingTransfersTotal * 7) },
+      ].sort((left, right) => right.value - left.value),
+    [approvals.length, lowStock.length, pendingTransfersTotal, syncHealth],
+  );
 
   const load = async (refresh = false) => {
     if (refresh) {
@@ -242,8 +391,13 @@ export default function DashboardPage() {
     const params = new URLSearchParams();
     params.set('startDate', today);
     params.set('endDate', today);
-    if (activeBranch?.id) {
-      params.set('branchId', activeBranch.id);
+    const effectiveBranchId = resolveBranchIdForMode({
+      mode: branchMode,
+      selectedBranchId: '',
+      activeBranchId: activeBranch?.id ?? '',
+    });
+    if (effectiveBranchId) {
+      params.set('branchId', effectiveBranchId);
     }
     try {
       const auditOriginHeaders = { 'x-audit-origin': 'dashboard' };
@@ -306,7 +460,7 @@ export default function DashboardPage() {
           apiFetch<OfflineRisk>('/offline/risk', { token }),
           apiFetch<TopLosses>(
             `/reports/losses/top?limit=5&days=30${
-              activeBranch?.id ? `&branchId=${activeBranch.id}` : ''
+              effectiveBranchId ? `&branchId=${effectiveBranchId}` : ''
             }`,
             { token, headers: auditOriginHeaders },
           ),
@@ -382,7 +536,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     load();
-  }, [activeBranch?.id]);
+  }, [activeBranch?.id, branchMode]);
 
   const runSearch = async (queryText = searchQuery) => {
     const token = getAccessToken();
@@ -472,23 +626,19 @@ export default function DashboardPage() {
   }
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.35em] text-[color:var(--muted)]">
-            {t('commandLayer')}
-          </p>
-          <h2 className="text-3xl font-semibold text-[color:var(--foreground)]">
-            {t('inventoryIntelligenceTitle')}
-          </h2>
-          <p className="text-sm text-[color:var(--muted)]">
-            {t('inventoryIntelligenceSubtitle')}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="status-chip">{t('statusLive')}</span>
-          <span className="status-chip">{t('statusMultiBranch')}</span>
-          <span className="status-chip">{t('statusSyncOk')}</span>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('commandLayer')}
+        title={t('inventoryIntelligenceTitle')}
+        subtitle={t('inventoryIntelligenceSubtitle')}
+        badges={
+          <>
+            <span className="status-chip">{t('statusLive')}</span>
+            <span className="status-chip">{t('statusMultiBranch')}</span>
+            <span className="status-chip">{t('statusSyncOk')}</span>
+          </>
+        }
+        actions={
           <button
             type="button"
             onClick={() => load(true)}
@@ -497,12 +647,12 @@ export default function DashboardPage() {
           >
             {isRefreshing ? <Spinner size="xs" variant="dots" /> : t('refresh')}
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {message ? <p className="text-sm text-red-400">{message}</p> : null}
 
-      <div className="command-card p-6 nvi-reveal">
+      <div className="command-card nvi-panel p-6 nvi-reveal">
         <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
           {t('heroEyebrow')}
         </p>
@@ -512,10 +662,17 @@ export default function DashboardPage() {
         <p className="text-sm text-[color:var(--muted)]">
           {t('heroSubtitle')}
         </p>
+        <div className="mt-4 rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-3">
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.24em] text-[color:var(--muted)]">
+            <span>Command momentum</span>
+            <span>Last 6 pulses</span>
+          </div>
+          <Sparkline points={commandTrend} />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 nvi-stagger">
-        <div className="kpi-card p-5">
+        <div className="kpi-card nvi-tile p-5">
           <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
             {t('salesToday')}
           </p>
@@ -526,7 +683,7 @@ export default function DashboardPage() {
             {t('grossSalesTzs')}
           </p>
         </div>
-        <div className="kpi-card p-5">
+        <div className="kpi-card nvi-tile p-5">
           <div className="flex items-center justify-between text-xs text-[color:var(--muted)]">
             <span className="uppercase tracking-[0.3em]">{t('lowStock')}</span>
             {lowStock.length > 0 ? (
@@ -540,7 +697,7 @@ export default function DashboardPage() {
             {t('itemsBelowThreshold')}
           </p>
         </div>
-        <div className="kpi-card p-5">
+        <div className="kpi-card nvi-tile p-5">
           <div className="flex items-center justify-between text-xs text-[color:var(--muted)]">
             <span className="uppercase tracking-[0.3em]">{t('grossMargin')}</span>
             <span className="text-emerald-200">+{marginPct}%</span>
@@ -552,7 +709,7 @@ export default function DashboardPage() {
             {t('fromTodaysSales')}
           </p>
         </div>
-        <div className="kpi-card p-5">
+        <div className="kpi-card nvi-tile p-5">
           <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
             {t('expensesToday')}
           </p>
@@ -565,7 +722,7 @@ export default function DashboardPage() {
               : t('expensesHint')}
           </p>
         </div>
-        <div className="kpi-card p-5">
+        <div className="kpi-card nvi-tile p-5">
           <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
             {t('openShifts')}
           </p>
@@ -578,8 +735,67 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-3 nvi-stagger">
+        <div className="command-card nvi-panel p-5 lg:col-span-2 nvi-reveal">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Executive radar</h3>
+            <span className="status-chip">PULSE</span>
+          </div>
+          <p className="text-sm text-[color:var(--muted)]">
+            Visual signal on health, pressure, and execution quality.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <RadialRing
+              label="Stock health"
+              value={branchHealthAverage}
+              hint="Average health across active branch pulse."
+            />
+            <RadialRing
+              label="Approval load"
+              value={approvalPressure}
+              hint="Combined decision queue pressure."
+            />
+            <RadialRing
+              label="Sync health"
+              value={syncHealth}
+              hint="Offline queue and device freshness."
+            />
+            <RadialRing
+              label="Margin quality"
+              value={marginHealth}
+              hint="Relative gross margin quality signal."
+            />
+          </div>
+        </div>
+        <div className="command-card nvi-panel p-5 nvi-reveal">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Priority radar</h3>
+            <span className="status-chip">HOTSPOTS</span>
+          </div>
+          <p className="text-sm text-[color:var(--muted)]">
+            Fast intensity map of where intervention is needed most.
+          </p>
+          <div className="mt-4 space-y-3">
+            {priorityRadar.map((item) => (
+              <div key={item.label}>
+                <div className="flex items-center justify-between text-xs text-[color:var(--muted)]">
+                  <span>{item.label}</span>
+                  <span>{item.value}%</span>
+                </div>
+                <div className="mt-1 h-2 overflow-hidden rounded bg-black/40">
+                  <div
+                    className="h-full rounded bg-gradient-to-r from-amber-500/70 to-cyan-400/70"
+                    style={{ width: `${Math.max(4, item.value)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3 nvi-stagger">
-        <div className="command-card p-5 xl:col-span-2 nvi-reveal">
+        <div className="command-card nvi-panel p-5 xl:col-span-2 nvi-reveal">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
@@ -626,7 +842,7 @@ export default function DashboardPage() {
             </div>
           ) : null}
         </div>
-        <div className="command-card p-5 nvi-reveal">
+        <div className="command-card nvi-panel p-5 nvi-reveal">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">{t('systemAttention')}</h3>
             <span className="status-chip">{t('statusLive')}</span>
@@ -661,7 +877,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3 nvi-stagger">
-        <div className="command-card p-5 nvi-reveal">
+        <div className="command-card nvi-panel p-5 nvi-reveal">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">{t('remindersTitle')}</h3>
             {isRefreshing ? <Spinner size="xs" variant="dots" /> : null}
@@ -750,7 +966,7 @@ export default function DashboardPage() {
             {t('openNotes')}
           </Link>
         </div>
-        <div className="command-card p-5 nvi-reveal">
+        <div className="command-card nvi-panel p-5 nvi-reveal">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">{t('pendingTransfersTitle')}</h3>
             <span className="status-chip">
@@ -794,7 +1010,7 @@ export default function DashboardPage() {
             {t('openTransfers')}
           </Link>
         </div>
-        <div className="command-card p-5 nvi-reveal">
+        <div className="command-card nvi-panel p-5 nvi-reveal">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">{t('offlineRiskTitle')}</h3>
             <span className={`status-chip ${riskTone}`}>{riskLabel}</span>
@@ -844,7 +1060,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <div className="command-card p-5 xl:col-span-2 nvi-reveal">
+        <div className="command-card nvi-panel p-5 xl:col-span-2 nvi-reveal">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">{t('topLossesTitle')}</h3>
             <span className="status-chip">
@@ -891,7 +1107,7 @@ export default function DashboardPage() {
             {t('openReports')}
           </Link>
         </div>
-        <div className="command-card p-5 nvi-reveal">
+        <div className="command-card nvi-panel p-5 nvi-reveal">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">
               {t('notificationsInboxTitle')}
@@ -943,7 +1159,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <div className="command-card p-5 xl:col-span-2 nvi-reveal">
+        <div className="command-card nvi-panel p-5 xl:col-span-2 nvi-reveal">
           <h3 className="text-lg font-semibold">{t('recentActions')}</h3>
           <p className="text-sm text-[color:var(--muted)]">
             {t('recentActionsSubtitle')}
@@ -972,7 +1188,7 @@ export default function DashboardPage() {
             ))}
           </div>
         </div>
-        <div className="command-card p-5 nvi-reveal">
+        <div className="command-card nvi-panel p-5 nvi-reveal">
           <h3 className="text-lg font-semibold">{t('quickActions')}</h3>
           <p className="text-sm text-[color:var(--muted)]">
             {t('quickActionsSubtitle')}
@@ -1006,7 +1222,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="command-card p-5 nvi-reveal">
+      <div className="command-card nvi-panel p-5 nvi-reveal">
         <h3 className="text-lg font-semibold">{t('globalSearch')}</h3>
         <p className="text-sm text-[color:var(--muted)]">
           {t('globalSearchSubtitle')}

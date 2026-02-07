@@ -21,6 +21,7 @@ import { getPermissionSet } from '@/lib/permissions';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Supplier = {
   id: string;
@@ -75,6 +76,18 @@ export default function SuppliersPage() {
       { value: 'no', label: common('balanceClear') },
     ],
     [common],
+  );
+  const activeSuppliers = useMemo(
+    () => suppliers.filter((supplier) => supplier.status === 'ACTIVE').length,
+    [suppliers],
+  );
+  const inactiveSuppliers = useMemo(
+    () => suppliers.filter((supplier) => supplier.status !== 'ACTIVE').length,
+    [suppliers],
+  );
+  const withLeadTime = useMemo(
+    () => suppliers.filter((supplier) => Number(supplier.leadTimeDays ?? 0) > 0).length,
+    [suppliers],
   );
 
   useEffect(() => {
@@ -322,45 +335,72 @@ export default function SuppliersPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Supplier network"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Vendor ops</span>
+            <span className="status-chip">Live</span>
+          </>
+        }
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.balanceDue}
-          onChange={(value) => pushFilters({ balanceDue: value })}
-          options={balanceOptions}
-          placeholder={common('balanceDue')}
-          className="nvi-select-container"
-        />
-      </ListFilters>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Suppliers</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{suppliers.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeSuppliers}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Needs attention</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{inactiveSuppliers}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Lead-time set</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{withLeadTime}</p>
+        </article>
+      </div>
+      <div className="command-card nvi-reveal nvi-panel p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={common('status')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.balanceDue}
+            onChange={(value) => pushFilters({ balanceDue: value })}
+            options={balanceOptions}
+            placeholder={common('balanceDue')}
+            className="nvi-select-container"
+          />
+        </ListFilters>
+      </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('addTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-3">
           <input
@@ -409,7 +449,7 @@ export default function SuppliersPage() {
         <button
           type="button"
           onClick={createSupplier}
-          className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isCreating || !canWrite}
           title={!canWrite ? noAccess('title') : undefined}
         >
@@ -418,7 +458,7 @@ export default function SuppliersPage() {
         </button>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('listTitle')}</h3>
         {viewMode === 'table' ? (
           suppliers.length === 0 ? (

@@ -25,6 +25,7 @@
     "status": "Status",
     "total": "Total",
     "allBranches": "All branches",
+    "globalBranch": "Global branch (top bar)",
     "allVariants": "All variants",
     "allCategories": "All categories",
     "allStatuses": "All statuses",
@@ -273,7 +274,12 @@
     "select": "Select",
     "lang": "Lang",
     "noAccess": "Access restricted",
-    "noMatches": "No matches. Try another keyword."
+    "noMatches": "No matches. Try another keyword.",
+    "sessionExpiringTitle": "Session expiring",
+    "sessionExpiringDesc": "You have been inactive. You will be logged out in {seconds}s.",
+    "staySignedIn": "Stay signed in",
+    "logoutNow": "Logout now",
+    "menu": "Menu"
   },
   "palette": {
     "createProductWizard": "Create product (wizard)",
@@ -293,6 +299,7 @@
     "add": "Add",
     "remove": "Remove",
     "back": "Back",
+    "next": "Next",
     "submit": "Submit",
     "send": "Send",
     "export": "Export",
@@ -426,6 +433,7 @@
   },
   "notificationsPage": {
     "title": "Notifications",
+    "subtitle": "Track alerts, prioritize actions, and clear the inbox quickly.",
     "loadFailed": "Failed to load notifications.",
     "updateFailed": "Failed to update notification.",
     "markedRead": "Notification marked as read.",
@@ -870,7 +878,8 @@
     "branchAvailability": "Branch availability",
     "availabilityFailed": "Failed to update availability.",
     "noBarcode": "No barcode",
-    "availability": "Availability"
+    "availability": "Availability",
+    "noVariants": "No variants found."
   },
   "businessSettingsPage": {
     "title": "Business settings",
@@ -1586,6 +1595,11 @@
     "eyebrow": "Inventory intelligence",
     "title": "Reports & analytics",
     "subtitle": "Stock, sales, VAT, profit, and customer insights in one command view.",
+    "sectionOverview": "Overview",
+    "sectionSalesProfit": "Sales & profit",
+    "sectionCustomers": "Customers",
+    "sectionInventory": "Inventory",
+    "sectionOperations": "Operations",
     "statusLive": "LIVE",
     "statusMultiBranch": "MULTI-BRANCH",
     "currencyTzs": "TZS",
@@ -1595,6 +1609,7 @@
     "filters": "Filters",
     "filtersTitle": "Command filters",
     "filtersSubtitle": "Scope the data by branch and date range.",
+    "filtersAutoRefresh": "Filters auto-refresh after you pause typing.",
     "allBranches": "All branches",
     "fromDate": "From (YYYY-MM-DD)",
     "toDate": "To (YYYY-MM-DD)",
@@ -1660,7 +1675,9 @@
     "noStockCountVariance": "No stock count variance data.",
     "noStaffPerformance": "No staff performance data.",
     "threshold": "Threshold",
-    "days": "Days"
+    "days": "Days",
+    "inventoryRefreshHint": "Low-stock threshold and expiry days apply on refresh.",
+    "lossesWindowLabel": "Top losses window: last {days} days"
   },
   "settings": {
     "title": "Settings",
@@ -2506,6 +2523,7 @@
     "requestAccessTitle": "Request access",
     "requestAccessHint": "Ask the system owner to grant extra permissions.",
     "requestPermission": "Permission",
+    "allPermissionsGranted": "You already have all available permissions.",
     "requestReason": "Reason (optional)",
     "requestAccessAction": "Request access",
     "requestSent": "Access request sent.",

@@ -7,13 +7,15 @@ import { BrowserMultiFormatReader } from '@zxing/browser';
 import { confirmAction, useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { StatusBanner } from '@/components/StatusBanner';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import { installBarcodeScanner } from '@/lib/barcode-scanner';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Category = { id: string; name: string };
 type Branch = { id: string; name: string };
@@ -46,7 +48,7 @@ export default function ProductWizardPage() {
   const common = useTranslations('common');
   const router = useRouter();
   const params = useParams<{ locale: string }>();
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
   const [isLoading, setIsLoading] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -355,7 +357,12 @@ export default function ProductWizardPage() {
     ]);
     setStockLines((prev) => [
       ...prev,
-      { variantId: id, branchId: activeBranch?.id || '', quantity: '', unitId: '' },
+      {
+        variantId: id,
+        branchId: resolveBranchId(activeBranch?.id) || '',
+        quantity: '',
+        unitId: '',
+      },
     ]);
   };
 
@@ -511,12 +518,40 @@ export default function ProductWizardPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-      <p className="text-sm text-gold-300">{t('subtitle')}</p>
-      {message ? <p className="text-sm text-gold-300">{message}</p> : null}
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Catalog wizard"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Guided</span>
+            <span className="status-chip">{steps[step]}</span>
+          </>
+        }
+      />
+      {message ? <StatusBanner message={message} /> : null}
 
-      <div className="command-card p-4 nvi-reveal">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Current step</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{steps[step]}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Variants drafted</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Stock lines</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{stockLines.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Ready variants</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{filteredVariants.length}</p>
+        </article>
+      </div>
+
+      <div className="command-card nvi-panel p-4 nvi-reveal">
         <div className="flex flex-wrap items-center gap-2 text-xs text-gold-300">
           {steps.map((label, index) => (
             <span
@@ -534,7 +569,7 @@ export default function ProductWizardPage() {
       </div>
 
       {step === 0 ? (
-        <div className="command-card p-6 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('productDetails')}</h3>
           <input
             value={product.name}
@@ -568,7 +603,7 @@ export default function ProductWizardPage() {
       ) : null}
 
       {step === 1 ? (
-        <div className="command-card p-6 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('variantsTitle')}</h3>
           {variants.map((variant, index) => (
             <div
@@ -750,7 +785,7 @@ export default function ProductWizardPage() {
                     setScanAutoStart(true);
                     startScan(scanTargetId);
                   }}
-                  className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
+                  className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black"
                 >
                   {scanActive ? t('scanRestart') : t('scanStart')}
                 </button>
@@ -773,7 +808,7 @@ export default function ProductWizardPage() {
       ) : null}
 
       {step === 2 ? (
-        <div className="command-card p-6 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('initialStockTitle')}</h3>
           <p className="text-xs text-gold-400">
             {t('initialStockHint')}
@@ -830,7 +865,7 @@ export default function ProductWizardPage() {
       ) : null}
 
       {step === 3 ? (
-        <div className="command-card p-6 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('reviewTitle')}</h3>
           <div className="text-sm text-gold-300 space-y-2">
             <p>
@@ -880,7 +915,7 @@ export default function ProductWizardPage() {
           <button
             type="button"
             onClick={goNext}
-            className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black"
+            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black"
           >
             {t('continue')}
           </button>
@@ -889,7 +924,7 @@ export default function ProductWizardPage() {
             type="button"
             onClick={submitWizard}
             disabled={isSubmitting}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           >
             {isSubmitting ? <Spinner size="xs" variant="orbit" /> : null}
             {isSubmitting ? t('creating') : t('finish')}

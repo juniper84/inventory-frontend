@@ -19,6 +19,7 @@ import { getPermissionSet } from '@/lib/permissions';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Category = {
   id: string;
@@ -61,6 +62,14 @@ export default function CategoriesPage() {
       { value: 'ARCHIVED', label: common('statusArchived') },
     ],
     [common],
+  );
+  const activeCount = useMemo(
+    () => categories.filter((category) => category.status === 'ACTIVE').length,
+    [categories],
+  );
+  const parentCount = useMemo(
+    () => categories.filter((category) => !category.parentId).length,
+    [categories],
   );
 
   useEffect(() => {
@@ -192,38 +201,75 @@ export default function CategoriesPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Catalog hierarchy"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Taxonomy</span>
+            <span className="status-chip">Live</span>
+          </>
+        }
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-      </ListFilters>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Categories
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{categories.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Active
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Parent groups
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{parentCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Filtered status
+          </p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {filters.status || common('allStatuses')}
+          </p>
+        </article>
+      </div>
+      <div className="command-card nvi-reveal nvi-panel p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={common('status')}
+            className="nvi-select-container"
+          />
+        </ListFilters>
+      </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('newCategory')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <input
@@ -250,7 +296,7 @@ export default function CategoriesPage() {
           onClick={createCategory}
           disabled={isCreating || !canWrite}
           title={!canWrite ? noAccess('title') : undefined}
-          className="rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
         >
           <span className="inline-flex items-center gap-2">
             {isCreating ? <Spinner variant="orbit" size="xs" /> : null}
@@ -259,7 +305,7 @@ export default function CategoriesPage() {
         </button>
       </div>
 
-      <div className="command-card p-4 nvi-reveal">
+      <div className="command-card nvi-panel p-4 nvi-reveal">
         {viewMode === 'table' ? (
           <div className="overflow-auto">
             {!categories.length ? (
@@ -337,12 +383,12 @@ export default function CategoriesPage() {
                       className="nvi-select-container"
                     />
                     <div className="flex gap-2">
-                      <button
-                        onClick={saveEdit}
-                        disabled={isSaving || !canWrite}
-                        title={!canWrite ? noAccess('title') : undefined}
-                        className="rounded bg-gold-500 px-3 py-1 text-sm font-semibold text-black disabled:opacity-70"
-                      >
+                        <button
+                          onClick={saveEdit}
+                          disabled={isSaving || !canWrite}
+                          title={!canWrite ? noAccess('title') : undefined}
+                          className="nvi-cta rounded px-3 py-1 text-sm font-semibold text-black disabled:opacity-70"
+                        >
                         <span className="inline-flex items-center gap-2">
                           {isSaving ? <Spinner variant="dots" size="xs" /> : null}
                           {isSaving ? t('saving') : common('save')}

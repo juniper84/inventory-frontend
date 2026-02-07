@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
 import { useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -14,6 +14,7 @@ import {
   PaginatedResponse,
 } from '@/lib/pagination';
 import { getPermissionSet } from '@/lib/permissions';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Conflict = {
   id: string;
@@ -39,6 +40,14 @@ export default function OfflineConflictsPage() {
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [message, setMessage] = useToastState();
+  const approvalConflicts = useMemo(
+    () => conflicts.filter((conflict) => conflict.conflictReason === 'APPROVAL_REQUIRED').length,
+    [conflicts],
+  );
+  const priceConflicts = useMemo(
+    () => conflicts.filter((conflict) => conflict.conflictReason === 'PRICE_VARIANCE').length,
+    [conflicts],
+  );
 
   const load = async (cursor?: string, append = false) => {
     const token = getAccessToken();
@@ -150,10 +159,35 @@ export default function OfflineConflictsPage() {
 
   return (
     <section className="space-y-4 nvi-reveal">
-      <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-      <p className="text-sm text-gold-300">
-        {t('subtitle')}
-      </p>
+      <PremiumPageHeader
+        eyebrow="CONFLICT CENTER"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">OFFLINE RECOVERY</span>
+            <span className="nvi-badge">ACTION REQUIRED</span>
+          </>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">OPEN CONFLICTS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{conflicts.length}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">APPROVAL BLOCKS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{approvalConflicts}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">PRICE VARIANCE</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{priceConflicts}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">NEXT PAGE</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{nextCursor ? 'YES' : 'NO'}</p>
+        </article>
+      </div>
       {message ? <StatusBanner message={message} /> : null}
       <div className="space-y-3">
         {conflicts.length === 0 ? (
@@ -210,7 +244,7 @@ export default function OfflineConflictsPage() {
           <button
             type="button"
             onClick={() => load(nextCursor, true)}
-            className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-4 py-2 text-sm text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isLoadingMore}
           >
             {isLoadingMore ? <Spinner size="xs" variant="grid" /> : null}

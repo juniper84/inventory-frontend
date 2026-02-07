@@ -20,6 +20,7 @@ import { getPermissionSet } from '@/lib/permissions';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Customer = {
   id: string;
@@ -99,6 +100,14 @@ export default function CustomersPage() {
       { value: 'no', label: common('balanceClear') },
     ],
     [common],
+  );
+  const activeCount = useMemo(
+    () => customers.filter((customer) => (customer.status ?? 'ACTIVE') === 'ACTIVE').length,
+    [customers],
+  );
+  const withPriceList = useMemo(
+    () => customers.filter((customer) => Boolean(customer.priceListId)).length,
+    [customers],
   );
 
   useEffect(() => {
@@ -313,48 +322,77 @@ export default function CustomersPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Customer command"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">People workflow</span>
+            <span className="status-chip">Live</span>
+          </>
+        }
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       <p className="text-xs text-gold-400">
         {t('sensitiveHint')}
       </p>
       {message ? <StatusBanner message={message} /> : null}
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.balanceDue}
-          onChange={(value) => pushFilters({ balanceDue: value })}
-          options={balanceOptions}
-          placeholder={common('balanceDue')}
-          className="nvi-select-container"
-        />
-      </ListFilters>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Customers</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{customers.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Price list linked</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{withPriceList}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Current filter</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {filters.status || common('allStatuses')}
+          </p>
+        </article>
+      </div>
+      <div className="command-card nvi-panel nvi-reveal p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={common('status')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.balanceDue}
+            onChange={(value) => pushFilters({ balanceDue: value })}
+            options={balanceOptions}
+            placeholder={common('balanceDue')}
+            className="nvi-select-container"
+          />
+        </ListFilters>
+      </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('addTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-3">
           <input
@@ -404,7 +442,7 @@ export default function CustomersPage() {
           onClick={createCustomer}
           disabled={isCreating || !canCreate}
           title={!canCreate ? noAccess('title') : undefined}
-          className="rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
         >
           <span className="inline-flex items-center gap-2">
             {isCreating ? <Spinner variant="orbit" size="xs" /> : null}
@@ -413,7 +451,7 @@ export default function CustomersPage() {
         </button>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('listTitle')}</h3>
         {viewMode === 'table' ? (
           customers.length === 0 ? (
@@ -576,7 +614,7 @@ export default function CustomersPage() {
                     onClick={saveEdit}
                     disabled={isSaving || !canEdit}
                     title={!canEdit ? noAccess('title') : undefined}
-                    className="rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black disabled:opacity-70"
+                    className="nvi-cta rounded px-3 py-1 text-xs font-semibold text-black disabled:opacity-70"
                   >
                     <span className="inline-flex items-center gap-2">
                       {isSaving ? <Spinner variant="grid" size="xs" /> : null}

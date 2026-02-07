@@ -10,6 +10,7 @@ type DatePickerInputProps = {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
 };
 
 const formatDate = (date: Date) =>
@@ -20,6 +21,7 @@ export function DatePickerInput({
   onChange,
   placeholder,
   className,
+  disabled,
 }: DatePickerInputProps) {
   const common = useTranslations('common');
   const [open, setOpen] = useState(false);
@@ -54,9 +56,11 @@ export function DatePickerInput({
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
           className={className}
+          disabled={disabled}
         />
         <button
           type="button"
+          disabled={disabled}
           onClick={() =>
             setOpen((prev) => {
               const next = !prev;

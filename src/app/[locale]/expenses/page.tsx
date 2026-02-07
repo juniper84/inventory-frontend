@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -21,6 +21,7 @@ import {
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 
@@ -78,7 +79,9 @@ export default function ExpensesPage() {
     receiptRef: '',
     expenseDate: '',
   });
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
+  const effectiveFilterBranchId = resolveBranchId(filters.branchId) || '';
+  const effectiveFormBranchId = resolveBranchId(form.branchId) || '';
 
   const categories = [
     { value: 'GENERAL', label: t('categoryGeneral') },
@@ -106,13 +109,14 @@ export default function ExpensesPage() {
   );
   const branchOptions = useMemo(
     () => [
-      { value: '', label: common('allBranches') },
+      { value: '', label: common('globalBranch') },
       ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
     ],
     [branches, common],
   );
   const categoryLabel = (value: string) =>
     categories.find((item) => item.value === value)?.label ?? value;
+  const totalAmount = expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
   useEffect(() => {
     if (activeBranch?.id && !form.branchId) {
@@ -149,7 +153,7 @@ export default function ExpensesPage() {
         cursor: cursor ?? undefined,
         includeTotal: targetPage === 1 ? '1' : undefined,
         search: filters.search || undefined,
-        branchId: filters.branchId || undefined,
+        branchId: effectiveFilterBranchId || undefined,
         category: filters.category || undefined,
         status: filters.status || undefined,
         from: filters.from || undefined,
@@ -211,7 +215,7 @@ export default function ExpensesPage() {
 
   const submit = async () => {
     const token = getAccessToken();
-    if (!token || !form.branchId || !form.amount) {
+    if (!token || !effectiveFormBranchId || !form.amount) {
       return;
     }
     setMessage(null);
@@ -221,7 +225,7 @@ export default function ExpensesPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          branchId: form.branchId,
+          branchId: effectiveFormBranchId,
           category: form.category,
           amount: Number(form.amount),
           currency: form.currency || undefined,
@@ -261,55 +265,90 @@ export default function ExpensesPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-      <p className="text-sm text-gold-300">{t('subtitle')}</p>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Expense control"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Ops spend</span>
+            <span className="status-chip">Live</span>
+          </>
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.branchId}
-          onChange={(value) => pushFilters({ branchId: value })}
-          options={branchOptions}
-          placeholder={common('branch')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.category}
-          onChange={(value) => pushFilters({ category: value })}
-          options={categoryOptions}
-          placeholder={common('category')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-        <DatePickerInput
-          value={filters.from}
-          onChange={(value) => pushFilters({ from: value })}
-          placeholder={common('fromDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-        <DatePickerInput
-          value={filters.to}
-          onChange={(value) => pushFilters({ to: value })}
-          placeholder={common('toDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-      </ListFilters>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Rows</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{expenses.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Total amount</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{totalAmount.toLocaleString()}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Category filter</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {filters.category || common('allCategories')}
+          </p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Branch scope</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {filters.branchId
+              ? branches.find((b) => b.id === filters.branchId)?.name ?? common('unknown')
+              : common('globalBranch')}
+          </p>
+        </article>
+      </div>
+      <div className="command-card nvi-panel nvi-reveal p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.branchId}
+            onChange={(value) => pushFilters({ branchId: value })}
+            options={branchOptions}
+            placeholder={common('branch')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.category}
+            onChange={(value) => pushFilters({ category: value })}
+            options={categoryOptions}
+            placeholder={common('category')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={common('status')}
+            className="nvi-select-container"
+          />
+          <DatePickerInput
+            value={filters.from}
+            onChange={(value) => pushFilters({ from: value })}
+            placeholder={common('fromDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+          <DatePickerInput
+            value={filters.to}
+            onChange={(value) => pushFilters({ to: value })}
+            placeholder={common('toDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+        </ListFilters>
+      </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('newExpense')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
@@ -369,7 +408,7 @@ export default function ExpensesPage() {
         </div>
         <button
           onClick={submit}
-          className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={!canWrite || isSubmitting}
           title={!canWrite ? noAccess('title') : undefined}
         >
@@ -385,7 +424,7 @@ export default function ExpensesPage() {
           expenses.map((expense) => (
             <div
               key={expense.id}
-              className="command-card p-4 text-sm text-gold-200 nvi-reveal"
+              className="command-card nvi-panel p-4 text-sm text-gold-200 nvi-reveal"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>

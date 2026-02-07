@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -16,6 +16,7 @@ import {
   PaginatedResponse,
 } from '@/lib/pagination';
 import { getPermissionSet } from '@/lib/permissions';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Shift = {
@@ -53,12 +54,15 @@ export default function ShiftsPage() {
     openingCash: '',
     notes: '',
   });
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
+  const effectiveOpenBranchId = resolveBranchId(openForm.branchId) || '';
   const [closeForm, setCloseForm] = useState({
     shiftId: '',
     closingCash: '',
     varianceReason: '',
   });
+  const openCount = shifts.filter((shift) => shift.status === 'OPEN').length;
+  const closedCount = shifts.filter((shift) => shift.status === 'CLOSED').length;
 
   const load = async (cursor?: string, append = false) => {
     if (append) {
@@ -118,7 +122,7 @@ export default function ShiftsPage() {
 
   const openShift = async () => {
     const token = getAccessToken();
-    if (!token || !openForm.branchId || !openForm.openingCash) {
+    if (!token || !effectiveOpenBranchId || !openForm.openingCash) {
       return;
     }
     setMessage(null);
@@ -128,7 +132,7 @@ export default function ShiftsPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          branchId: openForm.branchId,
+          branchId: effectiveOpenBranchId,
           openingCash: Number(openForm.openingCash),
           notes: openForm.notes || undefined,
         }),
@@ -190,13 +194,40 @@ export default function ShiftsPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-      <p className="text-sm text-gold-300">{t('subtitle')}</p>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Shift control"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Cash desk</span>
+            <span className="status-chip">Live</span>
+          </>
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Shift records</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{shifts.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Open</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{openCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Closed</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{closedCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Branches</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
+        </article>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="command-card p-6 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('openTitle')}</h3>
           <SmartSelect
             value={openForm.branchId}
@@ -229,7 +260,7 @@ export default function ShiftsPage() {
           <button
             type="button"
             onClick={openShift}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isOpening || !canOpen}
             title={!canOpen ? noAccess('title') : undefined}
           >
@@ -238,7 +269,7 @@ export default function ShiftsPage() {
           </button>
         </div>
 
-        <div className="command-card p-6 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('closeTitle')}</h3>
           <SmartSelect
             value={closeForm.shiftId}
@@ -276,7 +307,7 @@ export default function ShiftsPage() {
           <button
             type="button"
             onClick={closeShift}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isClosing || !canClose}
             title={!canClose ? noAccess('title') : undefined}
           >
@@ -286,7 +317,7 @@ export default function ShiftsPage() {
         </div>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('historyTitle')}</h3>
         {shifts.length === 0 ? (
           <StatusBanner message={t('noShifts')} />

@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 export default function SignupPage() {
   const t = useTranslations('auth');
@@ -56,16 +57,34 @@ export default function SignupPage() {
 
   return (
     <div className="space-y-6 nvi-reveal">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight text-gold-100">
-          {t('createBusinessTitle')}
-        </h1>
-        <p className="text-sm text-gold-300">
-          {t('createBusinessSubtitle')}
-        </p>
+      <PremiumPageHeader
+        eyebrow="ACCOUNT PROVISIONING"
+        title={t('createBusinessTitle')}
+        subtitle={t('createBusinessSubtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">TRIAL FLOW</span>
+            <span className="nvi-badge">{tier}</span>
+          </>
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-3 nvi-stagger">
+        <article className="command-card nvi-panel p-3 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">BUSINESS NAME</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{businessName.trim() ? 'SET' : 'PENDING'}</p>
+        </article>
+        <article className="command-card nvi-panel p-3 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">OWNER</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{ownerName.trim() ? 'SET' : 'PENDING'}</p>
+        </article>
+        <article className="command-card nvi-panel p-3 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">STATUS</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('creating') : 'READY'}</p>
+        </article>
       </div>
 
-      <form className="space-y-4" onSubmit={submit}>
+      <form className="command-card nvi-panel space-y-4 p-4" onSubmit={submit}>
         <input
           value={businessName}
           onChange={(event) => setBusinessName(event.target.value)}
@@ -120,7 +139,7 @@ export default function SignupPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta w-full rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
         >
           <span className="inline-flex items-center justify-center gap-2">
             {isSubmitting ? <Spinner variant="dots" size="xs" /> : null}

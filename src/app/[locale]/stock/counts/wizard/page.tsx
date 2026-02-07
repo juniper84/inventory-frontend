@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { useToastState } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -16,6 +16,7 @@ import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { getPermissionSet } from '@/lib/permissions';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Variant = {
@@ -69,7 +70,7 @@ export default function StockCountWizardPage() {
       batchId: '',
     },
   ]);
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
 
   const validLines = useMemo(
     () =>
@@ -133,7 +134,7 @@ export default function StockCountWizardPage() {
       ...prev,
       {
         id: crypto.randomUUID(),
-        branchId: activeBranch?.id ?? '',
+        branchId: resolveBranchId(activeBranch?.id) || '',
         variantId: '',
         countedQuantity: '',
         unitId: '',
@@ -189,7 +190,7 @@ export default function StockCountWizardPage() {
       setLines([
         {
           id: crypto.randomUUID(),
-          branchId: activeBranch?.id ?? '',
+          branchId: resolveBranchId(activeBranch?.id) || '',
           variantId: '',
           countedQuantity: '',
           unitId: '',
@@ -214,22 +215,48 @@ export default function StockCountWizardPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-gold-500">{t('eyebrow')}</p>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <Link
-          href={`/${locale}/stock/counts`}
-          className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-        >
-          {t('backToCounts')}
-        </Link>
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('eyebrow')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <Link
+            href={`/${locale}/stock/counts`}
+            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+          >
+            {t('backToCounts')}
+          </Link>
+        }
+      />
 
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Draft lines
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{lines.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Valid lines
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{validLines.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Current step
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">{t(`${step}Step`)}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Branches
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
+        </article>
+      </div>
 
       <div className="flex flex-wrap gap-2 text-xs text-gold-300">
         {steps.map((entry) => (
@@ -247,7 +274,7 @@ export default function StockCountWizardPage() {
       </div>
 
       {step === 'counts' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('countsTitle')}</h3>
           {lines.map((line) => {
             const key = `${line.branchId}-${line.variantId}`;
@@ -363,7 +390,7 @@ export default function StockCountWizardPage() {
               type="button"
               onClick={() => setStep('review')}
               disabled={!validLines.length}
-              className="rounded bg-gold-500 px-4 py-2 text-xs font-semibold text-black disabled:opacity-60"
+              className="nvi-cta rounded px-4 py-2 text-xs font-semibold text-black disabled:opacity-60"
             >
               {actions('next')}
             </button>
@@ -372,10 +399,10 @@ export default function StockCountWizardPage() {
       ) : null}
 
       {step === 'review' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('reviewTitle')}</h3>
           {validLines.length ? (
-            <div className="space-y-2 text-sm text-gold-200">
+            <div className="space-y-2 nvi-stagger text-sm text-gold-200">
               {validLines.map((line) => (
                 <div key={line.id} className="rounded border border-gold-700/40 bg-black/40 p-3">
                   <p className="text-gold-100">
@@ -417,7 +444,7 @@ export default function StockCountWizardPage() {
               type="button"
               onClick={submit}
               disabled={!canWrite || isSubmitting || !validLines.length}
-              className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+              className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
               title={!canWrite ? noAccess('title') : undefined}
             >
               {isSubmitting ? <Spinner size="xs" variant="dots" /> : null}

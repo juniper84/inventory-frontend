@@ -23,6 +23,7 @@ import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Approval = {
   id: string;
@@ -91,6 +92,10 @@ export default function ApprovalsPage() {
       { value: 'PURCHASE', label: t('actionPurchase') },
     ],
     [common, t],
+  );
+  const pendingCount = useMemo(
+    () => approvals.filter((approval) => approval.status === 'PENDING').length,
+    [approvals],
   );
 
   useEffect(() => {
@@ -267,59 +272,84 @@ export default function ApprovalsPage() {
   }
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-[color:var(--foreground)]">
-            {t('title')}
-          </h2>
-          <p className="text-sm text-[color:var(--muted)]">{t('subtitle')}</p>
-        </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Decision queue"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Approvals</span>
+            <span className="status-chip">Live</span>
+          </>
+        }
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.actionType}
-          onChange={(value) => pushFilters({ actionType: value })}
-          options={actionOptions}
-          placeholder={t('actionType')}
-          className="nvi-select-container"
-        />
-        <DatePickerInput
-          value={filters.from}
-          onChange={(value) => pushFilters({ from: value })}
-          placeholder={common('fromDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-        <DatePickerInput
-          value={filters.to}
-          onChange={(value) => pushFilters({ to: value })}
-          placeholder={common('toDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-      </ListFilters>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Loaded items</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{approvals.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Pending now</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{pendingCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Status filter</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{filters.status || common('allStatuses')}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Action filter</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{filters.actionType || common('allTypes')}</p>
+        </article>
+      </div>
+      <div className="command-card nvi-panel nvi-reveal p-4">
+        <ListFilters
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearchSubmit={() => pushFilters({ search: searchDraft })}
+          onReset={() => resetFilters()}
+          isLoading={isLoading}
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+        >
+          <SmartSelect
+            value={filters.status}
+            onChange={(value) => pushFilters({ status: value })}
+            options={statusOptions}
+            placeholder={common('status')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.actionType}
+            onChange={(value) => pushFilters({ actionType: value })}
+            options={actionOptions}
+            placeholder={t('actionType')}
+            className="nvi-select-container"
+          />
+          <DatePickerInput
+            value={filters.from}
+            onChange={(value) => pushFilters({ from: value })}
+            placeholder={common('fromDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+          <DatePickerInput
+            value={filters.to}
+            onChange={(value) => pushFilters({ to: value })}
+            placeholder={common('toDate')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          />
+        </ListFilters>
+      </div>
 
-      <div className="command-card p-4 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         {viewMode === 'table' ? (
           approvals.length === 0 ? (
             <StatusBanner message={t('noApprovals')} />
@@ -369,7 +399,7 @@ export default function ApprovalsPage() {
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() => approve(approval.id)}
-                              className="inline-flex items-center gap-2 rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+                              className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
                               disabled={!canApprove || actionBusy[approval.id] === 'approve'}
                               title={!canApprove ? noAccess('title') : undefined}
                             >
@@ -411,7 +441,7 @@ export default function ApprovalsPage() {
           {approvals.map((approval) => (
             <div
               key={approval.id}
-              className="command-card p-4 space-y-2 nvi-reveal"
+              className="command-card nvi-panel p-4 space-y-2 nvi-reveal"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -452,7 +482,7 @@ export default function ApprovalsPage() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => approve(approval.id)}
-                    className="inline-flex items-center gap-2 rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+                    className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
                     disabled={!canApprove || actionBusy[approval.id] === 'approve'}
                     title={!canApprove ? noAccess('title') : undefined}
                   >

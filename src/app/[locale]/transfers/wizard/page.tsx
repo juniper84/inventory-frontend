@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useActiveBranch } from '@/lib/branch-context';
+import { useBranchScope } from '@/lib/use-branch-scope';
 import { useToastState } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -15,6 +15,7 @@ import { StatusBanner } from '@/components/StatusBanner';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Variant = { id: string; name: string; product?: { name?: string | null } };
@@ -66,7 +67,8 @@ export default function TransferWizardPage() {
   const [items, setItems] = useState<TransferItemInput[]>([
     { variantId: '', quantity: '', batchId: '' },
   ]);
-  const activeBranch = useActiveBranch();
+  const { activeBranch, resolveBranchId } = useBranchScope();
+  const effectiveSourceBranchId = resolveBranchId(form.sourceBranchId) || '';
 
   const validItems = useMemo(
     () => items.filter((item) => item.variantId && item.quantity),
@@ -147,7 +149,7 @@ export default function TransferWizardPage() {
 
   const createTransfer = async () => {
     const token = getAccessToken();
-    if (!token || !form.sourceBranchId || !form.destinationBranchId || !validItems.length) {
+    if (!token || !effectiveSourceBranchId || !form.destinationBranchId || !validItems.length) {
       return;
     }
     setMessage(null);
@@ -164,7 +166,7 @@ export default function TransferWizardPage() {
           token,
           method: 'POST',
           body: JSON.stringify({
-            sourceBranchId: form.sourceBranchId,
+            sourceBranchId: effectiveSourceBranchId,
             destinationBranchId: form.destinationBranchId,
             items: payloadItems,
             feeAmount: form.feeAmount ? Number(form.feeAmount) : undefined,
@@ -261,23 +263,51 @@ export default function TransferWizardPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-gold-500">{t('eyebrow')}</p>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <Link
-          href={`/${locale}/transfers`}
-          className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-        >
-          {t('backToTransfers')}
-        </Link>
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow={t('eyebrow')}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <Link
+            href={`/${locale}/transfers`}
+            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+          >
+            {t('backToTransfers')}
+          </Link>
+        }
+      />
 
       {message ? <StatusBanner message={message} /> : null}
       {approvalNotice ? <StatusBanner message={approvalNotice} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Draft items
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{items.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Valid items
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{validItems.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Current step
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">{t(`${step}Step`)}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
+            Transfer created
+          </p>
+          <p className="mt-2 text-xl font-semibold text-gold-100">
+            {createdTransfer ? 'Yes' : 'No'}
+          </p>
+        </article>
+      </div>
 
       <div className="flex flex-wrap gap-2 text-xs text-gold-300">
         {steps.map((entry) => (
@@ -295,7 +325,7 @@ export default function TransferWizardPage() {
       </div>
 
       {step === 'details' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('detailsTitle')}</h3>
           <div className="grid gap-3 md:grid-cols-2">
             <SmartSelect
@@ -344,8 +374,8 @@ export default function TransferWizardPage() {
           <button
             type="button"
             onClick={() => setStep('items')}
-            disabled={!form.sourceBranchId || !form.destinationBranchId}
-            className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+            disabled={!effectiveSourceBranchId || !form.destinationBranchId}
+            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
           >
             {actions('next')}
           </button>
@@ -353,10 +383,10 @@ export default function TransferWizardPage() {
       ) : null}
 
       {step === 'items' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('itemsTitle')}</h3>
           {items.map((item, index) => {
-            const key = `${form.sourceBranchId}-${item.variantId}`;
+            const key = `${effectiveSourceBranchId}-${item.variantId}`;
             const options = batchOptions[key] ?? [];
             return (
               <div key={`${item.variantId}-${index}`} className="grid gap-2 md:grid-cols-[2fr_1fr_1fr_auto]">
@@ -364,8 +394,8 @@ export default function TransferWizardPage() {
                   value={item.variantId}
                   onChange={(value) => {
                     updateItem(index, { variantId: value, batchId: '' });
-                    if (form.sourceBranchId) {
-                      loadBatches(form.sourceBranchId, value).catch(() => undefined);
+                    if (effectiveSourceBranchId) {
+                      loadBatches(effectiveSourceBranchId, value).catch(() => undefined);
                     }
                   }}
                   options={variants.map((variant) => ({
@@ -422,7 +452,7 @@ export default function TransferWizardPage() {
               type="button"
               onClick={() => setStep('review')}
               disabled={!validItems.length}
-              className="rounded bg-gold-500 px-4 py-2 text-xs font-semibold text-black disabled:opacity-60"
+              className="nvi-cta rounded px-4 py-2 text-xs font-semibold text-black disabled:opacity-60"
             >
               {actions('next')}
             </button>
@@ -438,7 +468,7 @@ export default function TransferWizardPage() {
       ) : null}
 
       {step === 'review' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('reviewTitle')}</h3>
           {validItems.length ? (
             <div className="space-y-2 text-sm text-gold-200">
@@ -464,7 +494,7 @@ export default function TransferWizardPage() {
               type="button"
               onClick={createTransfer}
               disabled={!canWrite || isCreating || !validItems.length}
-              className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+              className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
               title={!canWrite ? noAccess('title') : undefined}
             >
               {isCreating ? <Spinner size="xs" variant="dots" /> : null}
@@ -482,7 +512,7 @@ export default function TransferWizardPage() {
       ) : null}
 
       {step === 'receive' ? (
-        <div className="command-card p-4 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-lg font-semibold text-gold-100">{t('receiveTitle')}</h3>
             {createdTransfer ? (
@@ -508,7 +538,7 @@ export default function TransferWizardPage() {
                   {t('finishLater')}
                 </Link>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 nvi-stagger">
                 {createdTransfer.items.map((item) => (
                   <div key={item.id} className="grid gap-2 md:grid-cols-[2fr_1fr]">
                     <div className="text-sm text-gold-200">
@@ -531,7 +561,7 @@ export default function TransferWizardPage() {
                 type="button"
                 onClick={receiveTransfer}
                 disabled={!canWrite || isReceiving}
-                className="rounded bg-gold-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+                className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
                 title={!canWrite ? noAccess('title') : undefined}
               >
                 {isReceiving ? <Spinner size="xs" variant="orbit" /> : null}

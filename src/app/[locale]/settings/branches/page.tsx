@@ -15,6 +15,7 @@ import {
   PaginatedResponse,
 } from '@/lib/pagination';
 import { getPermissionSet } from '@/lib/permissions';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = {
   id: string;
@@ -179,15 +180,40 @@ export default function BranchesPage() {
 
   return (
     <section className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-semibold text-[color:var(--foreground)]">
-          {t('title')}
-        </h2>
-        <p className="text-sm text-[color:var(--muted)]">{t('subtitle')}</p>
+      <PremiumPageHeader
+        eyebrow="ORG TOPOLOGY"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">BRANCH MAP</span>
+            <span className="nvi-badge">PRICE READY</span>
+          </>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">TOTAL BRANCHES</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">WITH PRICE LIST</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">
+            {branches.filter((branch) => Boolean(branch.priceListId)).length}
+          </p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">MORE PAGES</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{nextCursor ? 'YES' : 'NO'}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">CAN WRITE</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{canWrite ? 'YES' : 'NO'}</p>
+        </article>
       </div>
       {message ? <StatusBanner message={message} /> : null}
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('addBranch')}</h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <input
@@ -227,7 +253,7 @@ export default function BranchesPage() {
           onClick={createBranch}
           disabled={isCreating || !canWrite}
           title={!canWrite ? noAccess('title') : undefined}
-          className="rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
         >
           <span className="inline-flex items-center gap-2">
             {isCreating ? <Spinner variant="orbit" size="xs" /> : null}
@@ -236,7 +262,7 @@ export default function BranchesPage() {
         </button>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('listTitle')}</h3>
         {branches.length === 0 ? (
           <StatusBanner message={t('empty')} />
@@ -320,7 +346,7 @@ export default function BranchesPage() {
                     onClick={saveEdit}
                     disabled={isSaving || !canWrite}
                     title={!canWrite ? noAccess('title') : undefined}
-                    className="rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black disabled:opacity-70"
+                    className="nvi-cta rounded px-3 py-1 text-xs font-semibold text-black disabled:opacity-70"
                   >
                     <span className="inline-flex items-center gap-2">
                       {isSaving ? <Spinner variant="dots" size="xs" /> : null}

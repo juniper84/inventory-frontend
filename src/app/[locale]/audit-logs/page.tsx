@@ -19,6 +19,8 @@ import {
 } from '@/lib/pagination';
 import { buildAuditNarrative } from '@/lib/auditNarrative';
 import { formatEntityLabel } from '@/lib/display';
+import { useBranchScope } from '@/lib/use-branch-scope';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Role = { id: string; name: string };
@@ -173,8 +175,10 @@ export default function AuditLogsPage() {
     {},
   );
   const dashboardFilterInit = useRef(false);
+  const branchFilterInit = useRef(false);
   const [userQuery, setUserQuery] = useState('');
   const [resourceQuery, setResourceQuery] = useState('');
+  const { activeBranch } = useBranchScope();
   const [filters, setFilters] = useState({
     branchId: '',
     roleId: '',
@@ -196,6 +200,19 @@ export default function AuditLogsPage() {
     () => new Map(branches.map((branch) => [branch.id, branch.name])),
     [branches],
   );
+
+  useEffect(() => {
+    if (branchFilterInit.current) {
+      return;
+    }
+    if (!activeBranch?.id) {
+      return;
+    }
+    branchFilterInit.current = true;
+    setFilters((prev) =>
+      prev.branchId ? prev : { ...prev, branchId: activeBranch.id },
+    );
+  }, [activeBranch?.id]);
   const roleMap = useMemo(
     () => new Map(roles.map((role) => [role.id, role.name])),
     [roles],
@@ -612,6 +629,20 @@ export default function AuditLogsPage() {
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
   }, [chainLogs]);
+  const successCount = useMemo(
+    () => filteredLogs.filter((log) => log.outcome === 'SUCCESS').length,
+    [filteredLogs],
+  );
+  const failureCount = useMemo(
+    () => filteredLogs.filter((log) => log.outcome === 'FAILURE').length,
+    [filteredLogs],
+  );
+  const activeFilterCount = useMemo(() => {
+    const valueCount = Object.values(filters).filter((value) => Boolean(value)).length;
+    const toggleCount =
+      Number(showGuardChecks) + Number(showDashboardReports) + Number(showAuthRefresh);
+    return valueCount + toggleCount;
+  }, [filters, showAuthRefresh, showDashboardReports, showGuardChecks]);
 
   if (isLoading) {
     return <PageSkeleton />;
@@ -619,15 +650,39 @@ export default function AuditLogsPage() {
 
   return (
     <section className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-semibold text-[color:var(--foreground)]">
-          {t('title')}
-        </h2>
-        <p className="text-sm text-[color:var(--muted)]">{t('subtitle')}</p>
+      <PremiumPageHeader
+        eyebrow="SECURITY LEDGER"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">EVIDENCE LIVE</span>
+            <span className="nvi-badge">CHAIN READY</span>
+          </>
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">LOADED EVENTS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{filteredLogs.length}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">SUCCESS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{successCount}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">FAILURE</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{failureCount}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ACTIVE FILTERS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeFilterCount}</p>
+        </article>
       </div>
       {message ? <StatusBanner message={message} /> : null}
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-gold-100">{t('filters')}</h3>
           <button
@@ -858,7 +913,7 @@ export default function AuditLogsPage() {
             await loadLogs(1);
             setIsRefreshing(false);
           }}
-          className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isRefreshing}
         >
           {isRefreshing ? <Spinner size="xs" variant="orbit" /> : null}
@@ -925,7 +980,7 @@ export default function AuditLogsPage() {
         </div>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-gold-100">{t('recentEvents')}</h3>
           <ViewToggle
@@ -1323,7 +1378,7 @@ export default function AuditLogsPage() {
         />
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">
           {t('playbackTitle')}
         </h3>

@@ -16,6 +16,7 @@ type SmartSelectProps = {
   onChange: (value: string) => void;
   className?: string;
   instanceId?: string;
+  noOptionsMessage?: () => string;
 };
 
 function flattenOptions(
@@ -41,6 +42,7 @@ export function SmartSelect({
   onChange,
   className,
   instanceId,
+  noOptionsMessage,
 }: SmartSelectProps) {
   const flat = flattenOptions(options);
   const selected = flat.find((option) => option.value === value) ?? null;
@@ -55,6 +57,7 @@ export function SmartSelect({
       placeholder={placeholder}
       isClearable={isClearable}
       isDisabled={isDisabled}
+      noOptionsMessage={noOptionsMessage}
       menuPortalTarget={
         typeof document !== 'undefined' ? document.body : undefined
       }

@@ -18,6 +18,7 @@ import {
 } from '@/lib/pagination';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type PriceListItem = {
   id: string;
@@ -245,28 +246,61 @@ export default function PriceListsPage() {
   const variantMap = useMemo(() => {
     return new Map(variants.map((variant) => [variant.id, variant]));
   }, [variants]);
+  const activeLists = useMemo(
+    () => lists.filter((list) => (list.status ?? 'ACTIVE') === 'ACTIVE').length,
+    [lists],
+  );
+  const overrideCount = useMemo(
+    () => lists.reduce((sum, list) => sum + (list.items?.length ?? 0), 0),
+    [lists],
+  );
 
   if (isLoading) {
     return <PageSkeleton />;
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
-        </div>
-        <Link
-          href={`/${locale}/price-lists/wizard`}
-          className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-        >
-          {t('openWizard')}
-        </Link>
-      </div>
+    <section className="nvi-page">
+      <PremiumPageHeader
+        eyebrow="Pricing command"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="status-chip">Price governance</span>
+            <span className="status-chip">Live</span>
+          </>
+        }
+        actions={
+          <Link
+            href={`/${locale}/price-lists/wizard`}
+            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+          >
+            {t('openWizard')}
+          </Link>
+        }
+      />
       {message ? <StatusBanner message={message} /> : null}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Price lists</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{lists.length}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active lists</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeLists}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Overrides</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{overrideCount}</p>
+        </article>
+        <article className="kpi-card nvi-tile p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Variant pool</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
+        </article>
+      </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('createTitle')}</h3>
         <div className="flex flex-wrap gap-3">
           <input
@@ -278,7 +312,7 @@ export default function PriceListsPage() {
           <button
             type="button"
             onClick={createList}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isCreating || !canManage}
             title={!canManage ? noAccess('title') : undefined}
           >
@@ -288,7 +322,7 @@ export default function PriceListsPage() {
         </div>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('assignTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-3">
           <SmartSelect
@@ -332,7 +366,7 @@ export default function PriceListsPage() {
         <button
           type="button"
           onClick={addItem}
-          className="inline-flex items-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isAssigning || !canManage}
           title={!canManage ? noAccess('title') : undefined}
         >
@@ -341,7 +375,7 @@ export default function PriceListsPage() {
         </button>
       </div>
 
-      <div className="command-card p-6 space-y-3 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('listsTitle')}</h3>
         {lists.length === 0 ? (
           <StatusBanner message={t('empty')} />
@@ -400,7 +434,7 @@ export default function PriceListsPage() {
                   <button
                     type="button"
                     onClick={saveEdit}
-                    className="inline-flex items-center gap-2 rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+                    className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
                     disabled={isSaving || !canManage}
                     title={!canManage ? noAccess('title') : undefined}
                   >

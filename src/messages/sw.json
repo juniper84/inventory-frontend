@@ -25,6 +25,7 @@
     "status": "Hali",
     "total": "Jumla",
     "allBranches": "Matawi yote",
+    "globalBranch": "Tawi la jumla (juu)",
     "allVariants": "Matoleo yote",
     "allCategories": "Kategoria zote",
     "allStatuses": "Hali zote",
@@ -273,7 +274,12 @@
     "select": "Chagua",
     "lang": "Lugha",
     "noAccess": "Ufikiaji umezuiwa",
-    "noMatches": "Hakuna kinacholingana. Jaribu neno lingine."
+    "noMatches": "Hakuna kinacholingana. Jaribu neno lingine.",
+    "sessionExpiringTitle": "Muda wa kikao unaisha",
+    "sessionExpiringDesc": "Umekuwa bila shughuli. Utaondolewa baada ya {seconds}s.",
+    "staySignedIn": "Endelea kuingia",
+    "logoutNow": "Toka sasa",
+    "menu": "Menyu"
   },
   "palette": {
     "createProductWizard": "Unda bidhaa (mwongozo)",
@@ -293,6 +299,7 @@
     "add": "Ongeza",
     "remove": "Ondoa",
     "back": "Rudi",
+    "next": "Mbele",
     "submit": "Wasilisha",
     "send": "Tuma",
     "export": "Hamisha",
@@ -426,6 +433,7 @@
   },
   "notificationsPage": {
     "title": "Taarifa",
+    "subtitle": "Fuatilia tahadhari, panga vipaumbele vya hatua, na safisha kikasha haraka.",
     "loadFailed": "Imeshindwa kupakia taarifa.",
     "updateFailed": "Imeshindwa kusasisha taarifa.",
     "markedRead": "Taarifa imewekwa kuwa imesomwa.",
@@ -870,7 +878,8 @@
     "branchAvailability": "Upatikanaji wa tawi",
     "availabilityFailed": "Imeshindwa kusasisha upatikanaji.",
     "noBarcode": "Hakuna msimbo wa pau",
-    "availability": "Upatikanaji"
+    "availability": "Upatikanaji",
+    "noVariants": "Hakuna matoleo yaliyopatikana."
   },
   "businessSettingsPage": {
     "title": "Mipangilio ya biashara",
@@ -1586,6 +1595,11 @@
     "eyebrow": "Uchanganuzi wa hesabu",
     "title": "Ripoti na uchambuzi",
     "subtitle": "Hisa, mauzo, VAT, faida, na taarifa za wateja kwenye mwonekano mmoja.",
+    "sectionOverview": "Muhtasari",
+    "sectionSalesProfit": "Mauzo na faida",
+    "sectionCustomers": "Wateja",
+    "sectionInventory": "Hesabu",
+    "sectionOperations": "Uendeshaji",
     "statusLive": "MOJA KWA MOJA",
     "statusMultiBranch": "MATAWI MENGI",
     "currencyTzs": "TZS",
@@ -1595,6 +1609,7 @@
     "filters": "Vichujio",
     "filtersTitle": "Vichujio vya amri",
     "filtersSubtitle": "Chuja data kwa tawi na muda.",
+    "filtersAutoRefresh": "Vichujio husasishwa kiotomatiki baada ya kusimama kuandika.",
     "allBranches": "Matawi yote",
     "fromDate": "Kuanzia (YYYY-MM-DD)",
     "toDate": "Hadi (YYYY-MM-DD)",
@@ -1660,7 +1675,9 @@
     "noStockCountVariance": "Hakuna data ya tofauti ya hesabu.",
     "noStaffPerformance": "Hakuna data ya utendaji wa wafanyakazi.",
     "threshold": "Kiwango",
-    "days": "Siku"
+    "days": "Siku",
+    "inventoryRefreshHint": "Kiwango cha low-stock na siku za expiry hutumika baada ya kusasisha.",
+    "lossesWindowLabel": "Dirisha la hasara kubwa: siku {days} zilizopita"
   },
   "settings": {
     "title": "Mipangilio",
@@ -2506,6 +2523,7 @@
     "requestAccessTitle": "Omba ruhusa",
     "requestAccessHint": "Omba system owner akupatie ruhusa zaidi.",
     "requestPermission": "Ruhusa",
+    "allPermissionsGranted": "Tayari una ruhusa zote zinazopatikana.",
     "requestReason": "Sababu (hiari)",
     "requestAccessAction": "Omba ruhusa",
     "requestSent": "Ombi la ruhusa limetumwa.",

@@ -20,6 +20,7 @@ import {
   NOTIFICATION_GROUPS,
   normalizeNotificationSettings,
 } from '@/lib/notification-settings';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Business = { id: string; name: string; defaultLanguage: string };
 type Role = { id: string; name: string };
@@ -515,13 +516,36 @@ export default function BusinessSettingsPage() {
 
   return (
     <section className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-semibold text-[color:var(--foreground)]">
-          {t('title')}
-        </h2>
-        <p className="text-sm text-[color:var(--muted)]">{t('subtitle')}</p>
+      <PremiumPageHeader
+        eyebrow="BUSINESS COMMAND"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">POLICY ENGINE</span>
+            <span className="nvi-badge">SUBSCRIPTION WATCH</span>
+          </>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">BUSINESS</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{business?.name ?? '—'}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">SUBSCRIPTION</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{subscription?.status ?? '—'}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ROLES</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{roles.length}</p>
+        </article>
+        <article className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">USERS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{users.length}</p>
+        </article>
       </div>
-      <div className="command-card p-6 space-y-4 text-center nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-4 text-center nvi-reveal">
         {message ? <StatusBanner message={message} /> : null}
         {isLoading ? (
           <div className="space-y-2">
@@ -545,7 +569,7 @@ export default function BusinessSettingsPage() {
       </div>
 
       {isLoading ? (
-        <div className="command-card p-6 space-y-4 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-2">
               <Skeleton className="h-5 w-40" />
@@ -560,7 +584,7 @@ export default function BusinessSettingsPage() {
           </div>
         </div>
       ) : subscription ? (
-        <div className="command-card p-6 space-y-4 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-gold-100">
@@ -645,7 +669,7 @@ export default function BusinessSettingsPage() {
       ) : null}
 
       {!isLoading ? (
-        <div className="command-card p-6 space-y-4 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-gold-100">
@@ -743,7 +767,7 @@ export default function BusinessSettingsPage() {
       ) : null}
 
       {!isLoading ? (
-        <div className="command-card p-6 space-y-4 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
           <div>
             <h3 className="text-lg font-semibold text-gold-100">
               {t('unitsTitle')}
@@ -826,7 +850,7 @@ export default function BusinessSettingsPage() {
       ) : null}
 
       {isLoading ? (
-        <div className="command-card p-6 space-y-6 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-6 nvi-reveal">
           <Skeleton className="h-6 w-40" />
           <div className="grid gap-3 md:grid-cols-2">
             {Array.from({ length: 6 }).map((_, index) => (
@@ -841,7 +865,7 @@ export default function BusinessSettingsPage() {
           </div>
         </div>
       ) : draftSettings ? (
-        <div className="command-card p-6 space-y-6 nvi-reveal">
+        <div className="command-card nvi-panel p-6 space-y-6 nvi-reveal">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-gold-100">
@@ -877,7 +901,7 @@ export default function BusinessSettingsPage() {
                     onClick={updateSettings}
                     disabled={isSaving || !isDirty || !canWrite}
                     title={!canWrite ? noAccess('title') : undefined}
-                    className="rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black disabled:opacity-70"
+                    className="nvi-cta rounded px-3 py-1 text-xs font-semibold text-black disabled:opacity-70"
                   >
                     <span className="inline-flex items-center gap-2">
                       {isSaving ? <Spinner variant="grid" size="xs" /> : null}
@@ -2053,7 +2077,7 @@ export default function BusinessSettingsPage() {
         </div>
       ) : null}
 
-      <div className="command-card p-6 space-y-4 nvi-reveal">
+      <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">
           {t('supportRequestsTitle')}
         </h3>

@@ -14,6 +14,8 @@ import { StatusBanner } from '@/components/StatusBanner';
 import { buildCursorQuery, normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { getPermissionSet } from '@/lib/permissions';
+import { useBranchScope } from '@/lib/use-branch-scope';
+import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type NoteLink = {
   id?: string;
@@ -96,6 +98,8 @@ export default function NotesPage() {
     visibility: '',
     branchId: '',
   });
+  const { activeBranch } = useBranchScope();
+  const [branchFilterInitialized, setBranchFilterInitialized] = useState(false);
   const [form, setForm] = useState({
     title: '',
     body: '',
@@ -122,6 +126,17 @@ export default function NotesPage() {
   const [reminderLists, setReminderLists] = useState<Record<string, NoteReminder[]>>({});
 
   const allowedChannels = meta?.allowedChannels ?? ['IN_APP'];
+
+  useEffect(() => {
+    if (branchFilterInitialized) {
+      return;
+    }
+    if (!activeBranch?.id) {
+      return;
+    }
+    setBranchFilterInitialized(true);
+    setFilters((prev) => (prev.branchId ? prev : { ...prev, branchId: activeBranch.id }));
+  }, [activeBranch?.id, branchFilterInitialized]);
 
   const load = async (targetPage = 1, nextPageSize?: number) => {
     const token = getAccessToken();
@@ -474,6 +489,14 @@ export default function NotesPage() {
       status: note.status,
     }));
   }, [notes]);
+  const activeNotes = useMemo(
+    () => notes.filter((note) => note.status === 'ACTIVE').length,
+    [notes],
+  );
+  const linkedNotes = useMemo(
+    () => notes.filter((note) => note.links.length > 0).length,
+    [notes],
+  );
 
   if (isLoading) {
     return <PageSkeleton title={t('title')} />;
@@ -481,21 +504,49 @@ export default function NotesPage() {
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold text-gold-100">{t('title')}</h2>
-          <p className="text-sm text-gold-300">{t('subtitle')}</p>
+      <PremiumPageHeader
+        eyebrow="KNOWLEDGE LAYER"
+        title={t('title')}
+        subtitle={t('subtitle')}
+        badges={
+          <>
+            <span className="nvi-badge">LIVE NOTES</span>
+            <span className="nvi-badge">REMINDER READY</span>
+          </>
+        }
+        actions={
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">TOTAL NOTES</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{notes.length}</p>
         </div>
-        <ViewToggle
-          value={viewMode}
-          onChange={setViewMode}
-          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-        />
+        <div className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">ACTIVE</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeNotes}</p>
+        </div>
+        <div className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">WITH LINKS</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{linkedNotes}</p>
+        </div>
+        <div className="command-card nvi-panel p-4 nvi-reveal">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">BRANCH SCOPE</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">
+            {activeBranch?.name ?? common('all')}
+          </p>
+        </div>
       </div>
 
       {message ? <StatusBanner message={message} /> : null}
 
-      <div className="command-card p-4 space-y-4 nvi-reveal">
+      <div className="command-card nvi-panel p-4 space-y-4 nvi-reveal">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gold-100">
             {editingId ? t('editNote') : t('newNote')}
@@ -596,7 +647,7 @@ export default function NotesPage() {
         <button
           onClick={saveNote}
           disabled={!canWrite || isSaving}
-          className="rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:opacity-70"
+          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
           title={!canWrite ? noAccess('title') : undefined}
         >
           <span className="inline-flex items-center gap-2">
@@ -612,40 +663,46 @@ export default function NotesPage() {
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          value={filters.search}
-          onChange={(event) => setFilters({ ...filters, search: event.target.value })}
-          placeholder={common('search')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-        />
-        <input
-          value={filters.tag}
-          onChange={(event) => setFilters({ ...filters, tag: event.target.value })}
-          placeholder={t('tags')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-        />
-        <SmartSelect
-          value={filters.visibility}
-          onChange={(value) => setFilters({ ...filters, visibility: value })}
-          options={[{ value: '', label: common('all') }, ...visibilityOptions]}
-          placeholder={t('visibility')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          value={filters.branchId}
-          onChange={(value) => setFilters({ ...filters, branchId: value })}
-          options={[
-            { value: '', label: common('all') },
-            ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
-          ]}
-          placeholder={t('branch')}
-          className="nvi-select-container"
-        />
+      <div className="command-card nvi-panel p-4 nvi-reveal">
+        <div className="mb-3">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">FILTERS</p>
+          <p className="text-sm text-gold-300">Refine notes by search, tag, visibility, or branch.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            value={filters.search}
+            onChange={(event) => setFilters({ ...filters, search: event.target.value })}
+            placeholder={common('search')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
+          />
+          <input
+            value={filters.tag}
+            onChange={(event) => setFilters({ ...filters, tag: event.target.value })}
+            placeholder={t('tags')}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
+          />
+          <SmartSelect
+            value={filters.visibility}
+            onChange={(value) => setFilters({ ...filters, visibility: value })}
+            options={[{ value: '', label: common('all') }, ...visibilityOptions]}
+            placeholder={t('visibility')}
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            value={filters.branchId}
+            onChange={(value) => setFilters({ ...filters, branchId: value })}
+            options={[
+              { value: '', label: common('all') },
+              ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
+            ]}
+            placeholder={t('branch')}
+            className="nvi-select-container"
+          />
+        </div>
       </div>
 
       {viewMode === 'table' ? (
-        <div className="command-card p-4 nvi-reveal">
+        <div className="command-card nvi-panel p-4 nvi-reveal">
           {!tableRows.length ? (
             <StatusBanner message={t('notesEmpty')} />
           ) : (
@@ -694,7 +751,7 @@ export default function NotesPage() {
           )}
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 nvi-stagger">
           {!notes.length ? (
             <StatusBanner message={t('notesEmpty')} />
           ) : (
@@ -712,7 +769,7 @@ export default function NotesPage() {
               return (
                 <div
                   key={note.id}
-                  className="command-card p-4 space-y-3 nvi-reveal"
+                  className="command-card nvi-panel p-4 space-y-3 nvi-reveal"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -856,7 +913,7 @@ export default function NotesPage() {
         <button
           type="button"
           onClick={() => load(page + 1)}
-          className="rounded border border-gold-700/50 px-4 py-2 text-sm text-gold-100"
+          className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black"
         >
           {actions('loadMore')}
         </button>
