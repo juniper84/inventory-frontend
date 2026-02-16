@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { PlatformIncidentsView } from '@/components/platform/views/routes/PlatformIncidentsView';
 
 export default function PlatformIncidentsPage() {
-  return <PlatformConsole view="incidents" />;
+  return <PlatformIncidentsView />;
 }

@@ -216,7 +216,7 @@ export default function ProductsPage() {
 
   const createProduct = async () => {
     const token = getAccessToken();
-    if (!token || !form.name) {
+    if (!token || !form.name.trim() || !form.categoryId) {
       return;
     }
     setMessage(null);
@@ -226,9 +226,9 @@ export default function ProductsPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          name: form.name,
+          name: form.name.trim(),
           description: form.description || undefined,
-          categoryId: form.categoryId || undefined,
+          categoryId: form.categoryId,
         }),
       });
       setForm({ name: '', description: '', categoryId: '' });
@@ -544,14 +544,13 @@ export default function ProductsPage() {
               value: cat.id,
               label: cat.name,
             }))}
-            placeholder={t('noCategory')}
-            isClearable
+            placeholder={t('category')}
             className="nvi-select-container"
           />
         </div>
         <button
           onClick={createProduct}
-          disabled={!canWrite || isCreating}
+          disabled={!canWrite || isCreating || !form.name.trim() || !form.categoryId}
           title={!canWrite ? noAccess('title') : undefined}
           className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
         >

@@ -131,10 +131,98 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     USER_NOT_ACTIVE_FOR_THIS_BUSINESS: 'User not active for this business.',
     USER_NOT_FOUND: 'User not found.',
     VARIANT_IS_INACTIVE_OR_ARCHIVED: 'Variant is inactive or archived.',
+    VARIANT_IS_NOT_AVAILABLE_AT_THIS_BRANCH:
+      'Variant is not available at this branch.',
     VARIANT_NOT_FOUND: 'Variant not found.',
     VARIANT_NOT_ON_PURCHASE_ORDER: 'Variant not on purchase order.',
     VARIANTID_IS_REQUIRED: 'variantId is required.',
     VERIFICATION_TOKEN_EXPIRED: 'Verification token expired.',
+    A_PENDING_SUBSCRIPTION_REQUEST_ALREADY_EXISTS:
+      'A pending subscription request already exists.',
+    ADDITIONAL_IMAGES_ARE_NOT_ENABLED_FOR_THIS_SUBSCRIPTION:
+      'Additional images are not enabled for this subscription.',
+    AN_OPEN_SHIFT_IS_REQUIRED_FOR_POS_SALES:
+      'An open shift is required for POS sales.',
+    AT_LEAST_ONE_REMINDER_CHANNEL_IS_REQUIRED:
+      'At least one reminder channel is required.',
+    AT_LEAST_ONE_BRANCH_IS_REQUIRED_BEFORE_COMPLETING_ONBOARDING:
+      'At least one branch is required before completing onboarding.',
+    ATTACHMENT_TYPE_MUST_BE_JPG_PNG_OR_PDF:
+      'Attachment type must be JPG, PNG, or PDF.',
+    BATCH_CODE_IS_REQUIRED_FOR_RECEIVING:
+      'Batch code is required for receiving.',
+    BATCH_NOT_FOUND_FOR_RECEIVING_LINE:
+      'Batch not found for receiving line.',
+    BATCH_NOT_FOUND_FOR_SALE_LINE: 'Batch not found for sale line.',
+    BATCH_SELECTION_REQUIRES_STOCK_PERMISSION:
+      'Batch selection requires stock permission.',
+    BRANCH_IS_REQUIRED_FOR_BATCH_TRACKING:
+      'Branch is required for batch tracking.',
+    BRANCH_IS_REQUIRED_FOR_BRANCH_VISIBLE_NOTES:
+      'Branch is required for branch-visible notes.',
+    BRANCH_SCOPED_EXPORTS_REQUIRE_A_VALID_BRANCH:
+      'Branch-scoped exports require a valid branch.',
+    BUSINESS_CHANGED_SINCE_LAST_READ_REFRESH_AND_RETRY:
+      'Business changed since last read. Refresh and retry.',
+    DUPLICATE_IDEMPOTENCY_KEY: 'Duplicate idempotency key.',
+    DURATION_DAYS_MUST_BE_GREATER_THAN_ZERO:
+      'Duration days must be greater than zero.',
+    INCIDENT_NOT_FOUND: 'Incident not found.',
+    INSUFFICIENT_STOCK_FOR_SUPPLIER_RETURN:
+      'Insufficient stock for supplier return.',
+    INVALID_START_DATE: 'Invalid start date.',
+    MANUAL_SUPPLIER_RETURNS_REQUIRE_A_REASON:
+      'Manual supplier returns require a reason.',
+    MINQUANTITY_AND_REORDERQUANTITY_ARE_REQUIRED:
+      'minQuantity and reorderQuantity are required.',
+    NO_BATCH_AVAILABLE_FOR_SALE_LINE: 'No batch available for sale line.',
+    NOTE_IS_REQUIRED: 'Note is required.',
+    OFFLINE_DEVICE_IS_MISSING_FOR_THIS_SALE:
+      'Offline device is missing for this sale.',
+    OFFLINE_MODE_IS_DISABLED_FOR_THIS_SUBSCRIPTION:
+      'Offline mode is disabled for this subscription.',
+    OFFLINE_MODE_NOT_ENABLED_FOR_THIS_SUBSCRIPTION:
+      'Offline mode not enabled for this subscription.',
+    OFFLINE_SALE_QUEUE_EXCEEDS_MAXIMUM_ALLOWED:
+      'Offline sale queue exceeds maximum allowed.',
+    OFFLINE_SALE_TOTAL_EXCEEDS_MAXIMUM_ALLOWED:
+      'Offline sale total exceeds maximum allowed.',
+    ONLY_FAILED_EXPORT_JOBS_CAN_BE_RETRIED:
+      'Only FAILED export jobs can be retried.',
+    ONLY_PENDING_EXPORT_JOBS_CAN_BE_CANCELED:
+      'Only PENDING export jobs can be canceled.',
+    ONLY_THE_SYSTEM_OWNER_CAN_DELETE_A_BUSINESS:
+      'Only the System Owner can delete a business.',
+    PERMISSION_IS_REQUIRED: 'permission is required.',
+    PURCHASE_ORDER_HAS_DUPLICATE_VARIANT_LINES:
+      'Purchase order has duplicate variant lines.',
+    PURCHASE_ORDER_NOT_APPROVED_FOR_RECEIVING:
+      'Purchase order not approved for receiving.',
+    PURCHASEID_OR_PURCHASEORDERID_IS_REQUIRED:
+      'purchaseId or purchaseOrderId is required.',
+    REASON_IS_REQUIRED_FOR_BARCODE_REASSIGNMENT:
+      'Reason is required for barcode reassignment.',
+    RECEIVING_LINE_DOES_NOT_MATCH_RETURN_SOURCE:
+      'Receiving line does not match return source.',
+    RECEIVING_MUST_INCLUDE_AT_LEAST_ONE_LINE:
+      'Receiving must include at least one line.',
+    RECEIVING_OVERRIDE_REQUIRES_A_REASON:
+      'Receiving override requires a reason.',
+    REMINDER_CHANNEL_NOT_AVAILABLE_FOR_THIS_TIER:
+      'Reminder channel not available for this tier.',
+    REMOVING_PURCHASE_ORDER_LINES_IS_NOT_ALLOWED:
+      'Removing purchase order lines is not allowed.',
+    RUNNING_EXPORT_JOBS_CANNOT_BE_REQUEUED:
+      'RUNNING export jobs cannot be requeued.',
+    SESSION_NOT_FOUND: 'Session not found.',
+    STOCK_COUNTS_ARE_NOT_ALLOWED_IN_OFFLINE_MODE:
+      'Stock counts are not allowed in offline mode.',
+    SYSTEM_OWNER_PERMISSIONS_ARE_LOCKED:
+      'System Owner permissions are locked.',
+    TRANSFERS_ARE_NOT_ALLOWED_IN_OFFLINE_MODE:
+      'Transfers are not allowed in offline mode.',
+    UNKNOWN_PERMISSION: 'Unknown permission.',
+    USER_ALREADY_HAS_THIS_PERMISSION: 'User already has this permission.',
   },
   sw: {
     ADMIN_IS_NOT_ACTIVE: 'Msimamizi hayuko hai.',
@@ -264,10 +352,99 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     USER_NOT_ACTIVE_FOR_THIS_BUSINESS: 'Mtumiaji hayuko hai kwa biashara hii.',
     USER_NOT_FOUND: 'Mtumiaji hakupatikana.',
     VARIANT_IS_INACTIVE_OR_ARCHIVED: 'Toleo haliko hai au limehifadhiwa.',
+    VARIANT_IS_NOT_AVAILABLE_AT_THIS_BRANCH:
+      'Toleo halipatikani kwenye tawi hili.',
     VARIANT_NOT_FOUND: 'Toleo halikupatikana.',
     VARIANT_NOT_ON_PURCHASE_ORDER: 'Toleo halipo kwenye oda ya manunuzi.',
     VARIANTID_IS_REQUIRED: 'variantId inahitajika.',
     VERIFICATION_TOKEN_EXPIRED: 'Tokeni ya uthibitisho imeisha muda.',
+    A_PENDING_SUBSCRIPTION_REQUEST_ALREADY_EXISTS:
+      'Ombi la usajili linalosubiri tayari lipo.',
+    ADDITIONAL_IMAGES_ARE_NOT_ENABLED_FOR_THIS_SUBSCRIPTION:
+      'Picha za ziada hazijawezeshwa kwa usajili huu.',
+    AN_OPEN_SHIFT_IS_REQUIRED_FOR_POS_SALES:
+      'Zamu iliyo wazi inahitajika kwa mauzo ya POS.',
+    AT_LEAST_ONE_REMINDER_CHANNEL_IS_REQUIRED:
+      'Angalau njia moja ya kikumbusho inahitajika.',
+    AT_LEAST_ONE_BRANCH_IS_REQUIRED_BEFORE_COMPLETING_ONBOARDING:
+      'Angalau tawi moja linahitajika kabla ya kukamilisha hatua za mwanzo.',
+    ATTACHMENT_TYPE_MUST_BE_JPG_PNG_OR_PDF:
+      'Aina ya kiambatisho lazima iwe JPG, PNG, au PDF.',
+    BATCH_CODE_IS_REQUIRED_FOR_RECEIVING:
+      'Msimbo wa batch unahitajika kwa upokeaji.',
+    BATCH_NOT_FOUND_FOR_RECEIVING_LINE:
+      'Batch haikupatikana kwa mstari wa upokeaji.',
+    BATCH_NOT_FOUND_FOR_SALE_LINE: 'Batch haikupatikana kwa mstari wa mauzo.',
+    BATCH_SELECTION_REQUIRES_STOCK_PERMISSION:
+      'Uchaguzi wa batch unahitaji ruhusa ya hisa.',
+    BRANCH_IS_REQUIRED_FOR_BATCH_TRACKING:
+      'Tawi linahitajika kwa ufuatiliaji wa batch.',
+    BRANCH_IS_REQUIRED_FOR_BRANCH_VISIBLE_NOTES:
+      'Tawi linahitajika kwa noti zinazoonekana kwa tawi.',
+    BRANCH_SCOPED_EXPORTS_REQUIRE_A_VALID_BRANCH:
+      'Uhamishaji wa wigo wa tawi unahitaji tawi halali.',
+    BUSINESS_CHANGED_SINCE_LAST_READ_REFRESH_AND_RETRY:
+      'Biashara imebadilika tangu usomaji wa mwisho. Onyesha upya na ujaribu tena.',
+    DUPLICATE_IDEMPOTENCY_KEY: 'Ufunguo wa idempotency umerudiwa.',
+    DURATION_DAYS_MUST_BE_GREATER_THAN_ZERO:
+      'Siku za muda lazima ziwe zaidi ya sifuri.',
+    INCIDENT_NOT_FOUND: 'Tukio halikupatikana.',
+    INSUFFICIENT_STOCK_FOR_SUPPLIER_RETURN:
+      'Hisa haitoshi kwa marejesho ya msambazaji.',
+    INVALID_START_DATE: 'Tarehe ya kuanza si sahihi.',
+    MANUAL_SUPPLIER_RETURNS_REQUIRE_A_REASON:
+      'Marejesho ya msambazaji ya mikono yanahitaji sababu.',
+    MINQUANTITY_AND_REORDERQUANTITY_ARE_REQUIRED:
+      'minQuantity na reorderQuantity zinahitajika.',
+    NO_BATCH_AVAILABLE_FOR_SALE_LINE:
+      'Hakuna batch inayopatikana kwa mstari wa mauzo.',
+    NOTE_IS_REQUIRED: 'Dokezo linahitajika.',
+    OFFLINE_DEVICE_IS_MISSING_FOR_THIS_SALE:
+      'Kifaa cha nje ya mtandao hakipo kwa mauzo haya.',
+    OFFLINE_MODE_IS_DISABLED_FOR_THIS_SUBSCRIPTION:
+      'Hali ya nje ya mtandao imezimwa kwa usajili huu.',
+    OFFLINE_MODE_NOT_ENABLED_FOR_THIS_SUBSCRIPTION:
+      'Hali ya nje ya mtandao haijawezeshwa kwa usajili huu.',
+    OFFLINE_SALE_QUEUE_EXCEEDS_MAXIMUM_ALLOWED:
+      'Foleni ya mauzo ya nje ya mtandao imezidi kiwango cha juu kinachoruhusiwa.',
+    OFFLINE_SALE_TOTAL_EXCEEDS_MAXIMUM_ALLOWED:
+      'Jumla ya mauzo ya nje ya mtandao imezidi kiwango cha juu kinachoruhusiwa.',
+    ONLY_FAILED_EXPORT_JOBS_CAN_BE_RETRIED:
+      'Ni kazi za uhamishaji zilizoshindwa pekee zinaweza kujaribiwa tena.',
+    ONLY_PENDING_EXPORT_JOBS_CAN_BE_CANCELED:
+      'Ni kazi za uhamishaji zinazosubiri pekee zinaweza kughairiwa.',
+    ONLY_THE_SYSTEM_OWNER_CAN_DELETE_A_BUSINESS:
+      'Ni mmiliki wa mfumo pekee anaweza kufuta biashara.',
+    PERMISSION_IS_REQUIRED: 'Ruhusa inahitajika.',
+    PURCHASE_ORDER_HAS_DUPLICATE_VARIANT_LINES:
+      'Oda ya manunuzi ina mistari ya toleo inayojirudia.',
+    PURCHASE_ORDER_NOT_APPROVED_FOR_RECEIVING:
+      'Oda ya manunuzi haijaidhinishwa kwa upokeaji.',
+    PURCHASEID_OR_PURCHASEORDERID_IS_REQUIRED:
+      'purchaseId au purchaseOrderId inahitajika.',
+    REASON_IS_REQUIRED_FOR_BARCODE_REASSIGNMENT:
+      'Sababu inahitajika kwa kuhamisha upya barcode.',
+    RECEIVING_LINE_DOES_NOT_MATCH_RETURN_SOURCE:
+      'Mstari wa upokeaji haulingani na chanzo cha marejesho.',
+    RECEIVING_MUST_INCLUDE_AT_LEAST_ONE_LINE:
+      'Upokeaji lazima ujumuisha angalau mstari mmoja.',
+    RECEIVING_OVERRIDE_REQUIRES_A_REASON:
+      'Kubatilisha upokeaji kunahitaji sababu.',
+    REMINDER_CHANNEL_NOT_AVAILABLE_FOR_THIS_TIER:
+      'Njia ya kikumbusho haipatikani kwa kiwango hiki.',
+    REMOVING_PURCHASE_ORDER_LINES_IS_NOT_ALLOWED:
+      'Kuondoa mistari ya oda ya manunuzi hairuhusiwi.',
+    RUNNING_EXPORT_JOBS_CANNOT_BE_REQUEUED:
+      'Kazi za uhamishaji zinazoendelea haziwezi kuwekwa foleni tena.',
+    SESSION_NOT_FOUND: 'Kikao hakikupatikana.',
+    STOCK_COUNTS_ARE_NOT_ALLOWED_IN_OFFLINE_MODE:
+      'Hesabu za hisa haziruhusiwi katika hali ya nje ya mtandao.',
+    SYSTEM_OWNER_PERMISSIONS_ARE_LOCKED:
+      'Ruhusa za mmiliki wa mfumo zimefungwa.',
+    TRANSFERS_ARE_NOT_ALLOWED_IN_OFFLINE_MODE:
+      'Uhamisho hauruhusiwi katika hali ya nje ya mtandao.',
+    UNKNOWN_PERMISSION: 'Ruhusa isiyojulikana.',
+    USER_ALREADY_HAS_THIS_PERMISSION: 'Mtumiaji tayari ana ruhusa hii.',
   },
 };
 

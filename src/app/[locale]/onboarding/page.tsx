@@ -44,6 +44,8 @@ type Branch = {
   name: string;
   address?: string | null;
   phone?: string | null;
+  isDefault?: boolean;
+  status?: string;
 };
 
 const DEFAULT_ONBOARDING: Required<OnboardingState> = {
@@ -68,9 +70,11 @@ export default function OnboardingPage() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingBranch, setIsSavingBranch] = useState(false);
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
+  const [isUpdatingBranch, setIsUpdatingBranch] = useState(false);
   const [business, setBusiness] = useState<Business | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState('');
   const [step, setStep] = useState(0);
   const [profileForm, setProfileForm] = useState({
     name: '',
@@ -79,6 +83,11 @@ export default function OnboardingPage() {
     dateFormat: '',
   });
   const [branchForm, setBranchForm] = useState({
+    name: '',
+    address: '',
+    phone: '',
+  });
+  const [addBranchForm, setAddBranchForm] = useState({
     name: '',
     address: '',
     phone: '',
@@ -92,6 +101,19 @@ export default function OnboardingPage() {
   }, [settings]);
 
   const base = `/${params.locale}`;
+
+  const applyBranchSelection = (items: Branch[], preferredId?: string) => {
+    const preferred =
+      (preferredId && items.find((branch) => branch.id === preferredId)) || null;
+    const fallback = items.find((branch) => branch.isDefault) ?? items[0] ?? null;
+    const selected = preferred ?? fallback;
+    setSelectedBranchId(selected?.id ?? '');
+    setBranchForm({
+      name: selected?.name ?? '',
+      address: selected?.address ?? '',
+      phone: selected?.phone ?? '',
+    });
+  };
 
   useEffect(() => {
     const token = getAccessToken();
@@ -107,9 +129,11 @@ export default function OnboardingPage() {
       }),
     ])
       .then(([biz, config, branchData]) => {
+        const branchItems = normalizePaginated(branchData).items;
         setBusiness(biz);
         setSettings(config);
-        setBranches(normalizePaginated(branchData).items);
+        setBranches(branchItems);
+        applyBranchSelection(branchItems);
         setProfileForm({
           name: biz.name ?? '',
           currency: config.localeSettings?.currency ?? 'TZS',
@@ -199,7 +223,7 @@ export default function OnboardingPage() {
   };
 
   const createBranch = async () => {
-    if (!branchForm.name.trim()) {
+    if (!addBranchForm.name.trim()) {
       return;
     }
     if (!canUpdateBranches) {
@@ -213,21 +237,23 @@ export default function OnboardingPage() {
     setIsCreatingBranch(true);
     setMessage(null);
     try {
-      await apiFetch('/branches', {
+      const created = await apiFetch<Branch>('/branches', {
         token,
         method: 'POST',
         body: JSON.stringify({
-          name: branchForm.name.trim(),
-          address: branchForm.address.trim() || undefined,
-          phone: branchForm.phone.trim() || undefined,
+          name: addBranchForm.name.trim(),
+          address: addBranchForm.address.trim() || undefined,
+          phone: addBranchForm.phone.trim() || undefined,
         }),
       });
       const branchData = await apiFetch<PaginatedResponse<Branch> | Branch[]>(
         '/branches?limit=200',
         { token },
       );
-      setBranches(normalizePaginated(branchData).items);
-      setBranchForm({ name: '', address: '', phone: '' });
+      const items = normalizePaginated(branchData).items;
+      setBranches(items);
+      applyBranchSelection(items, created.id);
+      setAddBranchForm({ name: '', address: '', phone: '' });
       setMessage({ action: 'create', outcome: 'success', message: t('branchCreated') });
     } catch (err) {
       setMessage({
@@ -240,12 +266,59 @@ export default function OnboardingPage() {
     }
   };
 
+  const saveBranchDetails = async () => {
+    if (!selectedBranchId || !branchForm.name.trim()) {
+      return;
+    }
+    if (!canUpdateBranches) {
+      setMessage({ action: 'save', outcome: 'failure', message: t('noAccess') });
+      return;
+    }
+    const token = getAccessToken();
+    if (!token) {
+      return;
+    }
+    setIsUpdatingBranch(true);
+    setMessage(null);
+    try {
+      await apiFetch(`/branches/${selectedBranchId}`, {
+        token,
+        method: 'PUT',
+        body: JSON.stringify({
+          name: branchForm.name.trim(),
+          address: branchForm.address.trim() || undefined,
+          phone: branchForm.phone.trim() || undefined,
+        }),
+      });
+      const branchData = await apiFetch<PaginatedResponse<Branch> | Branch[]>(
+        '/branches?limit=200',
+        { token },
+      );
+      const items = normalizePaginated(branchData).items;
+      setBranches(items);
+      applyBranchSelection(items, selectedBranchId);
+      setMessage({ action: 'save', outcome: 'success', message: t('branchUpdated') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('branchUpdateFailed')),
+      });
+    } finally {
+      setIsUpdatingBranch(false);
+    }
+  };
+
   const completeBranchSetup = async () => {
     if (!settings) {
       return;
     }
     if (!canUpdateSettings) {
       setMessage({ action: 'save', outcome: 'failure', message: t('noAccess') });
+      return;
+    }
+    if (branches.length < 1) {
+      setMessage({ action: 'save', outcome: 'warning', message: t('branchRequired') });
       return;
     }
     const token = getAccessToken();
@@ -447,7 +520,14 @@ export default function OnboardingPage() {
                 key={branch.id}
                 className="flex flex-col gap-1 rounded border border-gold-700/30 bg-black/40 px-3 py-2"
               >
-                <span className="text-gold-100">{branch.name}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-gold-100">{branch.name}</span>
+                  {branch.isDefault ? (
+                    <span className="rounded border border-gold-500/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-gold-300">
+                      {t('defaultBranch')}
+                    </span>
+                  ) : null}
+                </div>
                 {branch.address ? (
                   <span className="text-xs text-gold-400">{branch.address}</span>
                 ) : null}
@@ -457,36 +537,101 @@ export default function OnboardingPage() {
               </div>
             ))}
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            <input
-              value={branchForm.name}
-              onChange={(event) =>
-                setBranchForm({ ...branchForm, name: event.target.value })
-              }
-              placeholder={t('branchName')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          <div className="rounded border border-gold-700/30 bg-black/30 p-4 space-y-3">
+            <p className="text-xs uppercase tracking-[0.24em] text-gold-400">
+              {t('editBranch')}
+            </p>
+            <SmartSelect
+              instanceId="onboarding-branch-select"
+              value={selectedBranchId}
+              options={branches.map((branch) => ({
+                value: branch.id,
+                label: branch.name,
+              }))}
+              placeholder={t('selectBranchToEdit')}
+              onChange={(value) => {
+                setSelectedBranchId(value);
+                const selected = branches.find((branch) => branch.id === value);
+                setBranchForm({
+                  name: selected?.name ?? '',
+                  address: selected?.address ?? '',
+                  phone: selected?.phone ?? '',
+                });
+              }}
             />
-            <input
-              value={branchForm.address}
-              onChange={(event) =>
-                setBranchForm({ ...branchForm, address: event.target.value })
-              }
-              placeholder={t('branchAddressOptional')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-            />
-            <input
-              value={branchForm.phone}
-              onChange={(event) =>
-                setBranchForm({ ...branchForm, phone: event.target.value })
-              }
-              placeholder={t('branchPhoneOptional')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-            />
+            <div className="grid gap-3 md:grid-cols-3">
+              <input
+                value={branchForm.name}
+                onChange={(event) =>
+                  setBranchForm({ ...branchForm, name: event.target.value })
+                }
+                placeholder={t('branchName')}
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+              />
+              <input
+                value={branchForm.address}
+                onChange={(event) =>
+                  setBranchForm({ ...branchForm, address: event.target.value })
+                }
+                placeholder={t('branchAddressOptional')}
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+              />
+              <input
+                value={branchForm.phone}
+                onChange={(event) =>
+                  setBranchForm({ ...branchForm, phone: event.target.value })
+                }
+                placeholder={t('branchPhoneOptional')}
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={saveBranchDetails}
+              disabled={isUpdatingBranch || !selectedBranchId || !branchForm.name.trim()}
+              className="nvi-cta rounded px-3 py-2 text-sm font-semibold text-black disabled:opacity-70"
+            >
+              <span className="inline-flex items-center gap-2">
+                {isUpdatingBranch ? <Spinner variant="dots" size="xs" /> : null}
+                {isUpdatingBranch ? t('saving') : t('saveBranchDetails')}
+              </span>
+            </button>
+          </div>
+          <div className="rounded border border-gold-700/30 bg-black/20 p-4 space-y-3">
+            <p className="text-xs uppercase tracking-[0.24em] text-gold-400">
+              {t('addAnotherBranch')}
+            </p>
+            <div className="grid gap-3 md:grid-cols-3">
+              <input
+                value={addBranchForm.name}
+                onChange={(event) =>
+                  setAddBranchForm({ ...addBranchForm, name: event.target.value })
+                }
+                placeholder={t('branchName')}
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+              />
+              <input
+                value={addBranchForm.address}
+                onChange={(event) =>
+                  setAddBranchForm({ ...addBranchForm, address: event.target.value })
+                }
+                placeholder={t('branchAddressOptional')}
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+              />
+              <input
+                value={addBranchForm.phone}
+                onChange={(event) =>
+                  setAddBranchForm({ ...addBranchForm, phone: event.target.value })
+                }
+                placeholder={t('branchPhoneOptional')}
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+              />
+            </div>
             <button
               type="button"
               onClick={createBranch}
-              disabled={isCreatingBranch}
-              className="nvi-cta rounded px-3 py-2 text-sm font-semibold text-black disabled:opacity-70 md:col-span-3"
+              disabled={isCreatingBranch || !addBranchForm.name.trim()}
+              className="nvi-cta rounded px-3 py-2 text-sm font-semibold text-black disabled:opacity-70"
             >
               <span className="inline-flex items-center gap-2">
                 {isCreatingBranch ? <Spinner variant="dots" size="xs" /> : null}

@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { PlatformOverviewView } from '@/components/platform/views/routes/PlatformOverviewView';
 
 export default function PlatformOverviewPage() {
-  return <PlatformConsole view="overview" />;
+  return <PlatformOverviewView />;
 }

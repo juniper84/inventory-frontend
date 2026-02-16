@@ -1,14 +1,9 @@
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { PlatformBusinessWorkspaceView } from '@/components/platform/views/routes/PlatformBusinessWorkspaceView';
 
 export default async function PlatformBusinessDetailPage({
   params,
 }: {
   params: Promise<{ businessId: string }>;
 }) {
-  return (
-    <PlatformConsole
-      view="businesses"
-      focusBusinessId={(await params).businessId}
-    />
-  );
+  return <PlatformBusinessWorkspaceView businessId={(await params).businessId} />;
 }

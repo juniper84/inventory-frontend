@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { PlatformSupportView } from '@/components/platform/views/routes/PlatformSupportView';
 
 export default function PlatformSupportPage() {
-  return <PlatformConsole view="support" />;
+  return <PlatformSupportView />;
 }

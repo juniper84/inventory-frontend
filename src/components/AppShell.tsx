@@ -972,6 +972,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   if (isPlatformRoute) {
+    if (isPlatformLoginRoute) {
+      return <>{children}</>;
+    }
     return (
       <PlatformAuthGate>
         <div className="min-h-screen bg-[color:var(--background)] text-[color:var(--foreground)]">

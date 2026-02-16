@@ -83,7 +83,6 @@ export default function VerifyEmailPage() {
       return;
     }
     verify();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submit = async (event: React.FormEvent) => {

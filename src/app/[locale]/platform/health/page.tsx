@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { PlatformHealthView } from '@/components/platform/views/routes/PlatformHealthView';
 
 export default function PlatformHealthPage() {
-  return <PlatformConsole view="health" />;
+  return <PlatformHealthView />;
 }

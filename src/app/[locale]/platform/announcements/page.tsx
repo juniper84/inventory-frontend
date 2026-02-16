@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { PlatformAnnouncementsView } from '@/components/platform/views/routes/PlatformAnnouncementsView';
 
 export default function PlatformAnnouncementsPage() {
-  return <PlatformConsole view="announcements" />;
+  return <PlatformAnnouncementsView />;
 }

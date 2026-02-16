@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { PlatformAuditView } from '@/components/platform/views/routes/PlatformAuditView';
 
 export default function PlatformAuditPage() {
-  return <PlatformConsole view="audit" />;
+  return <PlatformAuditView />;
 }

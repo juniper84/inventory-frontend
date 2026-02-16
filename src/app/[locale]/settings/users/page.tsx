@@ -35,6 +35,7 @@ type User = {
   status: string;
   mustResetPassword?: boolean;
 };
+type NotificationLocale = 'en' | 'sw';
 type UserRole = {
   id: string;
   roleId: string;
@@ -66,6 +67,7 @@ export default function UsersPage() {
     phone: '',
     status: 'ACTIVE',
     notificationPreferences: {
+      locale: 'en' as NotificationLocale,
       events: {} as Record<NotificationEventKey, boolean>,
     } as Record<string, unknown>,
   });
@@ -221,6 +223,11 @@ export default function UsersPage() {
     return merged;
   };
 
+  const resolveNotificationLocale = (
+    preferences?: Record<string, unknown> | null,
+  ): NotificationLocale =>
+    preferences?.locale === 'sw' ? 'sw' : 'en';
+
   const startEdit = (user: User) => {
     setEditingUserId(user.id);
     setEditingUser({
@@ -229,6 +236,9 @@ export default function UsersPage() {
       phone: user.phone ?? '',
       status: user.status,
       notificationPreferences: {
+        ...((user.notificationPreferences as Record<string, unknown> | null) ??
+          {}),
+        locale: resolveNotificationLocale(user.notificationPreferences ?? null),
         events: buildEventPreferences(user.notificationPreferences ?? null),
       },
     });
@@ -350,6 +360,9 @@ export default function UsersPage() {
   if (isLoading) {
     return <PageSkeleton title={t('title')} />;
   }
+
+  const notificationLocale =
+    (editingUser.notificationPreferences.locale as NotificationLocale) ?? 'en';
 
   return (
     <section className="space-y-6">
@@ -494,6 +507,32 @@ export default function UsersPage() {
                   </div>
                   <div className="space-y-2 text-xs text-gold-300">
                     <span className="text-gold-400">{t('notificationPrefs')}</span>
+                    <div className="max-w-xs">
+                      <SmartSelect
+                        value={notificationLocale}
+                        onChange={(value) =>
+                          setEditingUser({
+                            ...editingUser,
+                            notificationPreferences: {
+                              ...editingUser.notificationPreferences,
+                              locale: value === 'sw' ? 'sw' : 'en',
+                            },
+                          })
+                        }
+                        options={[
+                          {
+                            value: 'en',
+                            label: t('whatsappLocaleEnglish'),
+                          },
+                          {
+                            value: 'sw',
+                            label: t('whatsappLocaleSwahili'),
+                          },
+                        ]}
+                        placeholder={t('whatsappLocaleLabel')}
+                        className="nvi-select-container"
+                      />
+                    </div>
                     <div className="grid gap-2 md:grid-cols-2">
                       {NOTIFICATION_EVENTS.map((key) => (
                         <label key={key} className="flex items-center gap-2">

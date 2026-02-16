@@ -390,7 +390,12 @@ export default function ProductWizardPage() {
 
   const submitWizard = async () => {
     const token = getAccessToken();
-    if (!token || !product.name.trim() || filteredVariants.length === 0) {
+    if (
+      !token ||
+      !product.name.trim() ||
+      !product.categoryId ||
+      filteredVariants.length === 0
+    ) {
       setMessage({ action: 'save', outcome: 'failure', message: t('validationError') });
       return;
     }
@@ -405,7 +410,7 @@ export default function ProductWizardPage() {
           body: JSON.stringify({
             name: product.name.trim(),
             description: product.description || undefined,
-            categoryId: product.categoryId || undefined,
+            categoryId: product.categoryId,
           }),
         },
       );
@@ -597,7 +602,6 @@ export default function ProductWizardPage() {
               value: category.id,
               label: category.name,
             }))}
-            isClearable
           />
         </div>
       ) : null}

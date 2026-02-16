@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { PlatformBusinessesView } from '@/components/platform/views/routes/PlatformBusinessesView';
 
 export default function PlatformBusinessesPage() {
-  return <PlatformConsole view="businesses" />;
+  return <PlatformBusinessesView />;
 }
