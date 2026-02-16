@@ -42,6 +42,8 @@ import { recordOfflineStatus, syncOfflineQueue } from '@/lib/offline-sync';
 
 const AUTH_PATHS = ['/login', '/signup', '/invite', '/verify-email', '/password-reset'];
 type Branch = { id: string; name: string };
+type AppViewMode = 'auto' | 'desktop' | 'compact';
+const APP_VIEW_MODE_KEY = 'nvi.app.viewMode';
 
 const NAV_VISIBILITY_POLICY: Record<string, 'hide' | 'disabled'> = {
   'reports.read': 'disabled',
@@ -120,6 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const refreshToken = typeof window !== 'undefined' ? getRefreshToken() : null;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
+  const [viewMode, setViewMode] = useState<AppViewMode>('auto');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -158,6 +161,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const idleTimerEnabled = isPlatformRoute
     ? Boolean(platformToken) && !isPlatformLoginRoute
     : Boolean(token) && !isAuthRoute;
+  const forceDesktopShell = viewMode === 'desktop';
+  const forceCompactShell = viewMode === 'compact';
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const stored = window.localStorage.getItem(APP_VIEW_MODE_KEY);
+    if (
+      stored === 'auto' ||
+      stored === 'desktop' ||
+      stored === 'compact'
+    ) {
+      setViewMode(stored);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(APP_VIEW_MODE_KEY, viewMode);
+  }, [viewMode]);
 
   const handleLogout = useCallback(async () => {
     if (isLoggingOut) {
@@ -1193,7 +1219,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => setMobileNavOpen((prev) => !prev)}
-                className="rounded border border-[color:var(--border)] px-2 py-1 text-xs text-[color:var(--foreground)] md:hidden"
+                className={`rounded border border-[color:var(--border)] px-2 py-1 text-xs text-[color:var(--foreground)] ${
+                  forceDesktopShell
+                    ? 'hidden'
+                    : forceCompactShell
+                      ? 'inline-flex'
+                      : 'md:hidden'
+                }`}
               >
                 ☰
               </button>
@@ -1206,7 +1238,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
               ) : null}
             </div>
-            <div className="flex items-center gap-2 text-sm text-[color:var(--muted)] md:hidden">
+            <div
+              className={`flex items-center gap-2 text-sm text-[color:var(--muted)] ${
+                forceDesktopShell
+                  ? 'hidden'
+                  : forceCompactShell
+                    ? 'flex'
+                    : 'md:hidden'
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setPaletteOpen(true)}
@@ -1230,7 +1270,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {actionsT('logout')}
               </button>
             </div>
-            <div className="hidden flex-wrap items-center gap-3 text-sm text-[color:var(--muted)] md:flex">
+            <div
+              className={`flex-wrap items-center gap-3 text-sm text-[color:var(--muted)] ${
+                forceCompactShell
+                  ? 'hidden'
+                  : forceDesktopShell
+                    ? 'flex'
+                    : 'hidden md:flex'
+              }`}
+            >
               <BusinessSwitcher />
               {showBranchSelector ? (
                 <div className="flex items-center gap-2">
@@ -1289,6 +1337,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs uppercase tracking-[0.25em]">
+                  {shellT('viewMode')}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    data-active={viewMode === 'auto'}
+                    onClick={() => setViewMode('auto')}
+                    className="rounded-full border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)] data-[active=true]:border-[color:var(--accent)] data-[active=true]:bg-[color:var(--accent-soft)]"
+                  >
+                    {shellT('viewModeAuto')}
+                  </button>
+                  <button
+                    type="button"
+                    data-active={viewMode === 'desktop'}
+                    onClick={() => setViewMode('desktop')}
+                    className="rounded-full border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)] data-[active=true]:border-[color:var(--accent)] data-[active=true]:bg-[color:var(--accent-soft)]"
+                  >
+                    {shellT('viewModeDesktop')}
+                  </button>
+                  <button
+                    type="button"
+                    data-active={viewMode === 'compact'}
+                    onClick={() => setViewMode('compact')}
+                    className="rounded-full border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)] data-[active=true]:border-[color:var(--accent)] data-[active=true]:bg-[color:var(--accent-soft)]"
+                  >
+                    {shellT('viewModeCompact')}
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs uppercase tracking-[0.25em]">
                   {shellT('lang')}
                 </span>
                 <div className="flex gap-2">
@@ -1311,7 +1390,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           {mobileControlsOpen ? (
-            <div className="mt-3 grid gap-2 border-t border-[color:var(--border)] pt-3 md:hidden">
+            <div
+              className={`mt-3 grid gap-2 border-t border-[color:var(--border)] pt-3 ${
+                forceDesktopShell
+                  ? 'hidden'
+                  : forceCompactShell
+                    ? 'grid'
+                    : 'md:hidden'
+              }`}
+            >
               <BusinessSwitcher />
               {showBranchSelector ? (
                 <SmartSelect
@@ -1361,11 +1448,49 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   SW
                 </Link>
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                  {shellT('viewMode')}
+                </span>
+                <button
+                  type="button"
+                  data-active={viewMode === 'auto'}
+                  onClick={() => setViewMode('auto')}
+                  className="rounded-full border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)] data-[active=true]:border-[color:var(--accent)] data-[active=true]:bg-[color:var(--accent-soft)]"
+                >
+                  {shellT('viewModeAuto')}
+                </button>
+                <button
+                  type="button"
+                  data-active={viewMode === 'desktop'}
+                  onClick={() => setViewMode('desktop')}
+                  className="rounded-full border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)] data-[active=true]:border-[color:var(--accent)] data-[active=true]:bg-[color:var(--accent-soft)]"
+                >
+                  {shellT('viewModeDesktop')}
+                </button>
+                <button
+                  type="button"
+                  data-active={viewMode === 'compact'}
+                  onClick={() => setViewMode('compact')}
+                  className="rounded-full border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)] data-[active=true]:border-[color:var(--accent)] data-[active=true]:bg-[color:var(--accent-soft)]"
+                >
+                  {shellT('viewModeCompact')}
+                </button>
+              </div>
             </div>
           ) : null}
         </header>
         {mobileNavOpen ? (
-          <div className="fixed inset-0 z-40 bg-black/70 md:hidden" onClick={() => setMobileNavOpen(false)}>
+          <div
+            className={`fixed inset-0 z-40 bg-black/70 ${
+              forceDesktopShell
+                ? 'hidden'
+                : forceCompactShell
+                  ? 'block'
+                  : 'md:hidden'
+            }`}
+            onClick={() => setMobileNavOpen(false)}
+          >
             <div
               className="h-full w-[84vw] max-w-xs overflow-y-auto border-r border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-5"
               onClick={(event) => event.stopPropagation()}
@@ -1441,7 +1566,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         ) : null}
         <div className="flex">
-          <nav className="hidden w-20 border-r border-[color:var(--border)] px-2 py-6 md:block xl:w-72 xl:px-6">
+          <nav
+            className={`w-20 border-r border-[color:var(--border)] px-2 py-6 xl:w-72 xl:px-6 ${
+              forceCompactShell
+                ? 'hidden'
+                : forceDesktopShell
+                  ? 'block'
+                  : 'hidden md:block'
+            }`}
+          >
             <div className="space-y-6 text-sm text-[color:var(--muted)]">
               {visibleNavSections.map((section) => (
                 <div key={section.title} className="space-y-2">
@@ -1510,7 +1643,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {mainContent}
           </main>
         </div>
-        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-2 backdrop-blur md:hidden">
+        <nav
+          className={`fixed inset-x-0 bottom-0 z-30 border-t border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-2 backdrop-blur ${
+            forceDesktopShell
+              ? 'hidden'
+              : forceCompactShell
+                ? 'block'
+                : 'md:hidden'
+          }`}
+        >
           <div className="grid grid-cols-5 gap-1 text-[10px] uppercase tracking-[0.15em] text-[color:var(--muted)]">
             {quickNavItems.map((item) => {
               const isActive = pathname === item.href;

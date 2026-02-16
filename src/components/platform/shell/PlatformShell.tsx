@@ -1,12 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { PLATFORM_NAV_ITEMS, PLATFORM_SHORTCUTS } from '@/components/platform/shell/platform-nav';
 import { resolvePlatformDockContent } from '@/components/platform/shell/platform-context';
+
+type PlatformViewMode = 'auto' | 'desktop' | 'compact';
+
+const PLATFORM_VIEW_MODE_KEY = 'nvi.platform.viewMode';
 
 export function PlatformShell({
   basePath,
@@ -22,6 +26,7 @@ export function PlatformShell({
   const [focusFilter, setFocusFilter] = useState<'all' | 'queues' | 'risk'>('all');
   const [isRailCollapsed, setIsRailCollapsed] = useState(false);
   const [isDockCollapsed, setIsDockCollapsed] = useState(false);
+  const [viewMode, setViewMode] = useState<PlatformViewMode>('auto');
   const normalizedPath = pathname.startsWith(`${basePath}/`)
     ? pathname.slice(basePath.length + 1).split('/')[0]
     : 'overview';
@@ -75,11 +80,52 @@ export function PlatformShell({
     }
   };
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const stored = window.localStorage.getItem(PLATFORM_VIEW_MODE_KEY);
+    if (stored === 'auto' || stored === 'desktop' || stored === 'compact') {
+      setViewMode(stored);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(PLATFORM_VIEW_MODE_KEY, viewMode);
+  }, [viewMode]);
+
+  const effectiveRailCollapsed = viewMode === 'compact' ? true : isRailCollapsed;
+  const effectiveDockCollapsed = viewMode === 'compact' ? true : isDockCollapsed;
+
+  const shellStyle = useMemo<CSSProperties | undefined>(() => {
+    if (viewMode !== 'desktop' && viewMode !== 'compact') {
+      return undefined;
+    }
+    if (effectiveRailCollapsed && effectiveDockCollapsed) {
+      return { gridTemplateColumns: 'minmax(0, 1fr)' };
+    }
+    if (effectiveRailCollapsed) {
+      return { gridTemplateColumns: 'minmax(0, 1fr) var(--platform-dock-w)' };
+    }
+    if (effectiveDockCollapsed) {
+      return { gridTemplateColumns: 'var(--platform-rail-w) minmax(0, 1fr)' };
+    }
+    return {
+      gridTemplateColumns:
+        'var(--platform-rail-w) minmax(0, 1fr) var(--platform-dock-w)',
+    };
+  }, [effectiveDockCollapsed, effectiveRailCollapsed, viewMode]);
+
   return (
     <div
       className="platform-shell nvi-reveal"
-      data-rail-collapsed={isRailCollapsed}
-      data-dock-collapsed={isDockCollapsed}
+      data-rail-collapsed={effectiveRailCollapsed}
+      data-dock-collapsed={effectiveDockCollapsed}
+      data-view-mode={viewMode}
+      style={shellStyle}
     >
       <aside className="platform-rail">
         <div className="platform-brand">
@@ -133,14 +179,38 @@ export function PlatformShell({
                 className="platform-command__toggle"
                 onClick={() => setIsRailCollapsed((prev) => !prev)}
               >
-                {isRailCollapsed ? t('showNav') : t('hideNav')}
+                {effectiveRailCollapsed ? t('showNav') : t('hideNav')}
               </button>
               <button
                 type="button"
                 className="platform-command__toggle"
                 onClick={() => setIsDockCollapsed((prev) => !prev)}
               >
-                {isDockCollapsed ? t('showDock') : t('hideDock')}
+                {effectiveDockCollapsed ? t('showDock') : t('hideDock')}
+              </button>
+              <button
+                type="button"
+                data-active={viewMode === 'auto'}
+                onClick={() => setViewMode('auto')}
+                className="platform-command__chip"
+              >
+                {t('viewModeAuto')}
+              </button>
+              <button
+                type="button"
+                data-active={viewMode === 'desktop'}
+                onClick={() => setViewMode('desktop')}
+                className="platform-command__chip"
+              >
+                {t('viewModeDesktop')}
+              </button>
+              <button
+                type="button"
+                data-active={viewMode === 'compact'}
+                onClick={() => setViewMode('compact')}
+                className="platform-command__chip"
+              >
+                {t('viewModeCompact')}
               </button>
               <button
                 type="button"
