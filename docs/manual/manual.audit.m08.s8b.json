@@ -1,0 +1,40 @@
+{
+  "session": "M-08-S8B",
+  "name": "Missed Routes Catch-up",
+  "date": "2026-02-17",
+  "audited_routes": [
+    "/{locale}/attachments",
+    "/{locale}/audit-logs",
+    "/{locale}/expenses",
+    "/{locale}/invite"
+  ],
+  "manual_mismatches": [
+    "Audit logs prerequisites omitted explicit audit.read and used exports-domain acknowledgement error mapping.",
+    "Expenses prerequisites were write-only and omitted read/view permission split.",
+    "Invite prerequisites incorrectly required authenticated business-context flow.",
+    "Invite errors were not aligned to token-expiry/password-policy framing for invite accept flow."
+  ],
+  "manual_fixes_applied": [
+    "Updated EN/SW audit logs prerequisites to explicit audit.read requirement.",
+    "Updated EN/SW audit logs error mapping to branch-scope restriction and forbidden outcomes.",
+    "Updated EN/SW expenses prerequisites to expenses.read and expenses.write split.",
+    "Updated EN/SW expenses offline restriction causes/fixes to controller-aligned behavior.",
+    "Updated EN/SW invite prerequisites to public token-based flow prerequisites.",
+    "Updated EN/SW invite error guidance to token-expiry and password-policy outcomes.",
+    "Synchronized docs manual datasets to frontend runtime manual datasets."
+  ],
+  "files_updated": [
+    "frontend/docs/manual/manual.en.json",
+    "frontend/docs/manual/manual.sw.json",
+    "frontend/src/data/manual/manual.en.json",
+    "frontend/src/data/manual/manual.sw.json"
+  ],
+  "verification": {
+    "json_parse": "PASS",
+    "runtime_sync_hash_match": "PASS",
+    "frontend_build": "PASS"
+  },
+  "findings": 4,
+  "blocking": 0,
+  "result": "PASS"
+}

@@ -1,0 +1,107 @@
+{
+  "session": "M-08-S4",
+  "date": "2026-02-17",
+  "domain": "Sales Operations",
+  "audited_routes": [
+    "/{locale}/pos",
+    "/{locale}/receipts",
+    "/{locale}/customers",
+    "/{locale}/shifts"
+  ],
+  "verified_correct": [
+    {
+      "id": "sales-pos-pos",
+      "checks": [
+        "POS flow order (draft -> complete -> receipt) is correctly represented",
+        "open shift dependency is enforced before completion when shift tracking is enabled"
+      ]
+    },
+    {
+      "id": "receipts-refunds-receipts",
+      "checks": [
+        "receipt listing and reprint endpoints are aligned to page flow",
+        "refund and settlement actions are represented in workflow"
+      ]
+    }
+  ],
+  "manual_mismatches": [
+    {
+      "id": "sales-pos-customers",
+      "issue": "customers.read prerequisite missing for page-open/list behavior."
+    },
+    {
+      "id": "sales-pos-customers",
+      "issue": "USER_NOT_FOUND used as common error though customer service missing-record behavior is null-style in this flow."
+    },
+    {
+      "id": "sales-pos-pos",
+      "issue": "Conditional credit-sale permission (sales.credit.create) was missing from prerequisites."
+    },
+    {
+      "id": "receipts-refunds-receipts",
+      "issue": "Permission matrix collapsed to sales.write; missing sales.read / sales.credit.settle / sales.return.without-receipt distinctions."
+    },
+    {
+      "id": "receipts-refunds-receipts",
+      "issue": "Common errors did not include settlement-positive constraint guidance."
+    },
+    {
+      "id": "business-settings-shifts",
+      "issue": "Prerequisites did not separate shifts.open vs shifts.close action scope."
+    },
+    {
+      "id": "business-settings-shifts",
+      "issue": "Common error list used POS-centric message instead of branch scope restriction from shifts service."
+    },
+    {
+      "id": "receipts-refunds-receipts (sw)",
+      "issue": "Swahili entry had English prerequisite lines."
+    }
+  ],
+  "manual_fixes_applied": [
+    {
+      "id": "sales-pos-customers",
+      "changes": [
+        "added customers.read prerequisite for view access",
+        "replaced USER_NOT_FOUND guidance with BUSINESS_CONTEXT_REQUIRED"
+      ]
+    },
+    {
+      "id": "sales-pos-pos",
+      "changes": [
+        "added conditional sales.credit.create prerequisite",
+        "refined error guidance for payment method and credit permission",
+        "added shifts page as explicit upstream dependency"
+      ]
+    },
+    {
+      "id": "receipts-refunds-receipts",
+      "changes": [
+        "expanded permissions by action: sales.read, sales.write, sales.credit.settle, sales.return.without-receipt",
+        "added SETTLEMENT_AMOUNT_MUST_BE_POSITIVE and tightened settlement/refund guidance",
+        "fixed SW prerequisite language parity"
+      ]
+    },
+    {
+      "id": "business-settings-shifts",
+      "changes": [
+        "split prerequisites into shifts.open and shifts.close action scopes",
+        "replaced POS-centric error entry with BRANCH_SCOPED_ROLE_RESTRICTION"
+      ]
+    }
+  ],
+  "confidence": {
+    "sales-pos-customers": "high",
+    "sales-pos-pos": "high",
+    "receipts-refunds-receipts": "high",
+    "business-settings-shifts": "high"
+  },
+  "unresolved_followups": [
+    {
+      "type": "non-blocking",
+      "item": "Receipts frontend currently gates action buttons by sales.write while backend enforces finer-grained permissions for settlement and return-without-receipt."
+    }
+  ],
+  "blocking_mismatches_remaining": 0,
+  "result": "PASS"
+}

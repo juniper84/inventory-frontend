@@ -1,0 +1,45 @@
+{
+  "session": "M-08-S5",
+  "name": "Procurement + Receiving",
+  "date": "2026-02-17",
+  "audited_routes": [
+    "/{locale}/suppliers",
+    "/{locale}/purchase-orders",
+    "/{locale}/purchase-orders/wizard",
+    "/{locale}/purchases",
+    "/{locale}/receiving",
+    "/{locale}/supplier-returns"
+  ],
+  "manual_mismatches": [
+    "Session 5 prerequisites used write-only wording where read-vs-write behavior is split in backend/frontend permissions.",
+    "Suppliers entry included SUPPLIER_IS_INACTIVE despite suppliers CRUD endpoint only enforcing name-required on create and inactive checks occurring in purchase flows.",
+    "Purchases entry used unsupported ITEMS_ARE_REQUIRED and UNIT_PRICE_BELOW_MINIMUM_ALLOWED mappings not thrown by purchases controller/service in this flow.",
+    "Receiving entry missed backend errors for offline submit restriction, missing source id, override reason, variant-not-on-po, and batch-not-found paths.",
+    "Supplier returns entry missed receiving-line linkage errors (line not found, line/source mismatch).",
+    "Session 5 Swahili entries still had English prerequisite lines.",
+    "Permission prerequisites exposed technical codes without user-first language."
+  ],
+  "manual_fixes_applied": [
+    "Updated EN+SW Session 5 prerequisites to user-first wording with permission codes in parentheses.",
+    "Split Session 5 prerequisites into view/read vs action/write permission guidance where applicable.",
+    "Replaced incorrect suppliers/purchases error mappings with backend-aligned error sets.",
+    "Expanded receiving errors to include backend-thrown validation and operational constraints.",
+    "Expanded supplier-returns errors to include receiving-line integrity failures.",
+    "Translated remaining Session 5 Swahili prerequisite lines to full Swahili.",
+    "Synchronized docs manuals to runtime copies in frontend data."
+  ],
+  "files_updated": [
+    "frontend/docs/manual/manual.en.json",
+    "frontend/docs/manual/manual.sw.json",
+    "frontend/src/data/manual/manual.en.json",
+    "frontend/src/data/manual/manual.sw.json"
+  ],
+  "verification": {
+    "json_parse": "PASS",
+    "runtime_sync_hash_match": "PASS",
+    "frontend_build": "PASS"
+  },
+  "findings": 7,
+  "blocking": 0,
+  "result": "PASS"
+}

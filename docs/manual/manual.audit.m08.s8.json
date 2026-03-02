@@ -1,0 +1,42 @@
+{
+  "session": "M-08-S8",
+  "name": "Cross-session Final Verification",
+  "date": "2026-02-17",
+  "scope": {
+    "routes_in_scope": 48,
+    "locales": ["en", "sw"],
+    "checks": [
+      "coverage_parity",
+      "structural_parity",
+      "error_code_parity",
+      "related_page_integrity",
+      "runtime_sync_hash_match",
+      "json_parse_validity",
+      "frontend_build"
+    ]
+  },
+  "manual_mismatches": [
+    "4 Swahili prerequisites still contained one English sentence for authenticated business context in entries: audit-compliance-audit-logs, auth-invite, business-settings-settings-profile, user-access-settings-roles."
+  ],
+  "manual_fixes_applied": [
+    "Translated remaining English prerequisite sentence to Swahili in the 4 affected entries.",
+    "Synchronized docs Swahili manual to frontend runtime Swahili manual file.",
+    "Re-ran parse/sync/build verification checks."
+  ],
+  "files_updated": [
+    "frontend/docs/manual/manual.sw.json",
+    "frontend/src/data/manual/manual.sw.json"
+  ],
+  "verification": {
+    "coverage_parity": "PASS",
+    "structural_parity": "PASS",
+    "error_code_parity": "PASS",
+    "related_page_integrity": "PASS",
+    "runtime_sync_hash_match": "PASS",
+    "json_parse_validity": "PASS",
+    "frontend_build": "PASS"
+  },
+  "findings": 1,
+  "blocking": 0,
+  "result": "PASS"
+}

@@ -71,7 +71,10 @@ export default function ReceiptsPage() {
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
   const permissions = getPermissionSet();
-  const canWrite = permissions.has('sales.write');
+  const canRead = permissions.has('sales.read');
+  const canRefund = permissions.has('sales.write');
+  const canSettleCredit = permissions.has('sales.credit.settle');
+  const canReturnWithoutReceipt = permissions.has('sales.return.without-receipt');
   const [isLoading, setIsLoading] = useState(true);
   const [isReprinting, setIsReprinting] = useState<string | null>(null);
   const [isSettling, setIsSettling] = useState(false);
@@ -298,6 +301,9 @@ export default function ReceiptsPage() {
   };
 
   const reprint = async (receiptId: string) => {
+    if (!canRead) {
+      return;
+    }
     const token = getAccessToken();
     if (!token) {
       return;
@@ -357,6 +363,9 @@ export default function ReceiptsPage() {
     : 0;
 
   const submitSettlement = async () => {
+    if (!canSettleCredit) {
+      return;
+    }
     const token = getAccessToken();
     if (!token || !selected?.sale?.id || !settlement.amount) {
       return;
@@ -407,6 +416,9 @@ export default function ReceiptsPage() {
   };
 
   const submitReturnWithoutReceipt = async () => {
+    if (!canReturnWithoutReceipt) {
+      return;
+    }
     const token = getAccessToken();
     if (!token || !effectiveReturnBranchId) {
       return;
@@ -464,6 +476,9 @@ export default function ReceiptsPage() {
   }
 
   const refundSale = async () => {
+    if (!canRefund) {
+      return;
+    }
     const token = getAccessToken();
     if (!token || !selected?.sale?.id) {
       return;
@@ -637,7 +652,8 @@ export default function ReceiptsPage() {
                           <button
                             onClick={() => reprint(receipt.id)}
                             className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-                            disabled={isReprinting === receipt.id}
+                            disabled={!canRead || isReprinting === receipt.id}
+                            title={!canRead ? noAccess('title') : undefined}
                           >
                             {isReprinting === receipt.id ? (
                               <Spinner size="xs" variant="dots" />
@@ -676,7 +692,8 @@ export default function ReceiptsPage() {
                 <button
                   onClick={() => reprint(receipt.id)}
                   className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-                  disabled={isReprinting === receipt.id}
+                  disabled={!canRead || isReprinting === receipt.id}
+                  title={!canRead ? noAccess('title') : undefined}
                 >
                   {isReprinting === receipt.id ? (
                     <Spinner size="xs" variant="dots" />
@@ -811,8 +828,8 @@ export default function ReceiptsPage() {
           <button
             onClick={submitSettlement}
             className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={!canWrite || isSettling}
-            title={!canWrite ? noAccess('title') : undefined}
+            disabled={!canSettleCredit || isSettling}
+            title={!canSettleCredit ? noAccess('title') : undefined}
           >
             {isSettling ? <Spinner size="xs" variant="pulse" /> : null}
             {isSettling ? t('recording') : t('recordSettlement')}
@@ -845,8 +862,8 @@ export default function ReceiptsPage() {
             type="button"
             onClick={refundSale}
             className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={!canWrite || isRefunding}
-            title={!canWrite ? noAccess('title') : undefined}
+            disabled={!canRefund || isRefunding}
+            title={!canRefund ? noAccess('title') : undefined}
           >
             {isRefunding ? <Spinner size="xs" variant="pulse" /> : null}
             {isRefunding ? t('refunding') : t('refundSale')}
@@ -948,8 +965,8 @@ export default function ReceiptsPage() {
             type="button"
             onClick={addReturnItem}
             className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={!canWrite}
-            title={!canWrite ? noAccess('title') : undefined}
+            disabled={!canReturnWithoutReceipt}
+            title={!canReturnWithoutReceipt ? noAccess('title') : undefined}
           >
             {t('addItem')}
           </button>
@@ -957,8 +974,8 @@ export default function ReceiptsPage() {
             type="button"
             onClick={submitReturnWithoutReceipt}
             className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={!canWrite || isReturning}
-            title={!canWrite ? noAccess('title') : undefined}
+            disabled={!canReturnWithoutReceipt || isReturning}
+            title={!canReturnWithoutReceipt ? noAccess('title') : undefined}
           >
             {isReturning ? <Spinner size="xs" variant="orbit" /> : null}
             {isReturning ? t('submitting') : t('submitReturn')}

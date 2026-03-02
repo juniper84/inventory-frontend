@@ -1,0 +1,19 @@
+{
+  "version": "2026-02-17.en.v6-m04-editorial",
+  "entries": 48,
+  "expected_routes": 48,
+  "schema_missing_fields": 0,
+  "duplicate_ids": 0,
+  "missing_route_coverage": 0,
+  "extra_routes": 0,
+  "entries_with_workflow_lt4": 0,
+  "entries_with_common_errors_lt2": 0,
+  "placeholder_hits": 0,
+  "only_dashboard_related": 0,
+  "empty_related_pages": 0,
+  "generic_intro_hits": 0,
+  "generic_handoff_hits": 0,
+  "generic_fix_pattern_hits": 0,
+  "generic_cause_pattern_hits": 0,
+  "pass_core": true
+}

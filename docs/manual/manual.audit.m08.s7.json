@@ -1,0 +1,53 @@
+{
+  "session": "M-08-S7",
+  "name": "Reporting + Support Modules",
+  "date": "2026-02-17",
+  "audited_routes": [
+    "/{locale}",
+    "/{locale}/reports",
+    "/{locale}/reports/[section]",
+    "/{locale}/exports",
+    "/{locale}/search",
+    "/{locale}/notes",
+    "/{locale}/notifications",
+    "/{locale}/offline",
+    "/{locale}/offline/conflicts"
+  ],
+  "manual_mismatches": [
+    "Reports and reports-section prerequisites mixed read/view access with export action access (`reports.read` vs `customers.export`).",
+    "Reports common errors used exports-branch validation mapping instead of report branch-scope runtime restriction behavior.",
+    "Exports prerequisites were generic and omitted explicit `exports.write` and branch-scope branch-selection requirements.",
+    "Search prerequisites omitted backend-enforced `search.read`.",
+    "Notes prerequisites omitted `notes.read` and overfocused on write/manage permissions.",
+    "Notes common errors were not aligned to route-reachable backend note validation failures.",
+    "Notifications prerequisites omitted `notifications.read`, and stream token failure guidance was incomplete.",
+    "Offline/offline-conflicts prerequisites were write-only and did not reflect read-vs-write split (`offline.read`/`offline.write`).",
+    "Session 7 Swahili prerequisites contained remaining English lines."
+  ],
+  "manual_fixes_applied": [
+    "Updated reports and reports-section EN/SW prerequisites to split read/view permission from customer CSV export permission.",
+    "Updated reports and reports-section EN/SW common errors to context and branch-scope restriction outcomes.",
+    "Updated exports EN/SW prerequisites to explicit user-first `exports.write` and branch-scoped branch selection guidance.",
+    "Added `search.read` prerequisite in EN/SW Search entry.",
+    "Updated notes EN/SW prerequisites to read/write/manage split.",
+    "Updated notes EN/SW common errors to backend-aligned outcomes (`TITLE_AND_BODY_ARE_REQUIRED`, `NOT_ALLOWED_TO_EDIT_THIS_NOTE`, `INVALID_REMINDER_DATE`).",
+    "Updated notifications EN/SW prerequisites and error guidance to `notifications.read` + stream token/permission failures.",
+    "Updated offline and offline-conflicts EN/SW prerequisites to explicit `offline.read` versus `offline.write` split.",
+    "Translated all remaining Session 7 Swahili prerequisite lines to full Swahili.",
+    "Synchronized docs manual datasets to frontend runtime manual datasets."
+  ],
+  "files_updated": [
+    "frontend/docs/manual/manual.en.json",
+    "frontend/docs/manual/manual.sw.json",
+    "frontend/src/data/manual/manual.en.json",
+    "frontend/src/data/manual/manual.sw.json"
+  ],
+  "verification": {
+    "json_parse": "PASS",
+    "runtime_sync_hash_match": "PASS",
+    "frontend_build": "PASS"
+  },
+  "findings": 9,
+  "blocking": 0,
+  "result": "PASS"
+}

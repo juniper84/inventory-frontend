@@ -1,0 +1,1828 @@
+{
+  "artifact": "manual-freeze-manifest",
+  "phase": "M-09",
+  "generated_at": "2026-02-17T03:47:46.170Z",
+  "source_files": {
+    "en": "frontend/docs/manual/manual.en.json",
+    "sw": "frontend/docs/manual/manual.sw.json"
+  },
+  "source_hashes": {
+    "en_sha256": "bfc74bea2256fca26fbdbff7df432a8bfb2b5441a9732d2f71445399070db5b3",
+    "sw_sha256": "74b2b9869f6802e084e5264e44e79392378c822426fd2195b1377098172acedd"
+  },
+  "source_versions": {
+    "en": "2026-02-17.en.v6d-m08-s4",
+    "sw": "2026-02-17.sw.v6d-m08-s4"
+  },
+  "scope": {
+    "included_routes": 48,
+    "excluded_prefixes": [
+      "/{locale}/platform"
+    ],
+    "locales": [
+      "en",
+      "sw"
+    ]
+  },
+  "integrity": {
+    "entry_count_en": 48,
+    "entry_count_sw": 48,
+    "parity_ok": true,
+    "ids_only_en": [],
+    "ids_only_sw": []
+  },
+  "deterministic_mapping": {
+    "key": [
+      "id",
+      "route",
+      "locale",
+      "source"
+    ],
+    "entry_map_count": 48
+  },
+  "entries": [
+    {
+      "id": "audit-compliance-audit-logs",
+      "route": "/{locale}/audit-logs",
+      "module": "audit-compliance",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#audit-compliance-audit-logs",
+          "title": "Audit Logs",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "161defa5908244120c19e8a9376677f200fd98725af9345313e9836d280633b4"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#audit-compliance-audit-logs",
+          "title": "Kumbukumbu za Ukaguzi",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "37a598d0691b4510cea10c51cb30d59b48d2452831e87dc9bb1398cd4a124ec6"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 2,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "BRANCH_SCOPED_ROLE_RESTRICTION",
+          "FORBIDDEN"
+        ]
+      }
+    },
+    {
+      "id": "auth-invite",
+      "route": "/{locale}/invite",
+      "module": "auth",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#auth-invite",
+          "title": "Invite",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "966e38d0fea4aa5b68d0ede4e3a68cf8cef8087d71afcd167b1e08d9dfe56e85"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#auth-invite",
+          "title": "Mwaliko",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "481da6347c9e30721d7d39880bdd0c100b1f2c5694dd7be0e1c0575580b6ef75"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 2,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "REQUEST_EXPIRED",
+          "PASSWORD_DOES_NOT_MEET_REQUIREMENTS"
+        ]
+      }
+    },
+    {
+      "id": "auth-login",
+      "route": "/{locale}/login",
+      "module": "auth",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#auth-login",
+          "title": "Login",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "4dae5caf2f3a9b613365555f60284c9c7447192d3c80290d92d797d8bcba3821"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#auth-login",
+          "title": "Ingia",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "b64625e61451ed7b7f4b90e7a79378038511c74e793b8bc8dbedd5f3aa1b4270"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 3,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "INVALID_CREDENTIALS",
+          "EMAIL_IS_NOT_VERIFIED",
+          "USER_NOT_ACTIVE_FOR_THIS_BUSINESS"
+        ]
+      }
+    },
+    {
+      "id": "auth-password-reset",
+      "route": "/{locale}/password-reset",
+      "module": "auth",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#auth-password-reset",
+          "title": "Password Reset",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "72f43dbd6ad0ddde54ca857122614d895902ef2029032b1082409d5972fde5f4"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#auth-password-reset",
+          "title": "Weka Upya Nenosiri",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "c614313e014b7431f8ce777237d21bb702c72026f6c4eac8800818af4d2add54"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 2,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "REQUEST_EXPIRED",
+          "REQUEST_NOT_FOUND"
+        ]
+      }
+    },
+    {
+      "id": "auth-password-reset-confirm",
+      "route": "/{locale}/password-reset/confirm",
+      "module": "auth",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#auth-password-reset-confirm",
+          "title": "Password Reset - Confirm",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "318bf798f6b5dbefdd6b5d2e8415c16f8e3e755636111cf89fe210dc74a5d9d8"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#auth-password-reset-confirm",
+          "title": "Weka Upya Nenosiri - Thibitisha",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "62e8332c9362c133bfd114c9e4b5157f2a1b7c19fab15c37902cde7dcfed5572"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 2,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "RESET_TOKEN_EXPIRED",
+          "PASSWORD_DOES_NOT_MEET_REQUIREMENTS"
+        ]
+      }
+    },
+    {
+      "id": "auth-signup",
+      "route": "/{locale}/signup",
+      "module": "auth",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#auth-signup",
+          "title": "Signup",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "afbee85f63fb8f637e61c299ea1567a483ef5427196f9e4f80bb745cf805332b"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#auth-signup",
+          "title": "Jisajili",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "7ed09be8ec62b29f2c25279b776b2c9ef05c5459d4e35a77837e7fad8a34b46b"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 2,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "MISSING_REQUIRED_SIGNUP_FIELDS",
+          "PASSWORD_DOES_NOT_MEET_REQUIREMENTS"
+        ]
+      }
+    },
+    {
+      "id": "auth-verify-email",
+      "route": "/{locale}/verify-email",
+      "module": "auth",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#auth-verify-email",
+          "title": "Verify Email",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "22cd81f51b671a350b98bfe8c2eb8cf15d2423137c7a5fb310b98bc5062da966"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#auth-verify-email",
+          "title": "Thibitisha Barua Pepe",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "7f8c937127c52a2ff07d753cfcb5f437f2df6e4c8119645014c732025b1950d7"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 3,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "VERIFICATION_TOKEN_EXPIRED",
+          "USER_NOT_ACTIVE_FOR_THIS_BUSINESS"
+        ]
+      }
+    },
+    {
+      "id": "business-settings-approvals",
+      "route": "/{locale}/approvals",
+      "module": "business-settings",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#business-settings-approvals",
+          "title": "Approvals",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "c81a29553cd5a47c68ae3f805b3ba71778a5aec3e466ea8541659f694cc6eb44"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#business-settings-approvals",
+          "title": "Idhini",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "de7d8ca8ceecee26d011ca45de0e185a19d3591962d314685fcf734bb2bd8741"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 3,
+          "permissions_required": 2
+        },
+        "error_codes": [
+          "FORBIDDEN",
+          "STOCK_SERVICE_UNAVAILABLE_FOR_APPROVAL",
+          "INVALID_STOCK_PAYLOAD"
+        ]
+      }
+    },
+    {
+      "id": "business-settings-attachments",
+      "route": "/{locale}/attachments",
+      "module": "business-settings",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#business-settings-attachments",
+          "title": "Attachments",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "52762d8a9b7a3b1be27c0fab2dc2e141dc5299a28522fd3e3b1cacde7d0748ff"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#business-settings-attachments",
+          "title": "Viambatisho",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "a05e88a2bde2e2f0a5fcd2a70e1a2c1e3f82deb3255e8d0c8d1845e0d95f3311"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "ATTACHMENT_EXCEEDS_20MB_LIMIT",
+          "ATTACHMENT_TYPE_MUST_BE_JPG_PNG_OR_PDF",
+          "STORAGE_LIMIT_EXCEEDED"
+        ]
+      }
+    },
+    {
+      "id": "business-settings-price-lists",
+      "route": "/{locale}/price-lists",
+      "module": "business-settings",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#business-settings-price-lists",
+          "title": "Price Lists",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "dbaedde63af6453f3bc434afea681e04b5fef88e9d77243013b8a9f504cde9d6"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#business-settings-price-lists",
+          "title": "Orodha za Bei",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "db0028d6178600f0a622e96c7d1708c86a2c0c40151cc559c87c9d9bdb6d9ad0"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 3,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "NAME_IS_REQUIRED",
+          "BUSINESS_CONTEXT_REQUIRED"
+        ]
+      }
+    },
+    {
+      "id": "business-settings-price-lists-wizard",
+      "route": "/{locale}/price-lists/wizard",
+      "module": "business-settings",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#business-settings-price-lists-wizard",
+          "title": "Price Lists - Wizard",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "088382dd7ad30faf914a001b3af098232b8f7a726509482bf25beadcc91b8cd7"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#business-settings-price-lists-wizard",
+          "title": "Orodha za Bei - Mwongozo",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "9bdb42fed1353dcf0e35bdd1095b3c0e32566fbb07c6b84d248e25482b004e59"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 4,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "BUSINESS_CONTEXT_REQUIRED",
+          "VARIANT_NOT_FOUND"
+        ]
+      }
+    },
+    {
+      "id": "business-settings-search",
+      "route": "/{locale}/search",
+      "module": "business-settings",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#business-settings-search",
+          "title": "Search",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "ed450568fa4b99c9e1d196f873d569071d7418b8760acc8e29c8cb8d13632356"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#business-settings-search",
+          "title": "Tafuta",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "daee402a5e92bc8bf1fdfbe295a906efee96f9376e97a4d8f36ed2886418ff2b"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 4,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "BUSINESS_CONTEXT_REQUIRED",
+          "USER_NOT_ACTIVE_FOR_THIS_BUSINESS"
+        ]
+      }
+    },
+    {
+      "id": "business-settings-settings-branches",
+      "route": "/{locale}/settings/branches",
+      "module": "business-settings",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#business-settings-settings-branches",
+          "title": "Settings - Branches",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "27c46190bdab7127fa7ec2fe8ce280d83b77b4f3d8443cd210d4b145f1c678dd"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#business-settings-settings-branches",
+          "title": "Mipangilio - Matawi",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "6c4bf36c527c7e8ce8c5d70b292cec9ff683050bfec2f453eeba3b7a61b8105f"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 2,
+          "permissions_required": 2
+        },
+        "error_codes": [
+          "NAME_IS_REQUIRED",
+          "FORBIDDEN"
+        ]
+      }
+    },
+    {
+      "id": "business-settings-settings-business",
+      "route": "/{locale}/settings/business",
+      "module": "business-settings",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#business-settings-settings-business",
+          "title": "Settings - Business",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "d21ef3f6fbb00c93128de977975663f4c5a6a5c2eb0cad7af8feee865be9ffae"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#business-settings-settings-business",
+          "title": "Mipangilio - Biashara",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "f52af1572bb93786c79e6a6dbaf1a548864fe0c1ef5cc58a297eca87a50eb0f9"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 4,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 3,
+          "permissions_required": 4
+        },
+        "error_codes": [
+          "BUSINESS_ID_CONFIRMATION_MISMATCH",
+          "ONLY_SYSTEM_OWNER_CAN_DELETE_BUSINESS",
+          "PENDING_SUBSCRIPTION_REQUEST_ALREADY_EXISTS"
+        ]
+      }
+    },
+    {
+      "id": "business-settings-settings-profile",
+      "route": "/{locale}/settings/profile",
+      "module": "business-settings",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#business-settings-settings-profile",
+          "title": "Settings - Profile",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "b6ec92576ed059478fbd6116788aa5a4eab4c568db94cca17f2d6fc16279a533"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#business-settings-settings-profile",
+          "title": "Mipangilio - Wasifu",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "a690d510c85ff6b10afb3a5946547ba744a45db64c5d0cf1295673ba99802e35"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 4,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "PERMISSION_IS_REQUIRED",
+          "UNKNOWN_PERMISSION",
+          "USER_ALREADY_HAS_THIS_PERMISSION",
+          "FORBIDDEN"
+        ]
+      }
+    },
+    {
+      "id": "business-settings-shifts",
+      "route": "/{locale}/shifts",
+      "module": "business-settings",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#business-settings-shifts",
+          "title": "Shifts",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "fbbbc50c4407963f7d9774c9baed0b6d20ca425c1fc1c36c66a042f7dd593bfa"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#business-settings-shifts",
+          "title": "Zamu",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "28f6fa672b5a96a0d57b0cb9313b7dee49546076e2ed8326a0b737ea18c8360e"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 2,
+          "permissions_required": 2
+        },
+        "error_codes": [
+          "SESSION_NOT_FOUND",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "catalog-catalog-categories",
+      "route": "/{locale}/catalog/categories",
+      "module": "catalog",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#catalog-catalog-categories",
+          "title": "Catalog - Categories",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "70790065504c880d8c9a3b8e4b57fd8b3726ed9b29fa2651c62bb62e6a42156d"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#catalog-catalog-categories",
+          "title": "Katalogi - Kategoria",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "75ed608b56f140bff5a104517f58d7ead4dd30b1ddc64722bb4ad1bda3032c9c"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 1,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "NAME_IS_REQUIRED",
+          "BUSINESS_CONTEXT_REQUIRED"
+        ]
+      }
+    },
+    {
+      "id": "catalog-catalog-products",
+      "route": "/{locale}/catalog/products",
+      "module": "catalog",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#catalog-catalog-products",
+          "title": "Catalog - Products",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "6cc7959ce0aefcb6d70a5c6e48ac6fd2ee8bbed9d9094ef298929a1cf057c953"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#catalog-catalog-products",
+          "title": "Katalogi - Bidhaa",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "aa5cde83e7522dfabd346e62311940179f9c5b3a8d43ba87eebe3f1fde9d8d53"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 4,
+          "workflow": 4,
+          "common_errors": 4,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "CATEGORYID_IS_REQUIRED",
+          "PRIMARY_IMAGE_IS_REQUIRED",
+          "ADDITIONAL_IMAGES_ARE_NOT_ENABLED_FOR_THIS_SUBSCRIPTION",
+          "IMAGE_EXCEEDS_20MB_LIMIT"
+        ]
+      }
+    },
+    {
+      "id": "catalog-catalog-products-wizard",
+      "route": "/{locale}/catalog/products/wizard",
+      "module": "catalog",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#catalog-catalog-products-wizard",
+          "title": "Catalog - Products - Wizard",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "2f691a45b280551dcf1e92441490b587ba8cd747910e13bac301b653ff6724e3"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#catalog-catalog-products-wizard",
+          "title": "Katalogi - Bidhaa - Mwongozo",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "106dca5bfda4bed569aa269a63c43b55deb7741f97bec89d1d7fb10fbef7faf3"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 6,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 3,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "CATEGORYID_IS_REQUIRED",
+          "BASEUNITID_AND_SELLUNITID_ARE_REQUIRED",
+          "CONVERSION_FACTOR_IS_REQUIRED"
+        ]
+      }
+    },
+    {
+      "id": "catalog-catalog-variants",
+      "route": "/{locale}/catalog/variants",
+      "module": "catalog",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#catalog-catalog-variants",
+          "title": "Catalog - Variants",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "91cb47438a8f95ae9920de1760859f67692210ff33c2b1cc196055bb9f2e8392"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#catalog-catalog-variants",
+          "title": "Katalogi - Toleo",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "380c9dab9aec90bd3aa0fc5aa483482bd5051195bcc7b4fb3bcfa44157ad0f65"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 4,
+          "workflow": 4,
+          "common_errors": 4,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "VARIANT_NOT_FOUND",
+          "MULTIPLE_VARIANTS_MATCHED_THIS_BARCODE",
+          "REASON_IS_REQUIRED_FOR_BARCODE_REASSIGNMENT",
+          "REASON_IS_REQUIRED_FOR_SKU_REASSIGNMENT"
+        ]
+      }
+    },
+    {
+      "id": "dashboard-home",
+      "route": "/{locale}",
+      "module": "dashboard",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#dashboard-home",
+          "title": "Dashboard",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "ed9c15372c71b14a3f480b4e09b1a3502bcfebad9d9b2a8030df20f057a22149"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#dashboard-home",
+          "title": "Dashibodi",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "ffd762ee2a20638ad96e8d93e3a592ba55747288cbda34aabd0ee9232c9522bd"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 6,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "BUSINESS_CONTEXT_REQUIRED",
+          "USER_NOT_ACTIVE_FOR_THIS_BUSINESS"
+        ]
+      }
+    },
+    {
+      "id": "notifications-notes-notes",
+      "route": "/{locale}/notes",
+      "module": "notifications-notes",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#notifications-notes-notes",
+          "title": "Notes",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "014f17e295627a8064cb5db4d0825611c245bc8fcc3cd87b6b8277a655ee7753"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#notifications-notes-notes",
+          "title": "Noti",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "97357a159f0d8b0dc1815f25547d310db2a8b0434c69d81645dca6df1af8b1f6"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 4,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 2,
+          "permissions_required": 2
+        },
+        "error_codes": [
+          "TITLE_AND_BODY_ARE_REQUIRED",
+          "NOT_ALLOWED_TO_EDIT_THIS_NOTE",
+          "INVALID_REMINDER_DATE"
+        ]
+      }
+    },
+    {
+      "id": "notifications-notes-notifications",
+      "route": "/{locale}/notifications",
+      "module": "notifications-notes",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#notifications-notes-notifications",
+          "title": "Notifications",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "745cddd3f4d4014b975966119e3fec8ed49faea9367a715473bc769808624352"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#notifications-notes-notifications",
+          "title": "Arifa",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "ceeca41ba0904aa9f3c627f38289b8bf74a8a13089911cf76ceee1603a126c88"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 3,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "MISSING_NOTIFICATIONS_PERMISSION",
+          "INVALID_ACCESS_TOKEN"
+        ]
+      }
+    },
+    {
+      "id": "offline-sync-offline",
+      "route": "/{locale}/offline",
+      "module": "offline-sync",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#offline-sync-offline",
+          "title": "Offline",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "0dc1352d095143dd4e7aa67b3c797ec4e2bc145e9c7c44f4cc1f4401c40cfb2f"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#offline-sync-offline",
+          "title": "Nje ya Mtandao",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "a0d5da3db0029b89aa9a148921e8b976c43a52b9dc639d2c1b127ec000a2d80a"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 4,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 1,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "OFFLINE_MODE_IS_DISABLED_FOR_THIS_SUBSCRIPTION",
+          "DEVICE_NOT_REGISTERED_FOR_THIS_USER",
+          "OFFLINE_SESSION_DURATION_EXCEEDED"
+        ]
+      }
+    },
+    {
+      "id": "offline-sync-offline-conflicts",
+      "route": "/{locale}/offline/conflicts",
+      "module": "offline-sync",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#offline-sync-offline-conflicts",
+          "title": "Offline - Conflicts",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "88ffc7fa2ff5705e0bd3576107004eecdc7185ef609a4f7a5617dd742da5909b"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#offline-sync-offline-conflicts",
+          "title": "Nje ya Mtandao - Migongano",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "6d496ebdc487f37afe4446c90bbedd9526d022879e979dd3fefb3f61f740abe6"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 4,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 1,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "OFFLINE_ACTION_NOT_FOUND",
+          "APPROVAL_REFERENCE_MISSING"
+        ]
+      }
+    },
+    {
+      "id": "onboarding-onboarding",
+      "route": "/{locale}/onboarding",
+      "module": "onboarding",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#onboarding-onboarding",
+          "title": "Onboarding",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "bc3008a3a73ec7309c7e3971db44bf2a76bf3bb93ec9b91bcf49d6e017213647"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#onboarding-onboarding",
+          "title": "Uanzishaji",
+          "last_reviewed_at": "2026-02-17",
+          "hash": "516e1d6d6d614a9c640f0abb8ec1d9596c2dd465f044b85369f91c99f300c292"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 4,
+          "permissions_required": 2
+        },
+        "error_codes": [
+          "AT_LEAST_ONE_BRANCH_IS_REQUIRED_BEFORE_COMPLETING_ONBOARDING",
+          "PERMISSION_IS_REQUIRED",
+          "BUSINESS_CONTEXT_REQUIRED"
+        ]
+      }
+    },
+    {
+      "id": "purchases-suppliers-expenses",
+      "route": "/{locale}/expenses",
+      "module": "purchases-suppliers",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#purchases-suppliers-expenses",
+          "title": "Expenses",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "1b182629c4773663f627da7677c3104bbe9c329aada0ad0d33eb05c7c7da30c6"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#purchases-suppliers-expenses",
+          "title": "Gharama",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "5045dac59e419b726e9efe2ffd1edcc17ca38e20d713ac827b0ec4c2130c7b0d"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 3,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "INVALID_EXPENSE_CATEGORY",
+          "EXPENSES_ARE_NOT_ALLOWED_IN_OFFLINE_MODE"
+        ]
+      }
+    },
+    {
+      "id": "purchases-suppliers-purchase-orders",
+      "route": "/{locale}/purchase-orders",
+      "module": "purchases-suppliers",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#purchases-suppliers-purchase-orders",
+          "title": "Purchase Orders",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "7c510601052f26b3ced3faec530b1c515bb88b683fb00ea3678b7076b2ef9ce0"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#purchases-suppliers-purchase-orders",
+          "title": "Oda za Manunuzi",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "788df7eb34dfc5f2d91d591411f119ea41a720b98181a34a4979b264e97b56cf"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 5,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "PURCHASE_ORDER_LINES_ARE_REQUIRED",
+          "PURCHASE_ORDER_HAS_DUPLICATE_VARIANT_LINES",
+          "REMOVING_PURCHASE_ORDER_LINES_IS_NOT_ALLOWED",
+          "SUPPLIER_IS_INACTIVE",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "purchases-suppliers-purchase-orders-wizard",
+      "route": "/{locale}/purchase-orders/wizard",
+      "module": "purchases-suppliers",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#purchases-suppliers-purchase-orders-wizard",
+          "title": "Purchase Orders - Wizard",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "ba7f4ca1925db85796b666457e024fa826d56338aa35e1e45db5c0dc718e22cb"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#purchases-suppliers-purchase-orders-wizard",
+          "title": "Oda za Manunuzi - Mwongozo",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "221879e12c18f6d84d7985c2a5aa0f1ca1a49f2761aaf1bcd5cf2e351f4592d3"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 4,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "PURCHASE_ORDER_LINES_ARE_REQUIRED",
+          "PURCHASE_ORDER_NOT_APPROVED_FOR_RECEIVING"
+        ]
+      }
+    },
+    {
+      "id": "purchases-suppliers-purchases",
+      "route": "/{locale}/purchases",
+      "module": "purchases-suppliers",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#purchases-suppliers-purchases",
+          "title": "Purchases",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "bd69d7472fca2aa973cdb77decc4b1d4f4aacdbdcce73829f202c23e8508f84b"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#purchases-suppliers-purchases",
+          "title": "Manunuzi",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "75fdf70d6eb4740b53027da91ea9cf1fbc11320cec411488887fb32c664d1259"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 3,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "SUPPLIER_IS_INACTIVE",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "purchases-suppliers-suppliers",
+      "route": "/{locale}/suppliers",
+      "module": "purchases-suppliers",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#purchases-suppliers-suppliers",
+          "title": "Suppliers",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "b651d57a660bf9caa8ff23fe746fd4db84fff5d1830f7eee945be99620b15ee3"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#purchases-suppliers-suppliers",
+          "title": "Wasambazaji",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "eb38bfc669bd89061906bbb44d5552bef7d4f1dbfaeeb933dd71907490c36f5c"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 1,
+          "related_pages": 1,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "NAME_IS_REQUIRED"
+        ]
+      }
+    },
+    {
+      "id": "receipts-refunds-receipts",
+      "route": "/{locale}/receipts",
+      "module": "receipts-refunds",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#receipts-refunds-receipts",
+          "title": "Receipts",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "a8d761c7c7054d8ac939c841681a52e4c6cc7c8c110a6c6875aad5923d389a61"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#receipts-refunds-receipts",
+          "title": "Stakabadhi",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "86a282360a45b5657dfbae42aa671eaf392985a530f7bbffbaecfdd3ea445600"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 5,
+          "workflow": 4,
+          "common_errors": 4,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "ONLY_COMPLETED_SALES_CAN_BE_REFUNDED",
+          "INVALID_REFUND_QUANTITY",
+          "SETTLEMENT_EXCEEDS_OUTSTANDING_BALANCE",
+          "SETTLEMENT_AMOUNT_MUST_BE_POSITIVE"
+        ]
+      }
+    },
+    {
+      "id": "receiving-returns-receiving",
+      "route": "/{locale}/receiving",
+      "module": "receiving-returns",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#receiving-returns-receiving",
+          "title": "Receiving",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "9ae381fa3422fa823b0cceb0798ba65189d8ff44323c33d93ff3f3e95049ec02"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#receiving-returns-receiving",
+          "title": "Upokeaji",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "29f02e389e707f35799d5ed3ccaf3acf0db1f9f33751a61c5afa1c9c0b86fe2f"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 4,
+          "workflow": 4,
+          "common_errors": 9,
+          "related_pages": 3,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "RECEIVING_MUST_INCLUDE_AT_LEAST_ONE_LINE",
+          "RECEIVING_IS_NOT_ALLOWED_IN_OFFLINE_MODE",
+          "PURCHASEID_OR_PURCHASEORDERID_IS_REQUIRED",
+          "PURCHASE_ORDER_NOT_APPROVED_FOR_RECEIVING",
+          "RECEIVING_OVERRIDE_REQUIRES_A_REASON",
+          "VARIANT_NOT_ON_PURCHASE_ORDER",
+          "BATCH_CODE_IS_REQUIRED_FOR_RECEIVING",
+          "BATCH_NOT_FOUND_FOR_RECEIVING_LINE",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "receiving-returns-supplier-returns",
+      "route": "/{locale}/supplier-returns",
+      "module": "receiving-returns",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#receiving-returns-supplier-returns",
+          "title": "Supplier Returns",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "8012048037361fe1823e825dda113ac3db50ceba844b5f745ae27079cd4723e7"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#receiving-returns-supplier-returns",
+          "title": "Marejesho ya Msambazaji",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "20890060d75f326367088a50050453a30797c30b363fcbc7724a46bff211453f"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 6,
+          "related_pages": 5,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "RETURN_MUST_INCLUDE_AT_LEAST_ONE_ITEM",
+          "MANUAL_SUPPLIER_RETURNS_REQUIRE_A_REASON",
+          "RECEIVING_LINE_NOT_FOUND",
+          "RECEIVING_LINE_DOES_NOT_MATCH_RETURN_SOURCE",
+          "INSUFFICIENT_STOCK_FOR_SUPPLIER_RETURN",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "reports-exports-exports",
+      "route": "/{locale}/exports",
+      "module": "reports-exports",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#reports-exports-exports",
+          "title": "Exports",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "c2d817f2c6d4a40358d73516aa3d0d1b4e9f56140d33bfe923879d6d5e1477f5"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#reports-exports-exports",
+          "title": "Usafirishaji wa Data",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "752adc5dabd0b273e488095da8aadb393b16e09f73e5b61063f23924b773dc39"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 2,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "UNSUPPORTED_EXPORT_TYPE",
+          "AUDIT_EXPORT_REQUIRES_ACKNOWLEDGEMENT",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "reports-exports-reports",
+      "route": "/{locale}/reports",
+      "module": "reports-exports",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#reports-exports-reports",
+          "title": "Reports",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "facfc3b9add050aa5d0e3527bc1a137f67808e0c934938757d5c6ffdb253c91b"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#reports-exports-reports",
+          "title": "Ripoti",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "c71cc02ccab65ecdf6fd6b112a0bdc3faeb27b1ba77677812200845a50d8fe70"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 3,
+          "permissions_required": 2
+        },
+        "error_codes": [
+          "BUSINESS_CONTEXT_REQUIRED",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "reports-exports-reports-section",
+      "route": "/{locale}/reports/[section]",
+      "module": "reports-exports",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#reports-exports-reports-section",
+          "title": "Reports - Section",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "5c583cd23d67d1fcfb25a0c2e8cf22d90070cad79b764c8a82df16de8cee03f7"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#reports-exports-reports-section",
+          "title": "Ripoti - Sehemu",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "82006892b5d6aeb99517b204c5947196af16cefc84ca780299633e5c4675f670"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 2,
+          "permissions_required": 2
+        },
+        "error_codes": [
+          "BUSINESS_CONTEXT_REQUIRED",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "sales-pos-customers",
+      "route": "/{locale}/customers",
+      "module": "sales-pos",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#sales-pos-customers",
+          "title": "Customers",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "355fcba2fb104fdd6ed3202654abd3d18ffcda7496ff16ef53ceb7eb46052f7a"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#sales-pos-customers",
+          "title": "Wateja",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "1f0308260ef11274465987c8d19c42af84aa6b5b9de5cd52c6db1b4c3e60fc54"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 3,
+          "permissions_required": 3
+        },
+        "error_codes": [
+          "NAME_IS_REQUIRED",
+          "BUSINESS_CONTEXT_REQUIRED"
+        ]
+      }
+    },
+    {
+      "id": "sales-pos-pos",
+      "route": "/{locale}/pos",
+      "module": "sales-pos",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#sales-pos-pos",
+          "title": "Pos",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "af73458ad8c485fb18cde0ac38c6393913d5d727c3f7291f823fd64b6472721b"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#sales-pos-pos",
+          "title": "POS",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "f2287420393fea3687f836ab5cfbe35e2f3073a599d5d0c5f29d2f43c6331624"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 5,
+          "workflow": 4,
+          "common_errors": 4,
+          "related_pages": 3,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "AN_OPEN_SHIFT_IS_REQUIRED_FOR_POS_SALES",
+          "INSUFFICIENT_STOCK_FOR_SALE",
+          "CREDIT_SALES_REQUIRE_PERMISSION",
+          "PAYMENT_METHOD_REQUIRED"
+        ]
+      }
+    },
+    {
+      "id": "stock-stock",
+      "route": "/{locale}/stock",
+      "module": "stock",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#stock-stock",
+          "title": "Stock",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "a1ea8c47a9c281ca8b05590cc15fdef1f5652037e4f4a8272af946af6b0a24c2"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#stock-stock",
+          "title": "Hisa",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "dcc9aba5de797f617946ea8d9a8841f738fa4c20ab5a663f3fb46d95f84f9697"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 2,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "MINQUANTITY_AND_REORDERQUANTITY_ARE_REQUIRED",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "stock-stock-adjustments",
+      "route": "/{locale}/stock/adjustments",
+      "module": "stock",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#stock-stock-adjustments",
+          "title": "Stock - Adjustments",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "bccc81a85f5d835d848a46676592a43db7764d004cea28d30116529e0f1584e7"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#stock-stock-adjustments",
+          "title": "Hisa - Marekebisho",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "113c1c05aede5512d7a3e5a352c302f515302a060d23a7d07af621093e32727b"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 5,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "VARIANTID_IS_REQUIRED",
+          "LOSS_REASON_IS_REQUIRED_FOR_NEGATIVE_ADJUSTMENTS",
+          "BATCH_NOT_FOUND",
+          "NEGATIVE_STOCK_IS_NOT_ALLOWED",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "stock-stock-counts",
+      "route": "/{locale}/stock/counts",
+      "module": "stock",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#stock-stock-counts",
+          "title": "Stock - Counts",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "bdac524396add6405d73ac9fa195601da07290856379d0a1d26a4ddfd8bffd55"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#stock-stock-counts",
+          "title": "Hisa - Hesabu",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "6655cd2d6d6c043211a51a631bc687fb0c9d878c888df8e6a7d83999b7660e52"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 5,
+          "related_pages": 3,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "COUNTEDQUANTITY_IS_REQUIRED",
+          "COUNTED_QUANTITY_CANNOT_BE_NEGATIVE",
+          "STOCK_COUNTS_ARE_NOT_ALLOWED_IN_OFFLINE_MODE",
+          "BATCH_NOT_FOUND",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "stock-stock-counts-wizard",
+      "route": "/{locale}/stock/counts/wizard",
+      "module": "stock",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#stock-stock-counts-wizard",
+          "title": "Stock - Counts - Wizard",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "0701924d29fd31ea419d457c784f4e0b27e53c2428b21f1244934f1af717c78d"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#stock-stock-counts-wizard",
+          "title": "Hisa - Hesabu - Mwongozo",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "46ce5e5274c093a1eb9567102360bb4d1db0226ce2cb1e37e13cdf97cf1f3560"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 4,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "COUNTEDQUANTITY_IS_REQUIRED",
+          "COUNTED_QUANTITY_CANNOT_BE_NEGATIVE",
+          "STOCK_COUNTS_ARE_NOT_ALLOWED_IN_OFFLINE_MODE",
+          "BATCH_NOT_FOUND"
+        ]
+      }
+    },
+    {
+      "id": "stock-stock-movements",
+      "route": "/{locale}/stock/movements",
+      "module": "stock",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#stock-stock-movements",
+          "title": "Stock - Movements",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "dd6db911b88cb796a001d6e79c73478d5607a73ce50e9ad938e61ac1c6756579"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#stock-stock-movements",
+          "title": "Hisa - Mienendo",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "89926099a538c0afa62496fc7f8fed6dd6189b0dc6d016473e8eefae22996814"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 2,
+          "workflow": 4,
+          "common_errors": 1,
+          "related_pages": 4,
+          "permissions_required": 0
+        },
+        "error_codes": [
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "transfers-transfers",
+      "route": "/{locale}/transfers",
+      "module": "transfers",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#transfers-transfers",
+          "title": "Transfers",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "49644cac988ccb74f17ac2a3de75c0809f1ced33330f1d38474257f5c68fe8ab"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#transfers-transfers",
+          "title": "Uhamisho",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "7ff9552d88e7ffc0764b438f8c551d37866c0227b76ecc3d46b258f53271b255"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 9,
+          "related_pages": 1,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "TRANSFERS_ARE_NOT_ALLOWED_IN_OFFLINE_MODE",
+          "ITEMS_ARE_REQUIRED",
+          "ITEM_QUANTITY_MUST_BE_A_NUMBER",
+          "INSUFFICIENT_STOCK_FOR_TRANSFER",
+          "BATCH_DOES_NOT_MATCH_SOURCE_BRANCH_VARIANT",
+          "TRANSFER_MUST_BE_APPROVED_BEFORE_RECEIVING",
+          "TRANSFER_IS_ALREADY_CLOSED",
+          "RECEIVED_QUANTITY_EXCEEDS_REMAINING_QUANTITY",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "transfers-transfers-wizard",
+      "route": "/{locale}/transfers/wizard",
+      "module": "transfers",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#transfers-transfers-wizard",
+          "title": "Transfers - Wizard",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "d6d5bb367571d09b7a581a8fcff0db229f6ee129faf7d56b3f59029036209cef"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#transfers-transfers-wizard",
+          "title": "Uhamisho - Mwongozo",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "885a3c107870868d1ab983a8109affa5efe6bbaa025f95ad87e08d8927f0e1aa"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 9,
+          "related_pages": 2,
+          "permissions_required": 1
+        },
+        "error_codes": [
+          "TRANSFERS_ARE_NOT_ALLOWED_IN_OFFLINE_MODE",
+          "ITEMS_ARE_REQUIRED",
+          "ITEM_QUANTITY_MUST_BE_A_NUMBER",
+          "INSUFFICIENT_STOCK_FOR_TRANSFER",
+          "BATCH_DOES_NOT_MATCH_SOURCE_BRANCH_VARIANT",
+          "TRANSFER_MUST_BE_APPROVED_BEFORE_RECEIVING",
+          "TRANSFER_IS_ALREADY_CLOSED",
+          "RECEIVED_QUANTITY_EXCEEDS_REMAINING_QUANTITY",
+          "BRANCH_SCOPED_ROLE_RESTRICTION"
+        ]
+      }
+    },
+    {
+      "id": "user-access-settings-roles",
+      "route": "/{locale}/settings/roles",
+      "module": "user-access",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#user-access-settings-roles",
+          "title": "Settings - Roles",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "374cc8298cd5d37fd9e38cc350e300f60b7c4302d086c096e9db22d45c4564ad"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#user-access-settings-roles",
+          "title": "Mipangilio - Majukumu",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "a54504e8fdf4443b5fc6c1acc7787e813738e9451ad8205c10e21c1f239b91b3"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 2,
+          "permissions_required": 3
+        },
+        "error_codes": [
+          "FORBIDDEN",
+          "SYSTEM_OWNER_PERMISSIONS_ARE_LOCKED",
+          "ROLE_NOT_FOUND_OR_OUT_OF_SCOPE"
+        ]
+      }
+    },
+    {
+      "id": "user-access-settings-users",
+      "route": "/{locale}/settings/users",
+      "module": "user-access",
+      "locales": [
+        "en",
+        "sw"
+      ],
+      "citations": {
+        "en": {
+          "source": "frontend/docs/manual/manual.en.json#user-access-settings-users",
+          "title": "Settings - Users",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "1d7017ab53df4a7b77764eda988ae16a6edead4635a80890137c1d7a003f09eb"
+        },
+        "sw": {
+          "source": "frontend/docs/manual/manual.sw.json#user-access-settings-users",
+          "title": "Mipangilio - Watumiaji",
+          "last_reviewed_at": "2026-02-17T00:00:00Z",
+          "hash": "f4df76b6c94937d73c16f77a3e052b5a9f43e65b2f35101f0759e477a811918b"
+        }
+      },
+      "retrieval_hints": {
+        "section_counts": {
+          "prerequisites": 3,
+          "workflow": 4,
+          "common_errors": 3,
+          "related_pages": 3,
+          "permissions_required": 4
+        },
+        "error_codes": [
+          "FORBIDDEN",
+          "USER_OR_MEMBERSHIP_NOT_FOUND",
+          "INVALID_ROLE_OR_BRANCH_SCOPE"
+        ]
+      }
+    }
+  ]
+}

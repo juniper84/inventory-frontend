@@ -30,6 +30,8 @@ import {
 } from '@/lib/branch-policy';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { Spinner } from '@/components/Spinner';
+import { ManualHelpPanel } from '@/components/manual/ManualHelpPanel';
+import { SupportChatWidget } from '@/components/support-chat/SupportChatWidget';
 import {
   clearOfflineData,
   rotateOfflineKey,
@@ -1086,6 +1088,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
+        <ManualHelpPanel />
+        <SupportChatWidget />
       </div>
     );
   }
@@ -1097,6 +1101,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <NotificationSurface locale={locale} />
           <LocalToastSurface />
           <main className="px-6 py-10">{children}</main>
+          <ManualHelpPanel />
+          <SupportChatWidget />
         </div>
       </AuthGate>
     );
@@ -1743,6 +1749,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         ) : null}
+        <ManualHelpPanel />
+        <SupportChatWidget />
       </div>
     </AuthGate>
   );

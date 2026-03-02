@@ -1,0 +1,225 @@
+{
+  "version": "2026-02-17.l2-10.v1",
+  "status": "in_progress",
+  "scenarios": [
+    {
+      "id": "S01-EN-EXPLAIN-SETTINGS-BUSINESS",
+      "locale": "en",
+      "route": "/en/settings/business",
+      "prompt": "What is this page about?",
+      "setup": "No forced error. Normal page state.",
+      "expected_intent": "explain_page",
+      "expected_reasoning_mode": "dependency",
+      "expected_quality_checks": [
+        "Simple purpose line, not raw links text",
+        "First actions are concrete and short",
+        "No unrelated error diagnosis"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S02-SW-EXPLAIN-SETTINGS-BUSINESS",
+      "locale": "sw",
+      "route": "/sw/settings/business",
+      "prompt": "Ukurasa huu ni wa nini?",
+      "setup": "No forced error. Normal page state.",
+      "expected_intent": "explain_page",
+      "expected_reasoning_mode": "dependency",
+      "expected_quality_checks": [
+        "Swahili explanation is natural and clear",
+        "Hatua za kwanza ni fupi na za vitendo",
+        "Hakuna diagnosis ya kosa lisilohusika"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S03-EN-DEP-CATALOG-PRODUCTS-NO-CATEGORY",
+      "locale": "en",
+      "route": "/en/catalog/products",
+      "prompt": "I tried creating a product and got an error. Explain the error.",
+      "setup": "Attempt create product without category (or with missing category dependency).",
+      "expected_intent": "troubleshoot_error",
+      "expected_reasoning_mode": "dependency",
+      "expected_quality_checks": [
+        "Explains category prerequisite dependency",
+        "Gives next action to create/select category first",
+        "No unrelated settings or auth diagnosis"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S04-SW-DEP-CATALOG-PRODUCTS-NO-CATEGORY",
+      "locale": "sw",
+      "route": "/sw/catalog/products",
+      "prompt": "Nilijaribu kutengeneza bidhaa nikapata kosa. Nifafanulie kosa.",
+      "setup": "Attempt create product without category (or with missing category dependency).",
+      "expected_intent": "troubleshoot_error",
+      "expected_reasoning_mode": "dependency",
+      "expected_quality_checks": [
+        "Inaeleza utegemezi wa category kwa lugha rahisi",
+        "Inatoa hatua ya kwenda category kwanza",
+        "Hakuna diagnosis isiyohusika"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S05-EN-PLAYBOOK-VERIFY-TOKEN-EXPIRED",
+      "locale": "en",
+      "route": "/en/verify-email",
+      "prompt": "Explain this error: VERIFICATION_TOKEN_EXPIRED",
+      "setup": "Open verify-email flow with expired token or latest_error carrying this code.",
+      "expected_intent": "troubleshoot_error",
+      "expected_reasoning_mode": "playbook",
+      "expected_quality_checks": [
+        "Matches verify-email deterministic guidance",
+        "Fix steps are token-specific",
+        "No generic fallback wording"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S06-SW-PLAYBOOK-VERIFY-TOKEN-EXPIRED",
+      "locale": "sw",
+      "route": "/sw/verify-email",
+      "prompt": "Fafanua kosa hili: VERIFICATION_TOKEN_EXPIRED",
+      "setup": "Open verify-email flow with expired token or latest_error carrying this code.",
+      "expected_intent": "troubleshoot_error",
+      "expected_reasoning_mode": "playbook",
+      "expected_quality_checks": [
+        "Mwongozo unaendana na verify-email",
+        "Hatua ni maalum kwa token iliyopitwa na muda",
+        "Hakuna fallback ya jumla isiyo na mwelekeo"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S07-EN-POS-SHIFT-BLOCK",
+      "locale": "en",
+      "route": "/en/pos",
+      "prompt": "Why can't I complete this POS sale?",
+      "setup": "Ensure no open shift for active branch and trigger POS completion attempt.",
+      "expected_intent": "troubleshoot_error",
+      "expected_reasoning_mode": "dependency",
+      "expected_quality_checks": [
+        "Explains shift prerequisite clearly",
+        "Directs user to shifts page as next step",
+        "No unrelated business/settings diagnosis"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S08-SW-POS-SHIFT-BLOCK",
+      "locale": "sw",
+      "route": "/sw/pos",
+      "prompt": "Kwa nini siwezi kukamilisha mauzo ya POS?",
+      "setup": "Ensure no open shift for active branch and trigger POS completion attempt.",
+      "expected_intent": "troubleshoot_error",
+      "expected_reasoning_mode": "dependency",
+      "expected_quality_checks": [
+        "Inaeleza hitaji la shift OPEN",
+        "Inaelekeza kwenda ukurasa wa shifts",
+        "Hakuna diagnosis isiyohusiana"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S09-EN-WHAT-NEXT-ONBOARDING",
+      "locale": "en",
+      "route": "/en/onboarding",
+      "prompt": "What should I do next?",
+      "setup": "Be on onboarding page with pending steps.",
+      "expected_intent": "what_next",
+      "expected_reasoning_mode": "dependency",
+      "expected_quality_checks": [
+        "Lists practical next sequence",
+        "Does not dump full manual",
+        "Steps align with onboarding flow order"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S10-SW-WHAT-NEXT-ONBOARDING",
+      "locale": "sw",
+      "route": "/sw/onboarding",
+      "prompt": "Hatua inayofuata ni ipi?",
+      "setup": "Be on onboarding page with pending steps.",
+      "expected_intent": "what_next",
+      "expected_reasoning_mode": "dependency",
+      "expected_quality_checks": [
+        "Inaorodhesha hatua inayofuata kwa mpangilio",
+        "Haidump mwongozo wote",
+        "Inafuata mtiririko wa onboarding"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S11-EN-UNMAPPED-BACKEND-ERROR",
+      "locale": "en",
+      "route": "/en/settings/business",
+      "prompt": "Explain the error and what I should do next.",
+      "setup": "Trigger or attach an unmapped backend error code in latest_error context.",
+      "expected_intent": "troubleshoot_error",
+      "expected_reasoning_mode": "fallback",
+      "expected_quality_checks": [
+        "Acknowledges error as not fully mapped",
+        "Gives safe checks plus support escalation path",
+        "Avoids fabricated root cause claims"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    },
+    {
+      "id": "S12-SW-UNMAPPED-BACKEND-ERROR",
+      "locale": "sw",
+      "route": "/sw/settings/business",
+      "prompt": "Nifafanulie kosa hili na nifanye nini sasa.",
+      "setup": "Trigger or attach an unmapped backend error code in latest_error context.",
+      "expected_intent": "troubleshoot_error",
+      "expected_reasoning_mode": "fallback",
+      "expected_quality_checks": [
+        "Inakubali kuwa kosa halijamapishwa kikamilifu",
+        "Inatoa ukaguzi salama na njia ya escalation",
+        "Haibuni chanzo cha kosa bila ushahidi"
+      ],
+      "status": "pending",
+      "observed": {},
+      "tuning_action": ""
+    }
+  ],
+  "acceptance_matrix_columns": [
+    "id",
+    "locale",
+    "route",
+    "expected_intent",
+    "expected_reasoning_mode",
+    "status",
+    "observed.summary",
+    "observed.primary_issue",
+    "observed.steps_head",
+    "observed.confidence",
+    "observed.reasoning_mode_guess",
+    "tuning_action"
+  ]
+}
+

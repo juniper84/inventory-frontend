@@ -8,6 +8,13 @@ import {
   setTokens,
 } from './auth';
 import { resolveApiErrorMessage } from './api-error-messages';
+import { getActiveBranch } from './branch-context';
+import {
+  pushSupportChatRecentError,
+  isSupportChatLatestErrorRelevant,
+  readSupportChatRecentErrors,
+  setSupportChatRecentErrors,
+} from './support-chat-error-context';
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000/api/v1';
@@ -221,11 +228,29 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
     resolvedToken,
     headers,
   );
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...rest,
-    cache: rest.cache ?? 'no-store',
-    headers: requestHeaders,
-  });
+  let response: Response;
+  const activeBranchId = getActiveBranch()?.id ?? null;
+  const tokenBusinessId =
+    resolvedToken
+      ? decodeJwt<{ businessId?: string }>(resolvedToken)?.businessId ?? null
+      : null;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...rest,
+      cache: rest.cache ?? 'no-store',
+      headers: requestHeaders,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Network request failed';
+    pushSupportChatRecentError({
+      error_code: 'NETWORK_ERROR',
+      error_message: message,
+      error_source: 'network',
+      business_id: tokenBusinessId,
+      branch_id: activeBranchId,
+    });
+    throw err;
+  }
 
   if (!response.ok) {
     if (response.status === 401 && resolvedToken) {
@@ -262,7 +287,42 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
     } catch {
       message = fallback;
     }
+    pushSupportChatRecentError({
+      error_code: payload?.errorCode ?? deriveErrorCode(message),
+      error_message: message,
+      error_source: 'backend',
+      business_id: tokenBusinessId,
+      branch_id: activeBranchId,
+    });
     throw new ApiError(message, response.status, payload);
+  }
+
+  const method = (rest.method ?? 'GET').toUpperCase();
+  const normalizedPath = path.trim().toLowerCase();
+  const isSupportChatEndpoint =
+    normalizedPath === '/support/chat' ||
+    normalizedPath.startsWith('/support/chat/');
+  const isMutating =
+    method === 'POST' ||
+    method === 'PUT' ||
+    method === 'PATCH' ||
+    method === 'DELETE';
+  if (isMutating && !isSupportChatEndpoint && typeof window !== 'undefined') {
+    const current = readSupportChatRecentErrors();
+    const currentRoute = window.location.pathname;
+    if (current.length) {
+      const filtered = current.filter(
+        (item) =>
+          !isSupportChatLatestErrorRelevant(item, {
+            route: currentRoute,
+            businessId: tokenBusinessId,
+            branchId: activeBranchId,
+          }),
+      );
+      if (filtered.length !== current.length) {
+        setSupportChatRecentErrors(filtered);
+      }
+    }
   }
 
   if (response.status === 204) {

@@ -1,0 +1,25 @@
+{
+  "artifact": "manual-freeze-report",
+  "phase": "M-09",
+  "generated_at": "2026-02-17T03:47:46.170Z",
+  "result": "PASS",
+  "checks": {
+    "source_files_present": true,
+    "json_parse_ok": true,
+    "parity_ok": true,
+    "entry_count_match": true,
+    "deterministic_mapping_ready": true
+  },
+  "metrics": {
+    "entry_count": 48,
+    "locales": 2,
+    "unique_modules": 16,
+    "total_error_code_refs": 151
+  },
+  "outputs": {
+    "manifest": "frontend/docs/manual/manual.freeze.m09.manifest.json",
+    "index": "frontend/docs/manual/manual.freeze.m09.index.jsonl",
+    "report_json": "frontend/docs/manual/manual.freeze.m09.report.json",
+    "report_md": "frontend/docs/manual/manual.freeze.m09.report.md"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "summary": {
+    "timestamp": "2026-02-17",
+    "en_version": "2026-02-17.en.v6-m04-editorial",
+    "sw_version": "2026-02-17.sw.v4c-m05-full",
+    "in_scope_routes": 48,
+    "checks_total": 6,
+    "checks_failed": 0,
+    "pass": true
+  },
+  "checks": [
+    {
+      "name": "route_resolution_all_routes",
+      "status": "pass",
+      "detail": "All in-scope routes resolved for EN and SW."
+    },
+    {
+      "name": "dynamic_route_matching",
+      "status": "pass",
+      "detail": "Dynamic reports section routes resolve correctly."
+    },
+    {
+      "name": "related_links_integrity",
+      "status": "pass",
+      "detail": "All related-page links resolve for EN/SW."
+    },
+    {
+      "name": "platform_exclusion",
+      "status": "pass",
+      "detail": "Platform paths are excluded from in-scope manual panel logic."
+    },
+    {
+      "name": "missing_entry_fallback",
+      "status": "pass",
+      "detail": "Unknown paths return null for fallback state."
+    },
+    {
+      "name": "locale_link_materialization",
+      "status": "pass",
+      "detail": "Locale route materialization works for related links."
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+# M-08-S2 Session Audit (Access + Business Settings)
+
+- timestamp: 2026-02-17
+- en_version: 2026-02-17.en.v6c-m08-s2
+- sw_version: 2026-02-17.sw.v4e-m08-s2
+- routes_audited: 6
+- findings_total: 8
+- blocking: 0
+- pass: true
+
+## Verified Correct
+- Route coverage for all 6 Session-2 entries
+- EN/SW structure parity on touched entries
+- Runtime manual datasets synchronized with docs datasets
+
+## Mismatches Found
+- Approvals manual listed only approvals.write while list endpoint also requires approvals.read.
+- Approvals manual error guidance did not match backend approve/reject behavior for stock-execution failures.
+- Roles manual omitted required role-management permissions (roles.read/create/update).
+- Users manual omitted users.read and included unsupported error assumptions.
+- Profile manual described password-change behavior even though page is profile + access-request flow.
+- Profile manual error guidance did not match access-requests backend validation messages.
+- Business settings prerequisites treated optional destructive/subscription actions as universally required.
+- Permission lines were too code-centric and not understandable for end users.
+
+## Fixes Applied
+- Rewrote EN+SW approvals prerequisites/workflow/common_errors/permissions to match read+write guards and approval execution behavior.
+- Updated EN+SW business settings prerequisites/errors/permissions to separate required vs optional actions and align with backend messages.
+- Updated EN+SW branches, roles, and users permission sections to human-readable guidance with permission codes in parentheses.
+- Rewrote EN+SW profile workflow/errors to match /users/me + /access-requests behavior.
+- Synchronized docs/manual and frontend runtime manual datasets for both locales.

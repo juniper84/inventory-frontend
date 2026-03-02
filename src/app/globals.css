@@ -71,14 +71,20 @@ header.sticky {
   box-shadow: var(--shadow-soft);
 }
 
-.bg-black\/50,
-.bg-black\/60,
-.bg-black\/70,
-.bg-black\/80,
-.bg-black {
+.nvi-glass-surface {
   background-image: var(--card-gradient);
   box-shadow: var(--shadow-soft);
   backdrop-filter: blur(12px);
+}
+
+.nvi-sidepanel-overlay {
+  background-color: rgba(0, 0, 0, 0.56);
+}
+
+@media (min-width: 768px) {
+  .nvi-sidepanel-overlay {
+    background-color: transparent;
+  }
 }
 
 .rounded.border,

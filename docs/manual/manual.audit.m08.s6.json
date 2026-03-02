@@ -1,0 +1,45 @@
+{
+  "session": "M-08-S6",
+  "name": "Inventory + Transfers",
+  "date": "2026-02-17",
+  "audited_routes": [
+    "/{locale}/stock",
+    "/{locale}/stock/adjustments",
+    "/{locale}/stock/counts",
+    "/{locale}/stock/counts/wizard",
+    "/{locale}/stock/movements",
+    "/{locale}/transfers",
+    "/{locale}/transfers/wizard"
+  ],
+  "manual_mismatches": [
+    "Session 6 prerequisites were write-only where read-vs-write permissions are split in backend/frontend behavior.",
+    "Stock adjustments errors were missing backend-aligned validation outcomes (variantId required, loss reason required, batch not found, negative stock policy).",
+    "Stock counts and counts wizard errors were missing required/negative quantity paths and had weak offline guidance.",
+    "Stock movements guidance used generic business-context failure instead of branch-scope restriction as the operational blocker.",
+    "Transfers and transfer wizard entries missed key create/receive validation errors (items required, item quantity numeric, insufficient stock, source batch mismatch, approval-before-receive, closed transfer, received quantity over remaining).",
+    "Session 6 Swahili entries still contained English prerequisite lines."
+  ],
+  "manual_fixes_applied": [
+    "Updated EN+SW Session 6 prerequisites to user-first language with explicit read/view versus write/action permission split.",
+    "Corrected stock adjustments common errors to backend-aligned operational outcomes.",
+    "Corrected stock counts and stock counts wizard common errors to include required quantity, negative quantity, offline restriction, and batch linkage failures.",
+    "Reduced stock movements error set to concrete branch-scope restriction behavior.",
+    "Expanded transfers and transfers wizard errors to backend-aligned create/receive/cancel validation outcomes.",
+    "Translated remaining Session 6 Swahili prerequisite lines to full Swahili.",
+    "Synchronized docs manual datasets to frontend runtime manual datasets."
+  ],
+  "files_updated": [
+    "frontend/docs/manual/manual.en.json",
+    "frontend/docs/manual/manual.sw.json",
+    "frontend/src/data/manual/manual.en.json",
+    "frontend/src/data/manual/manual.sw.json"
+  ],
+  "verification": {
+    "json_parse": "PASS",
+    "runtime_sync_hash_match": "PASS",
+    "frontend_build": "PASS"
+  },
+  "findings": 6,
+  "blocking": 0,
+  "result": "PASS"
+}

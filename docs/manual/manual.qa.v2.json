@@ -1,0 +1,15 @@
+{
+  "summary": {
+    "timestamp": "2026-02-17",
+    "in_scope_routes": 48,
+    "en_entries": 48,
+    "sw_entries": 48,
+    "findings_total": 0,
+    "blocking": 0,
+    "warning": 0,
+    "pass": true,
+    "en_version": "2026-02-16.en.v2-handcrafted",
+    "sw_version": "2026-02-16.sw.v2-handcrafted"
+  },
+  "findings": []
+}

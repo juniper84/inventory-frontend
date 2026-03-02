@@ -1,0 +1,125 @@
+{
+  "session": "M-08-S3",
+  "date": "2026-02-17",
+  "domain": "Catalog + Pricing",
+  "audited_routes": [
+    "/{locale}/catalog/categories",
+    "/{locale}/catalog/products",
+    "/{locale}/catalog/products/wizard",
+    "/{locale}/catalog/variants",
+    "/{locale}/price-lists",
+    "/{locale}/price-lists/wizard"
+  ],
+  "verified_correct": [
+    {
+      "id": "catalog-catalog-variants",
+      "checks": [
+        "workflow ordering aligned to page behavior",
+        "related-pages handoff to stock and upstream products is valid"
+      ]
+    },
+    {
+      "id": "business-settings-price-lists-wizard",
+      "checks": [
+        "permission gate price-lists.manage is enforced in UI",
+        "wizard apply flow uses price list items endpoint in expected loop"
+      ]
+    }
+  ],
+  "manual_mismatches": [
+    {
+      "id": "catalog-catalog-categories",
+      "issue": "Included CATEGORYID_IS_REQUIRED which is not a categories endpoint validation."
+    },
+    {
+      "id": "catalog-catalog-categories",
+      "issue": "Prerequisites did not distinguish catalog.read (view) vs catalog.write (mutations)."
+    },
+    {
+      "id": "catalog-catalog-products",
+      "issue": "Error set missed PRIMARY_IMAGE_IS_REQUIRED and ADDITIONAL_IMAGES_ARE_NOT_ENABLED_FOR_THIS_SUBSCRIPTION."
+    },
+    {
+      "id": "catalog-catalog-products",
+      "issue": "Prerequisites did not separate read access from write actions."
+    },
+    {
+      "id": "catalog-catalog-products-wizard",
+      "issue": "Prerequisites omitted catalog.write and stock.write conditional requirement for initial stock post."
+    },
+    {
+      "id": "catalog-catalog-variants",
+      "issue": "REASON_IS_REQUIRED_FOR_SKU_REASSIGNMENT was missing from common errors."
+    },
+    {
+      "id": "business-settings-price-lists",
+      "issue": "Error focus included UNIT_NOT_FOUND though deterministic controller validation is NAME_IS_REQUIRED."
+    },
+    {
+      "id": "catalog-catalog-products-wizard (sw)",
+      "issue": "One prerequisite line remained in English in manual.sw.json."
+    }
+  ],
+  "manual_fixes_applied": [
+    {
+      "id": "catalog-catalog-categories",
+      "changes": [
+        "rewrote prerequisites with plain-language read/write explanation",
+        "replaced CATEGORYID_IS_REQUIRED with BUSINESS_CONTEXT_REQUIRED"
+      ]
+    },
+    {
+      "id": "catalog-catalog-products",
+      "changes": [
+        "rewrote prerequisites with read/write split and category dependency",
+        "updated common errors to CATEGORYID_IS_REQUIRED, PRIMARY_IMAGE_IS_REQUIRED, ADDITIONAL_IMAGES_ARE_NOT_ENABLED_FOR_THIS_SUBSCRIPTION, IMAGE_EXCEEDS_20MB_LIMIT"
+      ]
+    },
+    {
+      "id": "catalog-catalog-products-wizard",
+      "changes": [
+        "added catalog.write and conditional stock.write prerequisites",
+        "updated error set to CATEGORYID_IS_REQUIRED, BASEUNITID_AND_SELLUNITID_ARE_REQUIRED, CONVERSION_FACTOR_IS_REQUIRED"
+      ]
+    },
+    {
+      "id": "catalog-catalog-variants",
+      "changes": [
+        "rewrote prerequisites with read/write split",
+        "added REASON_IS_REQUIRED_FOR_SKU_REASSIGNMENT"
+      ]
+    },
+    {
+      "id": "business-settings-price-lists",
+      "changes": [
+        "aligned errors to NAME_IS_REQUIRED and BUSINESS_CONTEXT_REQUIRED",
+        "kept prerequisite and related-route alignment to variants + wizard"
+      ]
+    },
+    {
+      "id": "business-settings-price-lists-wizard",
+      "changes": [
+        "aligned errors to BUSINESS_CONTEXT_REQUIRED and VARIANT_NOT_FOUND",
+        "kept manage permission and wizard flow prerequisites"
+      ]
+    },
+    {
+      "id": "sw locale parity",
+      "changes": [
+        "translated remaining English prerequisite line in catalog-catalog-products-wizard",
+        "synced updated EN/SW files to frontend runtime copies"
+      ]
+    }
+  ],
+  "confidence": {
+    "catalog-catalog-categories": "high",
+    "catalog-catalog-products": "high",
+    "catalog-catalog-products-wizard": "high",
+    "catalog-catalog-variants": "high",
+    "business-settings-price-lists": "high",
+    "business-settings-price-lists-wizard": "high"
+  },
+  "unresolved_followups": [],
+  "blocking_mismatches_remaining": 0,
+  "result": "PASS"
+}

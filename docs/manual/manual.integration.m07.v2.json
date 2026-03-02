@@ -1,0 +1,13 @@
+{
+  "summary": {
+    "timestamp": "2026-02-17",
+    "total_checks": 102,
+    "failed_checks": 0,
+    "pass": true,
+    "resolve_checks": 96,
+    "fallback_checks": 2,
+    "scope_checks": 3,
+    "related_links_checked": 100
+  },
+  "failed": []
+}
