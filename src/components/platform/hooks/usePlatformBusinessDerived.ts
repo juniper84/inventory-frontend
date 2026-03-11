@@ -11,7 +11,7 @@ type BusinessWorkspace = {
   business: { id: string; name: string; status: string };
 };
 
-type StatusFilter = 'ACTIVE' | 'UNDER_REVIEW' | 'ARCHIVED' | 'DELETED';
+type StatusFilter = 'ACTIVE' | 'UNDER_REVIEW' | 'SUSPENDED' | 'ARCHIVED' | 'DELETED';
 
 export function usePlatformBusinessDerived({
   businesses,

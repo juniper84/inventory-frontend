@@ -460,4 +460,12 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
     risk: 'high',
     level: 'full',
   },
+  {
+    code: 'support-chat.use',
+    module: 'system',
+    labelKey: 'supportChatUse',
+    descriptionKey: 'supportChatUse',
+    risk: 'low',
+    level: 'read',
+  },
 ];

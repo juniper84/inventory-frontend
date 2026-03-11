@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { useState } from 'react';
-import { promptAction } from '@/lib/app-notifications';
+import { confirmAction, promptAction, type ToastInput } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 
 type Translate = (key: string, values?: Record<string, string | number | Date>) => string;
@@ -105,7 +105,7 @@ export function usePlatformBusinessActions({
 }: {
   token: string | null;
   t: Translate;
-  setMessage: (value: string | null) => void;
+  setMessage: (value: ToastInput | null) => void;
   loadData: () => Promise<void>;
   withAction: (key: string, task: () => void | Promise<void>) => Promise<void>;
   showBusinessDetailPage: boolean;
@@ -255,7 +255,8 @@ export function usePlatformBusinessActions({
       setMessage(t('subscriptionDurationInvalid'));
       return;
     }
-    const nextExpiry = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const base = values.startsAt ? new Date(values.startsAt) : new Date();
+    const nextExpiry = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
     setSubscriptionEdits((prev) => ({
       ...prev,
       [businessId]: {
@@ -368,6 +369,12 @@ export function usePlatformBusinessActions({
       setMessage(t('forceLogoutReasonRequired'));
       return;
     }
+    const ok = await confirmAction({
+      title: t('forceLogoutConfirmTitle'),
+      message: t('forceLogoutConfirmMessage'),
+      confirmText: t('forceLogoutConfirmButton'),
+    });
+    if (!ok) return;
     setIsRevokingSessions(true);
     try {
       const response = await apiFetch<{ revokedCount: number }>(
@@ -439,6 +446,12 @@ export function usePlatformBusinessActions({
 
   const revokeDevice = async (deviceId: string, businessId: string, reason?: string) => {
     if (!token) return;
+    const ok = await confirmAction({
+      title: t('revokeDeviceConfirmTitle'),
+      message: t('revokeDeviceConfirmMessage'),
+      confirmText: t('revokeDevice'),
+    });
+    if (!ok) return;
     try {
       await apiFetch(`/platform/devices/${deviceId}/revoke`, {
         token,

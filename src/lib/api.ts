@@ -1,10 +1,12 @@
 import {
+  clearSession,
   decodeJwt,
   getAccessToken,
   getOrCreateDeviceId,
   getOrCreateSessionId,
+  getPlatformRefreshToken,
   getRefreshToken,
-  getStoredUser,
+  setPlatformSession,
   setTokens,
 } from './auth';
 import { resolveApiErrorMessage } from './api-error-messages';
@@ -16,11 +18,23 @@ import {
   setSupportChatRecentErrors,
 } from './support-chat-error-context';
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000/api/v1';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000/api/v1';
+
+if (
+  typeof window !== 'undefined' &&
+  !process.env.NEXT_PUBLIC_API_BASE_URL
+) {
+  console.warn(
+    '[api] NEXT_PUBLIC_API_BASE_URL is not set — falling back to http://localhost:3000/api/v1. ' +
+    'Set this environment variable in production.',
+  );
+}
+
+const FETCH_TIMEOUT_MS = 30_000;
 
 type ApiOptions = RequestInit & {
   token?: string;
+  _retried?: boolean;
 };
 
 type ApiErrorPayload = {
@@ -100,7 +114,7 @@ export async function getApiErrorMessageFromResponse(
         if (typeof data?.message === 'string') {
           message = data.message;
         } else if (Array.isArray(data?.message)) {
-          message = data.message.join(' ');
+          message = data.message.filter(Boolean).join(' • ');
         } else if (typeof data?.error === 'string') {
           message = data.error;
         } else {
@@ -145,9 +159,8 @@ const refreshAccessToken = async (token?: string) => {
     return refreshPromise;
   }
   const refreshToken = getRefreshToken();
-  const user = getStoredUser();
   const payload = token ? decodeJwt<{ businessId?: string }>(token) : null;
-  if (!refreshToken || !user?.id || !payload?.businessId) {
+  if (!refreshToken || !payload?.businessId) {
     return null;
   }
   const deviceId = getOrCreateDeviceId();
@@ -155,7 +168,6 @@ const refreshAccessToken = async (token?: string) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      userId: user.id,
       refreshToken,
       businessId: payload.businessId,
       deviceId,
@@ -163,6 +175,12 @@ const refreshAccessToken = async (token?: string) => {
   })
     .then(async (response) => {
       if (!response.ok) {
+        // A 401/403 means the server definitively rejected the refresh token
+        // (e.g. revoked by a platform force-logout). Clear the session so the
+        // user is redirected to login rather than stuck with a dead session.
+        if (response.status === 401 || response.status === 403) {
+          clearSession();
+        }
         return null;
       }
       const refreshed = (await response.json()) as {
@@ -181,6 +199,28 @@ const refreshAccessToken = async (token?: string) => {
 
 export const refreshSessionToken = async () =>
   refreshAccessToken(getAccessToken() ?? undefined);
+
+export const refreshPlatformAdminToken = async (): Promise<string | null> => {
+  const refreshToken = getPlatformRefreshToken();
+  if (!refreshToken) {
+    return null;
+  }
+  try {
+    const response = await fetch(`${API_BASE_URL}/platform/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const data = (await response.json()) as { accessToken: string; refreshToken: string };
+    setPlatformSession(data.accessToken, data.refreshToken);
+    return data.accessToken;
+  } catch {
+    return null;
+  }
+};
 
 export const buildRequestHeaders = (
   token?: string,
@@ -211,7 +251,7 @@ export const buildRequestHeaders = (
 };
 
 export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
-  const { token, headers, ...rest } = options;
+  const { token, headers, _retried, ...rest } = options;
   let resolvedToken = token;
   const expiry = getTokenExpiry(resolvedToken);
   if (expiry) {
@@ -234,31 +274,43 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
     resolvedToken
       ? decodeJwt<{ businessId?: string }>(resolvedToken)?.businessId ?? null
       : null;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...rest,
       cache: rest.cache ?? 'no-store',
       headers: requestHeaders,
+      signal: rest.signal ?? controller.signal,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Network request failed';
+    const isTimeout = controller.signal.aborted;
+    const errorCode = isTimeout ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR';
+    const rawMessage = err instanceof Error ? err.message : 'Network request failed.';
     pushSupportChatRecentError({
-      error_code: 'NETWORK_ERROR',
-      error_message: message,
+      error_code: errorCode,
+      error_message: rawMessage,
       error_source: 'network',
       business_id: tokenBusinessId,
       branch_id: activeBranchId,
     });
-    throw err;
+    throw new ApiError(
+      isTimeout ? 'Request timed out. Please try again.' : 'Network error. Please check your connection.',
+      0,
+      { errorCode },
+    );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {
-    if (response.status === 401 && resolvedToken) {
+    if (response.status === 401 && resolvedToken && !_retried) {
       const refreshed = await refreshAccessToken(resolvedToken);
       if (refreshed) {
         return apiFetch<T>(path, {
           ...options,
           token: refreshed,
+          _retried: true,
         });
       }
     }
@@ -274,7 +326,7 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
           if (typeof data?.message === 'string') {
             message = data.message;
           } else if (Array.isArray(data?.message)) {
-            message = data.message.join(' ');
+            message = data.message.filter(Boolean).join(' • ');
           } else if (typeof data?.error === 'string') {
             message = data.error;
           } else {

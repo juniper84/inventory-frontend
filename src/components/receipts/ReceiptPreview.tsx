@@ -1,8 +1,10 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { formatVariantLabel } from '@/lib/display';
 import type { ReceiptData, ReceiptLine } from '@/lib/receipt-print';
+import { useCurrency, useFormatDate } from '@/lib/business-context';
+import { ZERO_DECIMAL_CURRENCIES } from '@/lib/currencies';
 
 type ReceiptPreviewMode = 'compact' | 'detailed';
 
@@ -22,24 +24,27 @@ const toNumber = (value: number | string | undefined) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const formatMoney = (value: number | string | undefined) => {
+const formatMoney = (value: number | string | undefined, fractionDigits: number, locale = 'en'): string => {
   const numeric = toNumber(value);
   if (numeric === null) {
-    return value ? String(value) : '';
+    return '';
   }
-  return numeric.toFixed(2);
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(numeric);
 };
 
-const resolveLineTotal = (line: ReceiptLine) => {
+const resolveLineTotal = (line: ReceiptLine, fractionDigits: number, locale = 'en'): string => {
   if (line.lineTotal !== undefined && line.lineTotal !== null) {
-    return formatMoney(line.lineTotal);
+    return formatMoney(line.lineTotal, fractionDigits, locale);
   }
   const qty = toNumber(line.quantity);
   const unit = toNumber(line.unitPrice);
   if (qty === null || unit === null) {
     return '';
   }
-  return formatMoney(qty * unit);
+  return formatMoney(qty * unit, fractionDigits, locale);
 };
 
 export function ReceiptPreview({
@@ -50,6 +55,12 @@ export function ReceiptPreview({
   className,
 }: ReceiptPreviewProps) {
   const t = useTranslations('receiptPreview');
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
+  const currency = useCurrency();
+  const fractionDigits = ZERO_DECIMAL_CURRENCIES.has(currency) ? 0 : 2;
+  const fmt = (v: number | string | undefined) => formatMoney(v, fractionDigits, locale);
+  const resolveTotal = (line: ReceiptLine) => resolveLineTotal(line, fractionDigits, locale);
   if (!data) {
     return (
       <div className={className}>
@@ -58,7 +69,8 @@ export function ReceiptPreview({
     );
   }
 
-  const template = (data.receiptTemplate ?? 'THERMAL') as 'THERMAL' | 'A4';
+  const rawTemplate = data.receiptTemplate ?? 'THERMAL';
+  const template = (rawTemplate === 'A4' ? 'A4' : 'THERMAL') as 'THERMAL' | 'A4';
   const isThermal = template === 'THERMAL';
   const showDetailed = mode === 'detailed';
   const totals = data.totals ?? {};
@@ -107,11 +119,15 @@ export function ReceiptPreview({
             {t('receiptNumber', { value: receiptNumber })}
           </p>
           <p>
-            {t('issuedAt', { value: new Date(issuedAt).toLocaleString() })}
+            {t('issuedAt', { value: formatDateTime(issuedAt) })}
           </p>
           {showDetailed && data.cashierId ? (
             <p>
-              {t('cashier', { value: data.cashierId })}
+              {t('cashier', {
+                value: /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(data.cashierId)
+                  ? `${data.cashierId.slice(0, 8)}…`
+                  : data.cashierId,
+              })}
             </p>
           ) : null}
           {showDetailed && data.customer ? (
@@ -137,11 +153,11 @@ export function ReceiptPreview({
               },
               t('itemFallback'),
             );
-            const total = resolveLineTotal(line);
+            const total = resolveTotal(line);
             const qty = line.quantity ?? '';
-            const unitPrice = formatMoney(line.unitPrice);
+            const unitPrice = fmt(line.unitPrice);
             return (
-              <div key={`line-${index}`} className="space-y-1">
+              <div key={line.variantId ?? `line-${index}`} className="space-y-1">
                 <div className="flex items-start justify-between gap-2 text-[11px]">
                   <span className="flex-1 text-gold-100">{label}</span>
                   <span className="text-right text-gold-100">{total}</span>
@@ -163,25 +179,25 @@ export function ReceiptPreview({
           {showDetailed && totals.subtotal !== undefined ? (
             <div className="flex justify-between">
               <span>{t('subtotal')}</span>
-              <span>{formatMoney(totals.subtotal)}</span>
+              <span>{fmt(totals.subtotal)}</span>
             </div>
           ) : null}
           {showDetailed && totals.discountTotal !== undefined ? (
             <div className="flex justify-between">
               <span>{t('discounts')}</span>
-              <span>{formatMoney(totals.discountTotal)}</span>
+              <span>{fmt(totals.discountTotal)}</span>
             </div>
           ) : null}
           {showDetailed && totals.vatTotal !== undefined ? (
             <div className="flex justify-between">
               <span>{t('vat')}</span>
-              <span>{formatMoney(totals.vatTotal)}</span>
+              <span>{fmt(totals.vatTotal)}</span>
             </div>
           ) : null}
-          {totalValue !== undefined ? (
+          {totals.total !== undefined ? (
             <div className="flex justify-between text-sm font-semibold text-gold-100">
               <span>{t('total')}</span>
-              <span>{formatMoney(totalValue)}</span>
+              <span>{fmt(totalValue)}</span>
             </div>
           ) : null}
         </div>
@@ -195,21 +211,21 @@ export function ReceiptPreview({
               </p>
               {showDetailed ? (
                 payments.map((payment, index) => (
-                  <div key={`payment-${index}`} className="flex justify-between">
+                  <div key={`${payment.method}-${index}`} className="flex justify-between">
                     <span>{payment.methodLabel || payment.method || t('payment')}</span>
-                    <span>{formatMoney(payment.amount)}</span>
+                    <span>{fmt(payment.amount)}</span>
                   </div>
                 ))
               ) : (
                 <div className="flex justify-between text-[11px]">
                   <span>{t('payment')}</span>
-                  <span>{formatMoney(paymentTotal)}</span>
+                  <span>{fmt(paymentTotal)}</span>
                 </div>
               )}
               {changeAmount !== null ? (
                 <div className="flex justify-between text-[11px]">
                   <span>{t('change')}</span>
-                  <span>{formatMoney(changeAmount)}</span>
+                  <span>{fmt(changeAmount)}</span>
                 </div>
               ) : null}
             </div>

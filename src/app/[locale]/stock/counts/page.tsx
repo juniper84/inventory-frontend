@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -11,6 +10,8 @@ import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
+import { useVariantSearch } from '@/lib/use-variant-search';
 import { StatusBanner } from '@/components/StatusBanner';
 import {
   buildCursorQuery,
@@ -22,6 +23,7 @@ import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { formatVariantLabel } from '@/lib/display';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Branch = { id: string; name: string };
 type Variant = {
@@ -48,8 +50,8 @@ export default function StockCountsPage() {
   const t = useTranslations('stockCountsPage');
   const actions = useTranslations('actions');
   const noAccess = useTranslations('noAccess');
-  const params = useParams<{ locale: string }>();
-  const locale = params?.locale ?? 'en';
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('stock.write');
   const [isLoading, setIsLoading] = useState(true);
@@ -71,6 +73,7 @@ export default function StockCountsPage() {
     reason: '',
     batchId: '',
   });
+  const { loadOptions: loadVariantOptions, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
   const { activeBranch, resolveBranchId } = useBranchScope();
   const effectiveBranchId = resolveBranchId(form.branchId) || '';
 
@@ -90,13 +93,15 @@ export default function StockCountsPage() {
           apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', {
             token,
           }),
-          apiFetch<PaginatedResponse<Snapshot> | Snapshot[]>('/stock?limit=200', {
+          apiFetch<PaginatedResponse<Snapshot> | Snapshot[]>('/stock?limit=2000', {
             token,
           }),
           loadUnits(token),
         ]);
         setBranches(normalizePaginated(branchData).items);
-        setVariants(normalizePaginated(variantData).items);
+        const variantList = normalizePaginated(variantData).items;
+        setVariants(variantList);
+        seedVariantCache(variantList);
         setSnapshots(normalizePaginated(stockData).items);
         setUnits(unitList);
       } catch (err) {
@@ -228,7 +233,7 @@ export default function StockCountsPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow={t('title')}
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
@@ -244,34 +249,35 @@ export default function StockCountsPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Recent counts
+            {t('kpiRecentCounts')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{recentCounts.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Variants
+            {t('kpiVariants')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Branches
+            {t('kpiBranches')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Pending form
+            {t('kpiPendingForm')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">
-            {form.variantId ? 'Ready' : 'Waiting'}
+            {form.variantId ? t('formReady') : t('formWaiting')}
           </p>
         </article>
       </div>
       <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
+            instanceId="count-form-branch"
             value={form.branchId}
             onChange={(value) => setForm({ ...form, branchId: value })}
             options={branches.map((branch) => ({
@@ -282,17 +288,15 @@ export default function StockCountsPage() {
             isClearable
             className="nvi-select-container"
           />
-          <SmartSelect
-            value={form.variantId}
-            onChange={(value) => setForm({ ...form, variantId: value })}
-            options={variants.map((variant) => ({
-              value: variant.id,
-              label: formatVariantLabel({
-                id: variant.id,
-                name: variant.name,
-                productName: variant.product?.name ?? null,
-              }),
+          <AsyncSmartSelect
+            instanceId="count-form-variant"
+            value={getVariantOption(form.variantId)}
+            loadOptions={loadVariantOptions}
+            defaultOptions={variants.map((v) => ({
+              value: v.id,
+              label: formatVariantLabel({ id: v.id, name: v.name, productName: v.product?.name ?? null }),
             }))}
+            onChange={(opt) => setForm({ ...form, variantId: opt?.value ?? '' })}
             placeholder={t('selectVariant')}
             isClearable
             className="nvi-select-container"
@@ -308,6 +312,7 @@ export default function StockCountsPage() {
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
           <SmartSelect
+            instanceId="count-form-unit"
             value={form.unitId}
             onChange={(value) => setForm({ ...form, unitId: value })}
             options={units.map((unit) => ({
@@ -325,6 +330,7 @@ export default function StockCountsPage() {
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-500"
           />
           <SmartSelect
+            instanceId="count-form-batch"
             value={form.batchId}
             onChange={(value) => setForm({ ...form, batchId: value })}
             options={batches.map((batch) => ({
@@ -347,6 +353,7 @@ export default function StockCountsPage() {
           className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
         />
         <button
+          type="button"
           onClick={submit}
           className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isSubmitting || !canWrite}
@@ -413,7 +420,7 @@ export default function StockCountsPage() {
                           {movement.reason ?? t('noReason')}
                         </td>
                         <td className="px-3 py-2">
-                          {new Date(movement.createdAt).toLocaleString()}
+                          {formatDateTime(movement.createdAt)}
                         </td>
                       </tr>
                     );
@@ -455,7 +462,7 @@ export default function StockCountsPage() {
                       </p>
                       <p className="text-xs text-gold-400">
                         {movement.branch?.name ?? t('branchFallback')} •{' '}
-                        {new Date(movement.createdAt).toLocaleString()}
+                        {formatDateTime(movement.createdAt)}
                       </p>
                     </div>
                     <p className="text-xs text-gold-300">

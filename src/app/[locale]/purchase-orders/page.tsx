@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import type { Dispatch, SetStateAction } from 'react';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -12,6 +11,8 @@ import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
+import { useVariantSearch } from '@/lib/use-variant-search';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
@@ -22,12 +23,13 @@ import {
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
-import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
+import { formatEntityLabel, formatVariantLabel, shortId } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Branch = { id: string; name: string };
 type Supplier = { id: string; name: string; status: string; leadTimeDays?: number | null };
@@ -46,6 +48,13 @@ type PurchaseOrderLine = {
   unitCost: string;
   unitId: string;
 };
+type PurchaseOrderListLine = {
+  variantId: string;
+  quantity: string;
+  unitCost: string;
+  unitId?: string;
+  variant?: { name?: string | null; product?: { name?: string | null } | null } | null;
+};
 type PurchaseOrder = {
   id: string;
   status: string;
@@ -53,7 +62,7 @@ type PurchaseOrder = {
   expectedAt?: string | null;
   branch?: Branch;
   supplier?: Supplier;
-  lines: { variantId: string; quantity: string; unitCost: string; unitId?: string }[];
+  lines: PurchaseOrderListLine[];
 };
 
 type ReorderSuggestion = {
@@ -69,8 +78,8 @@ export default function PurchaseOrdersPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
-  const params = useParams<{ locale: string }>();
-  const locale = params?.locale ?? 'en';
+  const locale = useLocale();
+  const { formatDate } = useFormatDate();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('purchases.write');
   const [isLoading, setIsLoading] = useState(true);
@@ -91,6 +100,8 @@ export default function PurchaseOrdersPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
   const [approvalNotice, setApprovalNotice] = useState<{
     action: string;
@@ -110,6 +121,7 @@ export default function PurchaseOrdersPage() {
   ]);
   const [reorderSuggestions, setReorderSuggestions] = useState<ReorderSuggestion[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const { loadOptions: loadVariantOptions, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
   const { filters, pushFilters, resetFilters } = useListFilters({
     search: '',
     status: '',
@@ -136,6 +148,31 @@ export default function PurchaseOrdersPage() {
     ],
     [common],
   );
+
+  const orderStatusLabels = useMemo<Record<string, string>>(
+    () => ({
+      DRAFT: common('statusDraft'),
+      PENDING: common('statusPending'),
+      APPROVED: common('statusApproved'),
+      PARTIAL: common('statusPartial'),
+      RECEIVED: common('statusReceived'),
+      CANCELLED: common('statusCancelled'),
+    }),
+    [common],
+  );
+
+  const getStatusStyle = (status: string): string => {
+    switch (status) {
+      case 'APPROVED': return 'border-blue-500/50 bg-blue-500/10 text-blue-200';
+      case 'FULLY_RECEIVED': case 'RECEIVED': return 'border-green-500/50 bg-green-500/10 text-green-200';
+      case 'PENDING_APPROVAL': case 'PENDING': return 'border-amber-500/50 bg-amber-500/10 text-amber-200';
+      case 'PARTIALLY_RECEIVED': case 'PARTIAL': return 'border-purple-500/50 bg-purple-500/10 text-purple-200';
+      case 'CANCELLED': return 'border-red-500/50 bg-red-500/10 text-red-300';
+      case 'DRAFT': return 'border-gold-700/50 bg-black/40 text-gold-400';
+      case 'CLOSED': return 'border-gray-600/50 bg-gray-900/40 text-gray-400';
+      default: return 'border-gold-700/50 bg-black/40 text-gold-400';
+    }
+  };
 
   const branchOptions = useMemo(
     () => [
@@ -171,23 +208,30 @@ export default function PurchaseOrdersPage() {
     selectedSupplier?.leadTimeDays && selectedSupplier.leadTimeDays > 0
       ? new Date(Date.now() + selectedSupplier.leadTimeDays * 24 * 60 * 60 * 1000)
       : null;
-  const resolveVariantLabel = (variantId: string) => {
-    const variant = variants.find((item) => item.id === variantId);
-    if (!variant) {
-      return formatEntityLabel({ id: variantId }, common('unknown'));
+  const resolveVariantLabel = (
+    variantId: string,
+    inlineVariant?: { name?: string | null; product?: { name?: string | null } | null } | null,
+  ) => {
+    // Prefer inline data included in the API response
+    if (inlineVariant) {
+      return formatVariantLabel(
+        { id: variantId, name: inlineVariant.name ?? null, productName: inlineVariant.product?.name ?? null },
+        common('unknown'),
+      );
     }
-    return formatVariantLabel(
-      {
-        id: variant.id,
-        name: variant.name,
-        productName: variant.product?.name ?? null,
-      },
-      common('unknown'),
-    );
+    // Fall back to local reference cache
+    const cached = variants.find((item) => item.id === variantId);
+    if (cached) {
+      return formatVariantLabel(
+        { id: cached.id, name: cached.name, productName: cached.product?.name ?? null },
+        common('unknown'),
+      );
+    }
+    return formatEntityLabel({ id: variantId }, common('unknown'));
   };
   const formatOrderLabel = (order: PurchaseOrder) => {
     const dateLabel = order.createdAt
-      ? new Date(order.createdAt).toLocaleDateString()
+      ? formatDate(order.createdAt)
       : null;
     const parts = [
       order.supplier?.name ?? order.branch?.name ?? null,
@@ -218,7 +262,31 @@ export default function PurchaseOrdersPage() {
     }).length;
   }, [orders]);
 
-  const load = async (targetPage = 1, nextPageSize?: number) => {
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const [branchData, supplierData, variantData, unitList] = await Promise.all([
+        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', { token }),
+        apiFetch<PaginatedResponse<Supplier> | Supplier[]>('/suppliers?limit=200', { token }),
+        apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', { token }),
+        loadUnits(token),
+      ]);
+      setBranches(normalizePaginated(branchData).items);
+      setSuppliers(normalizePaginated(supplierData).items);
+      setVariants(normalizePaginated(variantData).items);
+      seedVariantCache(normalizePaginated(variantData).items);
+      setUnits(unitList);
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     setIsLoading(true);
     const token = getAccessToken();
     if (!token) {
@@ -228,7 +296,7 @@ export default function PurchaseOrdersPage() {
     try {
       const effectivePageSize = nextPageSize ?? pageSize;
       const cursor =
-        targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+        targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
       const query = buildCursorQuery({
         limit: effectivePageSize,
         cursor: cursor ?? undefined,
@@ -240,43 +308,25 @@ export default function PurchaseOrdersPage() {
         to: filters.to || undefined,
         includeTotal: targetPage === 1 ? '1' : undefined,
       });
-      const [branchData, supplierData, variantData, unitList, orderData] =
-        await Promise.all([
-          apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
-            token,
-          }),
-          apiFetch<PaginatedResponse<Supplier> | Supplier[]>(
-            '/suppliers?limit=200',
-            { token },
-          ),
-          apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', {
-            token,
-          }),
-          loadUnits(token),
-          apiFetch<PaginatedResponse<PurchaseOrder> | PurchaseOrder[]>(
-            `/purchase-orders${query}`,
-            { token },
-          ),
-        ]);
-      setBranches(normalizePaginated(branchData).items);
-      setSuppliers(normalizePaginated(supplierData).items);
-      setVariants(normalizePaginated(variantData).items);
-      setUnits(unitList);
+      const orderData = await apiFetch<PaginatedResponse<PurchaseOrder> | PurchaseOrder[]>(
+        `/purchase-orders${query}`,
+        { token },
+      );
       const ordersResult = normalizePaginated(orderData);
       setOrders(ordersResult.items);
       setNextCursor(ordersResult.nextCursor);
       if (typeof ordersResult.total === 'number') {
         setTotal(ordersResult.total);
       }
-    setPage(targetPage);
-    setPageCursors((prev) => {
-      const nextState: Record<number, string | null> =
-        targetPage === 1 ? { 1: null } : { ...prev };
-      if (ordersResult.nextCursor) {
-        nextState[targetPage + 1] = ordersResult.nextCursor;
-      }
-      return nextState;
-    });
+      setPage(targetPage);
+      setPageCursors((prev) => {
+        const nextState: Record<number, string | null> =
+          targetPage === 1 ? { 1: null } : { ...prev };
+        if (ordersResult.nextCursor) {
+          nextState[targetPage + 1] = ordersResult.nextCursor;
+        }
+        return nextState;
+      });
     } catch (err) {
       setMessage({
         action: 'load',
@@ -286,21 +336,18 @@ export default function PurchaseOrdersPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, effectiveFilterBranchId, filters.search, filters.status, filters.supplierId, filters.from, filters.to, t]);
+
+  useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
     load(1);
-  }, [
-    filters.search,
-    filters.status,
-    filters.branchId,
-    filters.supplierId,
-    filters.from,
-    filters.to,
-  ]);
+  }, [load]);
 
   useEffect(() => {
     if (activeBranch?.id && !form.branchId) {
@@ -536,13 +583,13 @@ export default function PurchaseOrdersPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Procurement command"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Live</span>
-            <span className="status-chip">Warehouse</span>
+            <span className="status-chip">{t('badgeLive')}</span>
+            <span className="status-chip">{t('badgeWarehouse')}</span>
           </>
         }
         actions={
@@ -573,25 +620,25 @@ export default function PurchaseOrdersPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Open orders
+            {t('kpiOpenOrders')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{orders.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Pending approval
+            {t('kpiPendingApproval')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{pendingApprovalCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Approved flow
+            {t('kpiApprovedFlow')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{approvedCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Due in 7 days
+            {t('kpiDueIn7Days')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{expectedSoonCount}</p>
         </article>
@@ -607,6 +654,7 @@ export default function PurchaseOrdersPage() {
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         >
           <SmartSelect
+            instanceId="po-filter-status"
             value={filters.status}
             onChange={(value) => pushFilters({ status: value })}
             options={statusOptions}
@@ -614,6 +662,7 @@ export default function PurchaseOrdersPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="po-filter-branch"
             value={filters.branchId}
             onChange={(value) => pushFilters({ branchId: value })}
             options={branchOptions}
@@ -621,6 +670,7 @@ export default function PurchaseOrdersPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="po-filter-supplier"
             value={filters.supplierId}
             onChange={(value) => pushFilters({ supplierId: value })}
             options={supplierOptions}
@@ -646,6 +696,7 @@ export default function PurchaseOrdersPage() {
         <h3 className="text-lg font-semibold text-gold-100">{t('createTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
+            instanceId="po-create-branch"
             value={form.branchId}
             onChange={(value) => setForm({ ...form, branchId: value })}
             options={branches.map((branch) => ({
@@ -657,6 +708,7 @@ export default function PurchaseOrdersPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="po-create-supplier"
             value={form.supplierId}
             onChange={(value) => setForm({ ...form, supplierId: value })}
             options={suppliers.map((supplier) => ({
@@ -678,7 +730,7 @@ export default function PurchaseOrdersPage() {
             <div className="rounded border border-gold-700/40 bg-black/40 px-3 py-2 text-xs text-gold-200">
               {t('leadTimeHint', { days: selectedSupplier?.leadTimeDays ?? 0 })}
               <div className="text-gold-400">
-                {t('etaHint', { date: supplierEta.toLocaleDateString() })}
+                {t('etaHint', { date: formatDate(supplierEta) })}
               </div>
             </div>
           ) : (
@@ -705,23 +757,11 @@ export default function PurchaseOrdersPage() {
         <div className="space-y-2">
           {lines.map((line) => (
             <div key={line.id} className="grid gap-2 md:grid-cols-5">
-              <SmartSelect
-                value={line.variantId}
-                onChange={(value) => {
-                  const variant = variants.find((item) => item.id === value);
-                  updateLine(
-                    line.id,
-                    {
-                      variantId: value,
-                      unitId:
-                        variant?.sellUnitId ??
-                        variant?.baseUnitId ??
-                        line.unitId,
-                    },
-                    setLines,
-                  );
-                }}
-                options={variants.map((variant) => ({
+              <AsyncSmartSelect
+                instanceId={`po-create-line-${line.id}-variant`}
+                value={getVariantOption(line.variantId)}
+                loadOptions={loadVariantOptions}
+                defaultOptions={variants.map((variant) => ({
                   value: variant.id,
                   label: formatVariantLabel({
                     id: variant.id,
@@ -729,6 +769,18 @@ export default function PurchaseOrdersPage() {
                     productName: variant.product?.name ?? null,
                   }),
                 }))}
+                onChange={(opt) => {
+                  const value = opt?.value ?? '';
+                  const variant = variants.find((item) => item.id === value);
+                  updateLine(
+                    line.id,
+                    {
+                      variantId: value,
+                      unitId: variant?.sellUnitId ?? variant?.baseUnitId ?? line.unitId,
+                    },
+                    setLines,
+                  );
+                }}
                 placeholder={t('variant')}
                 isClearable
                 className="nvi-select-container"
@@ -742,6 +794,7 @@ export default function PurchaseOrdersPage() {
                 className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
               />
               <SmartSelect
+                instanceId={`po-create-line-${line.id}-unit`}
                 value={line.unitId}
                 onChange={(value) =>
                   updateLine(line.id, { unitId: value }, setLines)
@@ -799,6 +852,7 @@ export default function PurchaseOrdersPage() {
         <h3 className="text-lg font-semibold text-gold-100">{t('updateTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
+            instanceId="po-update-order"
             value={updateForm.purchaseOrderId}
             onChange={(value) =>
               setUpdateForm((prev) => ({ ...prev, purchaseOrderId: value }))
@@ -829,23 +883,11 @@ export default function PurchaseOrdersPage() {
         <div className="space-y-2">
           {updateLines.map((line) => (
             <div key={line.id} className="grid gap-2 md:grid-cols-5">
-              <SmartSelect
-                value={line.variantId}
-                onChange={(value) => {
-                  const variant = variants.find((item) => item.id === value);
-                  updateLine(
-                    line.id,
-                    {
-                      variantId: value,
-                      unitId:
-                        variant?.sellUnitId ??
-                        variant?.baseUnitId ??
-                        line.unitId,
-                    },
-                    setUpdateLines,
-                  );
-                }}
-                options={variants.map((variant) => ({
+              <AsyncSmartSelect
+                instanceId={`po-update-line-${line.id}-variant`}
+                value={getVariantOption(line.variantId)}
+                loadOptions={loadVariantOptions}
+                defaultOptions={variants.map((variant) => ({
                   value: variant.id,
                   label: formatVariantLabel({
                     id: variant.id,
@@ -853,6 +895,18 @@ export default function PurchaseOrdersPage() {
                     productName: variant.product?.name ?? null,
                   }),
                 }))}
+                onChange={(opt) => {
+                  const value = opt?.value ?? '';
+                  const variant = variants.find((item) => item.id === value);
+                  updateLine(
+                    line.id,
+                    {
+                      variantId: value,
+                      unitId: variant?.sellUnitId ?? variant?.baseUnitId ?? line.unitId,
+                    },
+                    setUpdateLines,
+                  );
+                }}
                 placeholder={t('variant')}
                 isClearable
                 className="nvi-select-container"
@@ -866,6 +920,7 @@ export default function PurchaseOrdersPage() {
                 className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
               />
               <SmartSelect
+                instanceId={`po-update-line-${line.id}-unit`}
                 value={line.unitId}
                 onChange={(value) =>
                   updateLine(line.id, { unitId: value }, setUpdateLines)
@@ -926,10 +981,9 @@ export default function PurchaseOrdersPage() {
             {!orders.length ? (
               <StatusBanner message={t('noOrders')} />
             ) : (
-              <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
+              <table className="min-w-[640px] w-full text-left text-sm text-gold-100">
                 <thead className="text-xs uppercase text-gold-400">
                   <tr>
-                    <th className="px-3 py-2">{t('orderId')}</th>
                     <th className="px-3 py-2">{t('supplier')}</th>
                     <th className="px-3 py-2">{t('branch')}</th>
                     <th className="px-3 py-2">{t('status')}</th>
@@ -939,13 +993,19 @@ export default function PurchaseOrdersPage() {
                 <tbody>
                   {orders.map((order) => (
                     <tr key={order.id} className="border-t border-gold-700/20">
-                      <td className="px-3 py-2 font-semibold">{formatOrderLabel(order)}</td>
-                      <td className="px-3 py-2">{order.supplier?.name ?? '—'}</td>
-                      <td className="px-3 py-2">{order.branch?.name ?? '—'}</td>
-                      <td className="px-3 py-2">{order.status}</td>
                       <td className="px-3 py-2">
+                        <p className="font-semibold text-gold-100">{order.supplier?.name ?? '—'}</p>
+                        <p className="text-[11px] text-gold-500">{formatDate(order.createdAt)}</p>
+                      </td>
+                      <td className="px-3 py-2 text-gold-300">{order.branch?.name ?? '—'}</td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded border px-2 py-0.5 text-[11px] ${getStatusStyle(order.status)}`}>
+                          {orderStatusLabels[order.status] ?? order.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-gold-300">
                         {order.expectedAt
-                          ? new Date(order.expectedAt).toLocaleDateString()
+                          ? formatDate(order.expectedAt)
                           : t('expectedAtMissing')}
                       </td>
                     </tr>
@@ -959,64 +1019,64 @@ export default function PurchaseOrdersPage() {
             {orders.map((order) => (
               <div
                 key={order.id}
-                className="rounded border border-gold-700/40 bg-black/40 p-4 space-y-2"
+                className="rounded border border-gold-700/30 bg-black/40 p-4 space-y-3"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-gold-100">
-                      {t('orderLabel', {
-                        id: formatOrderLabel(order),
-                      })}
-                    </p>
-                    <p className="text-xs text-gold-400">
-                      {order.branch?.name} • {order.supplier?.name} • {order.status}
-                    </p>
-                    <p className="text-xs text-gold-500/80">
-                      {order.expectedAt
-                        ? t('expectedAtLabel', {
-                            date: new Date(order.expectedAt).toLocaleDateString(),
-                          })
-                        : t('expectedAtMissing')}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {order.status === 'PENDING_APPROVAL' ? (
-                      <span className="rounded border border-gold-500/60 bg-gold-500/10 px-2 py-1 text-[11px] text-gold-100">
-                        {t('pendingApproval')}
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-gold-100">
+                        {order.supplier?.name ?? t('supplierFallback')}
+                      </p>
+                      <span className={`rounded border px-2 py-0.5 text-[11px] ${getStatusStyle(order.status)}`}>
+                        {orderStatusLabels[order.status] ?? order.status}
                       </span>
-                    ) : null}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gold-400">
+                      {order.branch?.name ? <span>{order.branch.name}</span> : null}
+                      <span>{formatDate(order.createdAt)}</span>
+                      {order.expectedAt ? (
+                        <span className="text-gold-300">
+                          {t('expectedAtLabel', { date: formatDate(order.expectedAt) })}
+                        </span>
+                      ) : (
+                        <span className="text-gold-600">{t('expectedAtMissing')}</span>
+                      )}
+                    </div>
+                  </div>
+                  {(order.status === 'DRAFT' || order.status === 'PENDING_APPROVAL') && canWrite ? (
                     <button
                       type="button"
                       onClick={() => approveOrder(order.id)}
-                      className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-                      disabled={!canWrite || actionBusy[order.id]}
+                      className="shrink-0 inline-flex items-center gap-1.5 rounded border border-gold-700/50 px-3 py-1.5 text-xs text-gold-100 hover:border-gold-500/60 disabled:cursor-not-allowed disabled:opacity-70"
+                      disabled={actionBusy[order.id]}
                       title={!canWrite ? noAccess('title') : undefined}
                     >
-                      {actionBusy[order.id] ? (
-                        <Spinner size="xs" variant="grid" />
-                      ) : null}
+                      {actionBusy[order.id] ? <Spinner size="xs" variant="grid" /> : null}
                       {actionBusy[order.id] ? t('approving') : actions('approve')}
                     </button>
-                  </div>
+                  ) : null}
                 </div>
-                <ul className="text-xs text-gold-400">
-                  {order.lines.map((line, index) => {
-                    const unit = line.unitId
-                      ? units.find((item) => item.id === line.unitId) ?? null
-                      : null;
-                    const unitLabel = unit ? buildUnitLabel(unit) : line.unitId ?? '';
-                    return (
-                      <li key={`${order.id}-${index}`}>
-                        {t('lineSummary', {
-                          variant: resolveVariantLabel(line.variantId),
-                          qty: line.quantity,
-                          unit: unitLabel,
-                          cost: line.unitCost,
-                        })}
-                      </li>
-                    );
-                  })}
-                </ul>
+                {order.lines.length > 0 ? (
+                  <ul className="space-y-1 border-t border-gold-700/20 pt-2">
+                    {order.lines.map((line, index) => {
+                      const unit = line.unitId
+                        ? units.find((item) => item.id === line.unitId) ?? null
+                        : null;
+                      const unitLabel = unit ? buildUnitLabel(unit) : line.unitId ?? '';
+                      return (
+                        <li key={`${order.id}-${index}`} className="flex flex-wrap items-baseline gap-1.5 text-xs">
+                          <span className="font-medium text-gold-300 max-w-[45%] truncate">
+                            {resolveVariantLabel(line.variantId, line.variant)}
+                          </span>
+                          <span className="text-gold-600">·</span>
+                          <span className="text-gold-400">{line.quantity} {unitLabel}</span>
+                          <span className="text-gold-600">·</span>
+                          <span className="text-gold-400">{line.unitCost}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
               </div>
             ))}
             {!orders.length ? <StatusBanner message={t('noOrders')} /> : null}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getOrCreateDeviceId } from '@/lib/auth';
@@ -21,6 +21,8 @@ import {
   PaginatedResponse,
 } from '@/lib/pagination';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
+import { useVariantSearch } from '@/lib/use-variant-search';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { StatusBanner } from '@/components/StatusBanner';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
@@ -31,6 +33,7 @@ import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Branch = { id: string; name: string };
 type Variant = {
@@ -68,6 +71,8 @@ export default function StockAdjustmentsPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('stock.write');
   const [isLoading, setIsLoading] = useState(true);
@@ -122,6 +127,7 @@ export default function StockAdjustmentsPage() {
     code: '',
     expiryDate: '',
   });
+  const { loadOptions: loadVariantOptions, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
   const { activeBranch, resolveBranchId } = useBranchScope();
   const effectiveAdjustmentBranchId = resolveBranchId(adjustmentFilters.branchId) || '';
   const effectiveFormBranchId = resolveBranchId(form.branchId) || '';
@@ -225,7 +231,9 @@ export default function StockAdjustmentsPage() {
           loadUnits(token),
         ]);
         setBranches(normalizePaginated(branchData).items);
-        setVariants(normalizePaginated(variantData).items);
+        const variantList = normalizePaginated(variantData).items;
+        setVariants(variantList);
+        seedVariantCache(variantList);
         setUnits(unitList);
       } catch (err) {
         setMessage({
@@ -489,7 +497,6 @@ export default function StockAdjustmentsPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow={t('title')}
         title={t('title')}
         subtitle={t('subtitle')}
       />
@@ -527,34 +534,35 @@ export default function StockAdjustmentsPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Recent adjustments
+            {t('kpiRecentAdjustments')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{recentAdjustments.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Catalog variants
+            {t('kpiCatalogVariants')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Open branches
+            {t('kpiOpenBranches')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Batch tracking
+            {t('kpiBatchTracking')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">
-            {batches.length ? 'Active' : 'No batches'}
+            {batches.length ? t('batchStatusActive') : t('batchStatusNone')}
           </p>
         </article>
       </div>
       <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
+            instanceId="adjustment-form-branch"
             value={form.branchId}
             onChange={(value) => setForm({ ...form, branchId: value })}
             placeholder={t('selectBranch')}
@@ -563,18 +571,18 @@ export default function StockAdjustmentsPage() {
               label: branch.name,
             }))}
           />
-          <SmartSelect
-            value={form.variantId}
-            onChange={(value) => setForm({ ...form, variantId: value })}
-            placeholder={t('selectVariant')}
-            options={variants.map((variant) => ({
-              value: variant.id,
-              label: formatVariantLabel({
-                id: variant.id,
-                name: variant.name,
-                productName: variant.product?.name ?? null,
-              }),
+          <AsyncSmartSelect
+            instanceId="adjustment-form-variant"
+            value={getVariantOption(form.variantId)}
+            loadOptions={loadVariantOptions}
+            defaultOptions={variants.map((v) => ({
+              value: v.id,
+              label: formatVariantLabel({ id: v.id, name: v.name, productName: v.product?.name ?? null }),
             }))}
+            onChange={(opt) => setForm({ ...form, variantId: opt?.value ?? '' })}
+            placeholder={t('selectVariant')}
+            isClearable
+            className="nvi-select-container"
           />
         </div>
         <div className="grid gap-3 md:grid-cols-4">
@@ -587,6 +595,7 @@ export default function StockAdjustmentsPage() {
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
           <SmartSelect
+            instanceId="adjustment-form-unit"
             value={form.unitId}
             onChange={(value) => setForm({ ...form, unitId: value })}
             placeholder={t('unit')}
@@ -596,6 +605,7 @@ export default function StockAdjustmentsPage() {
             }))}
           />
           <SmartSelect
+            instanceId="adjustment-form-type"
             value={form.type}
             onChange={(value) =>
               setForm({
@@ -611,6 +621,7 @@ export default function StockAdjustmentsPage() {
             ]}
           />
           <SmartSelect
+            instanceId="adjustment-form-batch"
             value={form.batchId}
             onChange={(value) => setForm({ ...form, batchId: value })}
             placeholder={t('noBatch')}
@@ -629,6 +640,7 @@ export default function StockAdjustmentsPage() {
         </div>
         {form.type === 'NEGATIVE' ? (
           <SmartSelect
+            instanceId="adjustment-form-loss-reason"
             value={form.lossReason}
             onChange={(value) =>
               setForm({ ...form, lossReason: value || '' })
@@ -644,6 +656,7 @@ export default function StockAdjustmentsPage() {
           className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
         />
         <button
+          type="button"
           onClick={submit}
           className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isSubmitting || !canWrite}
@@ -657,6 +670,7 @@ export default function StockAdjustmentsPage() {
         <h3 className="text-lg font-semibold text-gold-100">{t('createBatch')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
+            instanceId="adjustment-batch-branch"
             value={batchForm.branchId}
             onChange={(value) => setBatchForm({ ...batchForm, branchId: value })}
             placeholder={t('selectBranch')}
@@ -665,18 +679,18 @@ export default function StockAdjustmentsPage() {
               label: branch.name,
             }))}
           />
-          <SmartSelect
-            value={batchForm.variantId}
-            onChange={(value) => setBatchForm({ ...batchForm, variantId: value })}
-            placeholder={t('selectVariant')}
-            options={variants.map((variant) => ({
-              value: variant.id,
-              label: formatVariantLabel({
-                id: variant.id,
-                name: variant.name,
-                productName: variant.product?.name ?? null,
-              }),
+          <AsyncSmartSelect
+            instanceId="adjustment-batch-variant"
+            value={getVariantOption(batchForm.variantId)}
+            loadOptions={loadVariantOptions}
+            defaultOptions={variants.map((v) => ({
+              value: v.id,
+              label: formatVariantLabel({ id: v.id, name: v.name, productName: v.product?.name ?? null }),
             }))}
+            onChange={(opt) => setBatchForm({ ...batchForm, variantId: opt?.value ?? '' })}
+            placeholder={t('selectVariant')}
+            isClearable
+            className="nvi-select-container"
           />
         </div>
         <div className="grid gap-3 md:grid-cols-2">
@@ -698,6 +712,7 @@ export default function StockAdjustmentsPage() {
           />
         </div>
         <button
+          type="button"
           onClick={createBatch}
           className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={isCreatingBatch || !canWrite}
@@ -730,6 +745,7 @@ export default function StockAdjustmentsPage() {
           }
         >
           <SmartSelect
+            instanceId="adjustment-filter-branch"
             value={adjustmentFilters.branchId}
             onChange={(value) => pushAdjustmentFilters({ branchId: value })}
             options={adjustmentBranchOptions}
@@ -737,6 +753,7 @@ export default function StockAdjustmentsPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="adjustment-filter-type"
             value={adjustmentFilters.type}
             onChange={(value) => pushAdjustmentFilters({ type: value })}
             options={adjustmentTypeOptions}
@@ -830,7 +847,7 @@ export default function StockAdjustmentsPage() {
                           {movement.reason ?? t('noReason')}
                         </td>
                         <td className="px-3 py-2">
-                          {new Date(movement.createdAt).toLocaleString()}
+                          {formatDateTime(movement.createdAt)}
                         </td>
                       </tr>
                     );
@@ -874,7 +891,7 @@ export default function StockAdjustmentsPage() {
                       </p>
                       <p className="text-xs text-gold-400">
                         {movement.branch?.name ?? t('branchFallback')} •{' '}
-                        {new Date(movement.createdAt).toLocaleString()}
+                        {formatDateTime(movement.createdAt)}
                       </p>
                     </div>
                     <p className="text-xs text-gold-300">

@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useRouter } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { clearSession, getAccessToken } from '@/lib/auth';
@@ -21,6 +21,37 @@ import {
   normalizeNotificationSettings,
 } from '@/lib/notification-settings';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { Checkbox } from '@/components/Checkbox';
+import { setStoredCurrency, setStoredTimezone, setStoredDateFormat, useFormatDate } from '@/lib/business-context';
+import { CURRENCIES } from '@/lib/currencies';
+
+const getTimezoneOptions = (): { value: string; label: string }[] => {
+  try {
+    const all = (
+      Intl as unknown as { supportedValuesOf(key: string): string[] }
+    ).supportedValuesOf('timeZone');
+    const africa = all.filter((tz) => tz.startsWith('Africa/')).sort();
+    const others = all.filter((tz) => !tz.startsWith('Africa/')).sort();
+    return [...africa, ...others].map((tz) => ({ value: tz, label: tz }));
+  } catch {
+    return [
+      'Africa/Dar_es_Salaam',
+      'Africa/Nairobi',
+      'Africa/Kampala',
+      'Africa/Kigali',
+      'Africa/Johannesburg',
+      'UTC',
+    ].map((tz) => ({ value: tz, label: tz }));
+  }
+};
+
+const DATE_FORMAT_OPTIONS = [
+  { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY — e.g. 25/03/2026' },
+  { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY — e.g. 03/25/2026' },
+  { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD — e.g. 2026-03-25' },
+  { value: 'DD-MM-YYYY', label: 'DD-MM-YYYY — e.g. 25-03-2026' },
+  { value: 'D MMM YYYY', label: 'D MMM YYYY — e.g. 25 Mar 2026' },
+];
 
 type Business = { id: string; name: string; defaultLanguage: string };
 type Role = { id: string; name: string };
@@ -57,6 +88,7 @@ type BusinessSettings = {
     receiptFooter: string;
     showBranchContact: boolean;
     creditEnabled: boolean;
+    priceEditEnabled: boolean;
     shiftTrackingEnabled: boolean;
     shiftVarianceThreshold: number;
     discountThresholdPercent: number;
@@ -118,7 +150,8 @@ export default function BusinessSettingsPage() {
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
   const router = useRouter();
-  const params = useParams<{ locale: string }>();
+  const locale = useLocale();
+  const { formatDate, formatDateTime } = useFormatDate();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('settings.write');
   const canDeleteBusiness = permissions.has('business.delete');
@@ -172,6 +205,13 @@ export default function BusinessSettingsPage() {
     return JSON.stringify(settings) !== JSON.stringify(draftSettings);
   }, [settings, draftSettings]);
 
+  const offlineEnabled = subscription?.limits?.offline !== false;
+  const offlineTierCap = {
+    maxDurationHours: subscription?.tier === 'ENTERPRISE' ? 168 : 72,
+    maxSalesCount: subscription?.tier === 'ENTERPRISE' ? 2000 : 200,
+    maxTotalValue: 5000000,
+  };
+
   useEffect(() => {
     const token = getAccessToken();
     if (!token) {
@@ -205,8 +245,15 @@ export default function BusinessSettingsPage() {
           },
           posPolicies: {
             ...config.posPolicies,
+            priceEditEnabled: config.posPolicies?.priceEditEnabled ?? false,
             offlinePriceVariancePercent:
-              config.posPolicies.offlinePriceVariancePercent ?? 3,
+              config.posPolicies?.offlinePriceVariancePercent ?? 3,
+            offlineLimits: {
+              maxDurationHours:
+                config.posPolicies?.offlineLimits?.maxDurationHours ?? 72,
+              maxSalesCount: config.posPolicies?.offlineLimits?.maxSalesCount ?? 200,
+              maxTotalValue: config.posPolicies?.offlineLimits?.maxTotalValue ?? 5000000,
+            },
           },
         };
         setSettings(normalized);
@@ -232,7 +279,7 @@ export default function BusinessSettingsPage() {
           });
         }
       })
-      .catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))))
+      .catch((err) => setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('loadFailed')) }))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -297,7 +344,7 @@ export default function BusinessSettingsPage() {
     if (Number.isNaN(parsed.getTime())) {
       return null;
     }
-    return parsed.toLocaleDateString();
+    return formatDate(parsed);
   };
 
   const getDaysRemaining = (value: string | null) => {
@@ -359,6 +406,15 @@ export default function BusinessSettingsPage() {
       setSettings(updated);
       setDraftSettings(updated);
       setIsEditing(false);
+      if (updated.localeSettings?.currency) {
+        setStoredCurrency(updated.localeSettings.currency);
+      }
+      if (updated.localeSettings?.timezone) {
+        setStoredTimezone(updated.localeSettings.timezone);
+      }
+      if (updated.localeSettings?.dateFormat) {
+        setStoredDateFormat(updated.localeSettings.dateFormat);
+      }
       setMessage({ action: 'update', outcome: 'success', message: t('settingsSaved') });
     } catch (err) {
       setMessage({
@@ -404,7 +460,7 @@ export default function BusinessSettingsPage() {
         }),
       });
       clearSession();
-      router.replace(`/${params.locale}/login`);
+      router.replace(`/${locale}/login`);
     } catch (err) {
       setMessage({
         action: 'delete',
@@ -517,31 +573,31 @@ export default function BusinessSettingsPage() {
   return (
     <section className="space-y-6">
       <PremiumPageHeader
-        eyebrow="BUSINESS COMMAND"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">POLICY ENGINE</span>
-            <span className="nvi-badge">SUBSCRIPTION WATCH</span>
+            <span className="nvi-badge">{t('badgePolicyEngine')}</span>
+            <span className="nvi-badge">{t('badgeSubscriptionWatch')}</span>
           </>
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">BUSINESS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiBusiness')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">{business?.name ?? '—'}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">SUBSCRIPTION</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiSubscription')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">{subscription?.status ?? '—'}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ROLES</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiRoles')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{roles.length}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">USERS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiUsers')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{users.length}</p>
         </article>
       </div>
@@ -682,6 +738,7 @@ export default function BusinessSettingsPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <SmartSelect
+              instanceId="subscription-request-type"
               value={subscriptionRequestForm.type}
               onChange={(value) =>
                 setSubscriptionRequestForm((prev) => ({
@@ -698,6 +755,7 @@ export default function BusinessSettingsPage() {
               isDisabled={!canRequestSubscription}
             />
             <SmartSelect
+              instanceId="subscription-request-tier"
               value={subscriptionRequestForm.requestedTier}
               onChange={(value) =>
                 setSubscriptionRequestForm((prev) => ({
@@ -756,7 +814,7 @@ export default function BusinessSettingsPage() {
                 {request.responseNote ? (
                   <p>{t('requestResponse', { value: request.responseNote })}</p>
                 ) : null}
-                <p>{new Date(request.createdAt).toLocaleString()}</p>
+                <p>{formatDateTime(request.createdAt)}</p>
               </div>
             ))}
             {!subscriptionRequests.length ? (
@@ -935,16 +993,15 @@ export default function BusinessSettingsPage() {
             <div className="grid gap-3 text-sm text-gold-200">
               <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)]">
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={draftSettings.approvalDefaults.stockAdjust}
                     disabled={!isEditing}
-                    onChange={(event) =>
+                    onChange={(checked) =>
                       setDraftSettings({
                         ...draftSettings,
                         approvalDefaults: {
                           ...draftSettings.approvalDefaults,
-                          stockAdjust: event.target.checked,
+                          stockAdjust: checked,
                         },
                       })
                     }
@@ -976,16 +1033,15 @@ export default function BusinessSettingsPage() {
               </div>
               <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)]">
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={draftSettings.approvalDefaults.refund}
                     disabled={!isEditing}
-                    onChange={(event) =>
+                    onChange={(checked) =>
                       setDraftSettings({
                         ...draftSettings,
                         approvalDefaults: {
                           ...draftSettings.approvalDefaults,
-                          refund: event.target.checked,
+                          refund: checked,
                         },
                       })
                     }
@@ -1012,16 +1068,15 @@ export default function BusinessSettingsPage() {
               </div>
               <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)]">
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={draftSettings.approvalDefaults.purchase}
                     disabled={!isEditing}
-                    onChange={(event) =>
+                    onChange={(checked) =>
                       setDraftSettings({
                         ...draftSettings,
                         approvalDefaults: {
                           ...draftSettings.approvalDefaults,
-                          purchase: event.target.checked,
+                          purchase: checked,
                         },
                       })
                     }
@@ -1052,16 +1107,15 @@ export default function BusinessSettingsPage() {
               </div>
               <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)]">
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={draftSettings.approvalDefaults.transfer}
                     disabled={!isEditing}
-                    onChange={(event) =>
+                    onChange={(checked) =>
                       setDraftSettings({
                         ...draftSettings,
                         approvalDefaults: {
                           ...draftSettings.approvalDefaults,
-                          transfer: event.target.checked,
+                          transfer: checked,
                         },
                       })
                     }
@@ -1092,16 +1146,15 @@ export default function BusinessSettingsPage() {
               </div>
               <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)]">
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={draftSettings.approvalDefaults.expense}
                     disabled={!isEditing}
-                    onChange={(event) =>
+                    onChange={(checked) =>
                       setDraftSettings({
                         ...draftSettings,
                         approvalDefaults: {
                           ...draftSettings.approvalDefaults,
-                          expense: event.target.checked,
+                          expense: checked,
                         },
                       })
                     }
@@ -1192,18 +1245,17 @@ export default function BusinessSettingsPage() {
                   !isPremiumChannel || subscription?.tier === 'ENTERPRISE';
                 return (
                   <label key={key} className="flex items-center gap-2 capitalize">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={draftSettings.notificationDefaults.channels[key]}
                       disabled={!isEditing || !channelUnlocked}
-                      onChange={(event) =>
+                      onChange={(checked) =>
                         setDraftSettings({
                           ...draftSettings,
                           notificationDefaults: {
                             ...draftSettings.notificationDefaults,
                             channels: {
                               ...draftSettings.notificationDefaults.channels,
-                              [key]: event.target.checked,
+                              [key]: checked,
                             },
                           },
                         })
@@ -1252,12 +1304,11 @@ export default function BusinessSettingsPage() {
                       <p className="text-sm font-semibold text-gold-100">{label}</p>
                       {key !== 'global' ? (
                         <label className="flex items-center gap-2 text-xs text-gold-200">
-                          <input
-                            type="checkbox"
-                            checked={useGlobal}
+                          <Checkbox
+                            checked={useGlobal ?? false}
                             disabled={!isEditing}
-                            onChange={(event) => {
-                              if (event.target.checked) {
+                            onChange={(checked) => {
+                              if (checked) {
                                 updateRecipientGroup(key, null);
                               } else {
                                 updateRecipientGroup(key, {
@@ -1272,13 +1323,12 @@ export default function BusinessSettingsPage() {
                     </div>
 
                     {key === 'global' ? (
-                      <div className="grid gap-2 md:grid-cols-3 text-xs text-gold-200">
+                      <div className="text-xs text-gold-200">
                         <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={globalRecipients.branchScoped}
                             disabled={!isEditing}
-                            onChange={(event) =>
+                            onChange={(checked) =>
                               setDraftSettings({
                                 ...draftSettings,
                                 notificationDefaults: {
@@ -1287,18 +1337,18 @@ export default function BusinessSettingsPage() {
                                     ...recipients,
                                     global: {
                                       ...globalRecipients,
-                                      branchScoped: event.target.checked,
+                                      branchScoped: checked,
                                     },
                                     email: recipients.email
                                       ? {
                                           ...recipients.email,
-                                          branchScoped: event.target.checked,
+                                          branchScoped: checked,
                                         }
                                       : null,
                                     whatsapp: recipients.whatsapp
                                       ? {
                                           ...recipients.whatsapp,
-                                          branchScoped: event.target.checked,
+                                          branchScoped: checked,
                                         }
                                       : null,
                                   },
@@ -1308,118 +1358,45 @@ export default function BusinessSettingsPage() {
                           />
                           {t('notificationBranchScoped')}
                         </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={globalRecipients.includeOwners}
-                            disabled={!isEditing}
-                            onChange={(event) =>
-                              updateRecipientGroup('global', {
-                                ...globalRecipients,
-                                includeOwners: event.target.checked,
-                              })
-                            }
-                          />
-                          {t('notificationIncludeOwners')}
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={globalRecipients.includeManagers}
-                            disabled={!isEditing}
-                            onChange={(event) =>
-                              updateRecipientGroup('global', {
-                                ...globalRecipients,
-                                includeManagers: event.target.checked,
-                              })
-                            }
-                          />
-                          {t('notificationIncludeManagers')}
-                        </label>
                       </div>
                     ) : null}
 
                     {(key === 'global' || !useGlobal) && (
-                      <div className="grid gap-3 md:grid-cols-2 text-xs text-gold-300">
-                        <div className="space-y-2">
-                          <p className="text-xs font-semibold text-gold-200">
-                            {t('notificationRolesLabel')}
-                          </p>
-                          {roles.length === 0 ? (
-                            <p className="text-gold-500">{t('notificationNoRoles')}</p>
-                          ) : (
-                            <div className="grid gap-2 md:grid-cols-2">
-                              {roles
-                                .filter((role) => role.name !== 'System Owner')
-                                .map((role) => {
-                                  const isChecked = current.roleIds.includes(role.id);
-                                  return (
-                                    <label
-                                      key={`${key}-role-${role.id}`}
-                                      className="flex items-center gap-2"
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={isChecked}
-                                        disabled={!isEditing}
-                                        onChange={(event) => {
-                                          const nextRoles = event.target.checked
-                                            ? [...current.roleIds, role.id]
-                                            : current.roleIds.filter(
-                                                (id) => id !== role.id,
-                                              );
-                                          update({
-                                            roleIds: nextRoles,
-                                          });
-                                        }}
-                                      />
-                                      <span>{role.name}</span>
-                                    </label>
-                                  );
-                                })}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="space-y-2">
-                          <p className="text-xs font-semibold text-gold-200">
-                            {t('notificationUsersLabel')}
-                          </p>
-                          {users.length === 0 ? (
-                            <p className="text-gold-500">{t('notificationNoUsers')}</p>
-                          ) : (
-                            <div className="max-h-40 space-y-2 overflow-y-auto pr-2">
-                              {users.map((user) => {
-                                const isChecked = current.userIds.includes(user.id);
-                                return (
-                                  <label
-                                    key={`${key}-user-${user.id}`}
-                                    className="flex items-center gap-2"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={isChecked}
-                                      disabled={!isEditing}
-                                      onChange={(event) => {
-                                        const nextUsers = event.target.checked
-                                          ? [...current.userIds, user.id]
-                                          : current.userIds.filter(
-                                              (id) => id !== user.id,
-                                            );
-                                        update({
-                                          userIds: nextUsers,
-                                        });
-                                      }}
-                                    />
-                                    <span className="truncate">
-                                      {user.name || user.email}
-                                    </span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
+                      <div className="space-y-2 text-xs text-gold-300">
+                        <p className="text-xs font-semibold text-gold-200">
+                          {t('notificationRolesLabel')}
+                        </p>
+                        {roles.length === 0 ? (
+                          <p className="text-gold-500">{t('notificationNoRoles')}</p>
+                        ) : (
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {roles.map((role) => {
+                              const isChecked = current.roleIds.includes(role.id);
+                              return (
+                                <label
+                                  key={`${key}-role-${role.id}`}
+                                  className="flex items-center gap-2"
+                                >
+                                  <Checkbox
+                                    checked={isChecked}
+                                    disabled={!isEditing}
+                                    onChange={(checked) => {
+                                      const nextRoles = checked
+                                        ? [...current.roleIds, role.id]
+                                        : current.roleIds.filter(
+                                            (id) => id !== role.id,
+                                          );
+                                      update({
+                                        roleIds: nextRoles,
+                                      });
+                                    }}
+                                  />
+                                  <span>{role.name}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1489,11 +1466,10 @@ export default function BusinessSettingsPage() {
                                 key={`${groupKey}-${channel}`}
                                 className="flex items-center gap-2 capitalize"
                               >
-                                <input
-                                  type="checkbox"
+                                <Checkbox
                                   checked={groupChannels[channel]}
                                   disabled={isDisabled}
-                                  onChange={(event) =>
+                                  onChange={(checked) =>
                                     setDraftSettings({
                                       ...draftSettings,
                                       notificationDefaults: {
@@ -1503,7 +1479,7 @@ export default function BusinessSettingsPage() {
                                           [groupKey]: {
                                             channels: {
                                               ...groupChannels,
-                                              [channel]: event.target.checked,
+                                              [channel]: checked,
                                             },
                                           },
                                         },
@@ -1539,11 +1515,10 @@ export default function BusinessSettingsPage() {
                                   {eventLabels(`${eventKey}Hint`)}
                                 </p>
                               </div>
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={eventConfig.enabled}
                                 disabled={!isEditing}
-                                onChange={(event) =>
+                                onChange={(checked) =>
                                   setDraftSettings({
                                     ...draftSettings,
                                     notificationDefaults: {
@@ -1552,7 +1527,7 @@ export default function BusinessSettingsPage() {
                                         ...draftSettings.notificationDefaults.events,
                                         [eventKey]: {
                                           ...eventConfig,
-                                          enabled: event.target.checked,
+                                          enabled: checked,
                                         },
                                       },
                                     },
@@ -1593,57 +1568,63 @@ export default function BusinessSettingsPage() {
                   }
                 />
               </label>
-              <label className="flex flex-col gap-1">
-                {t('currencyCode')}
-                <input
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  value={draftSettings.localeSettings.currency}
-                  disabled={!isEditing}
-                  onChange={(event) =>
-                    setDraftSettings({
-                      ...draftSettings,
-                      localeSettings: {
-                        ...draftSettings.localeSettings,
-                        currency: event.target.value.toUpperCase(),
-                      },
-                    })
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                {t('timezone')}
-                <input
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  value={draftSettings.localeSettings.timezone}
-                  disabled={!isEditing}
-                  onChange={(event) =>
-                    setDraftSettings({
-                      ...draftSettings,
-                      localeSettings: {
-                        ...draftSettings.localeSettings,
-                        timezone: event.target.value,
-                      },
-                    })
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                {t('dateFormat')}
-                <input
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  value={draftSettings.localeSettings.dateFormat}
-                  disabled={!isEditing}
-                  onChange={(event) =>
-                    setDraftSettings({
-                      ...draftSettings,
-                      localeSettings: {
-                        ...draftSettings.localeSettings,
-                        dateFormat: event.target.value,
-                      },
-                    })
-                  }
-                />
-              </label>
+              <div className="flex flex-col gap-1">
+                <span className="text-sm text-gold-300">{t('currencyCode')}</span>
+                <p className="rounded border border-gold-700/30 bg-black/40 px-3 py-2 text-sm text-gold-100">
+                  {CURRENCIES.find((c) => c.code === draftSettings.localeSettings.currency)?.label ?? draftSettings.localeSettings.currency}
+                </p>
+                <p className="text-xs text-gold-500">Multi-currency support coming soon. Currency cannot be changed at this time.</p>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-sm text-gold-300">{t('timezone')}</span>
+                {isEditing ? (
+                  <SmartSelect
+                    instanceId="settings-timezone"
+                    value={draftSettings.localeSettings.timezone}
+                    onChange={(value) =>
+                      setDraftSettings({
+                        ...draftSettings,
+                        localeSettings: {
+                          ...draftSettings.localeSettings,
+                          timezone: value,
+                        },
+                      })
+                    }
+                    options={getTimezoneOptions()}
+                    placeholder={t('timezone')}
+                    className="nvi-select-container"
+                  />
+                ) : (
+                  <p className="rounded border border-gold-700/30 bg-black/40 px-3 py-2 text-sm text-gold-100">
+                    {draftSettings.localeSettings.timezone}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-sm text-gold-300">{t('dateFormat')}</span>
+                {isEditing ? (
+                  <SmartSelect
+                    instanceId="settings-date-format"
+                    value={draftSettings.localeSettings.dateFormat}
+                    onChange={(value) =>
+                      setDraftSettings({
+                        ...draftSettings,
+                        localeSettings: {
+                          ...draftSettings.localeSettings,
+                          dateFormat: value,
+                        },
+                      })
+                    }
+                    options={DATE_FORMAT_OPTIONS}
+                    placeholder={t('dateFormat')}
+                    className="nvi-select-container"
+                  />
+                ) : (
+                  <p className="rounded border border-gold-700/30 bg-black/40 px-3 py-2 text-sm text-gold-100">
+                    {DATE_FORMAT_OPTIONS.find((d) => d.value === draftSettings.localeSettings.dateFormat)?.label ?? draftSettings.localeSettings.dateFormat}
+                  </p>
+                )}
+              </div>
             </div>
             <p className="text-xs text-gold-400">
               {t('localizationHint')}
@@ -1656,16 +1637,15 @@ export default function BusinessSettingsPage() {
             </h3>
             <div className="grid gap-3 md:grid-cols-2 text-sm text-gold-200">
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={draftSettings.stockPolicies.negativeStockAllowed}
                   disabled={!isEditing}
-                  onChange={(event) =>
+                  onChange={(checked) =>
                     setDraftSettings({
                       ...draftSettings,
                       stockPolicies: {
                         ...draftSettings.stockPolicies,
-                        negativeStockAllowed: event.target.checked,
+                        negativeStockAllowed: checked,
                       },
                     })
                   }
@@ -1673,16 +1653,15 @@ export default function BusinessSettingsPage() {
                 {t('allowNegativeStock')}
               </label>
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={draftSettings.stockPolicies.batchTrackingEnabled}
                   disabled={!isEditing}
-                  onChange={(event) =>
+                  onChange={(checked) =>
                     setDraftSettings({
                       ...draftSettings,
                       stockPolicies: {
                         ...draftSettings.stockPolicies,
-                        batchTrackingEnabled: event.target.checked,
+                        batchTrackingEnabled: checked,
                       },
                     })
                   }
@@ -1694,6 +1673,7 @@ export default function BusinessSettingsPage() {
               <label className="flex flex-col gap-1">
                 {t('fifoFefo')}
                 <SmartSelect
+                  instanceId="settings-fifo-mode"
                   value={draftSettings.stockPolicies.fifoMode}
                   isDisabled={!isEditing}
                   onChange={(value) =>
@@ -1715,6 +1695,7 @@ export default function BusinessSettingsPage() {
               <label className="flex flex-col gap-1">
                 {t('valuationMethod')}
                 <SmartSelect
+                  instanceId="settings-valuation-method"
                   value={draftSettings.stockPolicies.valuationMethod}
                   isDisabled={!isEditing}
                   onChange={(value) =>
@@ -1737,6 +1718,7 @@ export default function BusinessSettingsPage() {
               <label className="flex flex-col gap-1">
                 {t('expiryPolicy')}
                 <SmartSelect
+                  instanceId="settings-expiry-policy"
                   value={draftSettings.stockPolicies.expiryPolicy}
                   isDisabled={!isEditing}
                   onChange={(value) =>
@@ -1778,6 +1760,7 @@ export default function BusinessSettingsPage() {
               <label className="flex flex-col gap-1">
                 {t('transferBatchPolicy')}
                 <SmartSelect
+                  instanceId="settings-transfer-batch-policy"
                   value={draftSettings.stockPolicies.transferBatchPolicy}
                   isDisabled={!isEditing}
                   onChange={(value) =>
@@ -1829,6 +1812,7 @@ export default function BusinessSettingsPage() {
               <label className="flex flex-col gap-1">
                 {t('receiptTemplate')}
                 <SmartSelect
+                  instanceId="settings-receipt-template"
                   value={draftSettings.posPolicies.receiptTemplate}
                   isDisabled={!isEditing}
                   onChange={(value) =>
@@ -1848,16 +1832,15 @@ export default function BusinessSettingsPage() {
                 />
               </label>
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={draftSettings.posPolicies.showBranchContact}
                   disabled={!isEditing}
-                  onChange={(event) =>
+                  onChange={(checked) =>
                     setDraftSettings({
                       ...draftSettings,
                       posPolicies: {
                         ...draftSettings.posPolicies,
-                        showBranchContact: event.target.checked,
+                        showBranchContact: checked,
                       },
                     })
                   }
@@ -1865,16 +1848,15 @@ export default function BusinessSettingsPage() {
                 {t('showBranchContact')}
               </label>
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={draftSettings.posPolicies.creditEnabled}
                   disabled={!isEditing}
-                  onChange={(event) =>
+                  onChange={(checked) =>
                     setDraftSettings({
                       ...draftSettings,
                       posPolicies: {
                         ...draftSettings.posPolicies,
-                        creditEnabled: event.target.checked,
+                        creditEnabled: checked,
                       },
                     })
                   }
@@ -1882,16 +1864,31 @@ export default function BusinessSettingsPage() {
                 {t('allowCredit')}
               </label>
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={draftSettings.posPolicies.shiftTrackingEnabled}
+                <Checkbox
+                  checked={draftSettings.posPolicies.priceEditEnabled}
                   disabled={!isEditing}
-                  onChange={(event) =>
+                  onChange={(checked) =>
                     setDraftSettings({
                       ...draftSettings,
                       posPolicies: {
                         ...draftSettings.posPolicies,
-                        shiftTrackingEnabled: event.target.checked,
+                        priceEditEnabled: checked,
+                      },
+                    })
+                  }
+                />
+                {t('allowPriceEdit')}
+              </label>
+              <label className="flex items-center gap-2">
+                <Checkbox
+                  checked={draftSettings.posPolicies.shiftTrackingEnabled}
+                  disabled={!isEditing}
+                  onChange={(checked) =>
+                    setDraftSettings({
+                      ...draftSettings,
+                      posPolicies: {
+                        ...draftSettings.posPolicies,
+                        shiftTrackingEnabled: checked,
                       },
                     })
                   }
@@ -1899,16 +1896,15 @@ export default function BusinessSettingsPage() {
                 {t('requireShift')}
               </label>
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={draftSettings.posPolicies.refundReturnToStockDefault}
                   disabled={!isEditing}
-                  onChange={(event) =>
+                  onChange={(checked) =>
                     setDraftSettings({
                       ...draftSettings,
                       posPolicies: {
                         ...draftSettings.posPolicies,
-                        refundReturnToStockDefault: event.target.checked,
+                        refundReturnToStockDefault: checked,
                       },
                     })
                   }
@@ -2008,14 +2004,19 @@ export default function BusinessSettingsPage() {
                 />
               </label>
             </div>
+            {!offlineEnabled && (
+              <p className="text-xs text-amber-400/80 rounded border border-amber-400/20 bg-amber-400/5 px-3 py-2">
+                {t('offlineNotAvailable')}
+              </p>
+            )}
             <div className="grid gap-3 md:grid-cols-3 text-sm text-gold-200">
               <label className="flex flex-col gap-1">
                 {t('offlineDuration')}
                 <input
                   type="number"
                   className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  value={draftSettings.posPolicies.offlineLimits.maxDurationHours}
-                  disabled={!isEditing}
+                  value={draftSettings.posPolicies.offlineLimits?.maxDurationHours ?? offlineTierCap.maxDurationHours}
+                  disabled={!isEditing || !offlineEnabled}
                   onChange={(event) =>
                     setDraftSettings({
                       ...draftSettings,
@@ -2029,14 +2030,17 @@ export default function BusinessSettingsPage() {
                     })
                   }
                 />
+                {offlineEnabled && (
+                  <span className="text-xs text-gold-500">{t('offlineMaxHint', { max: offlineTierCap.maxDurationHours })}</span>
+                )}
               </label>
               <label className="flex flex-col gap-1">
                 {t('offlineMaxSales')}
                 <input
                   type="number"
                   className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  value={draftSettings.posPolicies.offlineLimits.maxSalesCount}
-                  disabled={!isEditing}
+                  value={draftSettings.posPolicies.offlineLimits?.maxSalesCount ?? offlineTierCap.maxSalesCount}
+                  disabled={!isEditing || !offlineEnabled}
                   onChange={(event) =>
                     setDraftSettings({
                       ...draftSettings,
@@ -2050,14 +2054,17 @@ export default function BusinessSettingsPage() {
                     })
                   }
                 />
+                {offlineEnabled && (
+                  <span className="text-xs text-gold-500">{t('offlineMaxHint', { max: offlineTierCap.maxSalesCount })}</span>
+                )}
               </label>
               <label className="flex flex-col gap-1">
                 {t('offlineMaxTotal')}
                 <input
                   type="number"
                   className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  value={draftSettings.posPolicies.offlineLimits.maxTotalValue}
-                  disabled={!isEditing}
+                  value={draftSettings.posPolicies.offlineLimits?.maxTotalValue ?? offlineTierCap.maxTotalValue}
+                  disabled={!isEditing || !offlineEnabled}
                   onChange={(event) =>
                     setDraftSettings({
                       ...draftSettings,
@@ -2071,6 +2078,9 @@ export default function BusinessSettingsPage() {
                     })
                   }
                 />
+                {offlineEnabled && (
+                  <span className="text-xs text-gold-500">{t('offlineMaxHint', { max: offlineTierCap.maxTotalValue.toLocaleString() })}</span>
+                )}
               </label>
             </div>
           </div>
@@ -2118,6 +2128,7 @@ export default function BusinessSettingsPage() {
                 {request.status === 'PENDING' ? (
                   <div className="flex gap-2">
                     <button
+                      type="button"
                       onClick={() =>
                         resolveSupportRequest(request.id, 'approve')
                       }
@@ -2128,6 +2139,7 @@ export default function BusinessSettingsPage() {
                       {actions('approve')}
                     </button>
                     <button
+                      type="button"
                       onClick={() =>
                         resolveSupportRequest(request.id, 'reject')
                       }

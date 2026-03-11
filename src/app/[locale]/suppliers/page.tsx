@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -16,12 +16,13 @@ import {
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
-import { formatEntityLabel } from '@/lib/display';
+import { formatEntityLabel, shortId } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Supplier = {
   id: string;
@@ -41,6 +42,8 @@ export default function SuppliersPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
+  const locale = useLocale();
+  const { formatDate } = useFormatDate();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('suppliers.write');
   const [isLoading, setIsLoading] = useState(true);
@@ -90,6 +93,15 @@ export default function SuppliersPage() {
     [suppliers],
   );
 
+  const getSupplierStatusStyle = (status: string): string => {
+    switch (status) {
+      case 'ACTIVE': return 'border-green-500/50 bg-green-500/10 text-green-200';
+      case 'INACTIVE': return 'border-amber-500/50 bg-amber-500/10 text-amber-200';
+      case 'ARCHIVED': return 'border-gray-600/50 bg-gray-900/40 text-gray-400';
+      default: return 'border-gold-700/50 bg-black/40 text-gold-400';
+    }
+  };
+
   useEffect(() => {
     setSearchDraft(filters.search);
   }, [filters.search]);
@@ -124,7 +136,7 @@ export default function SuppliersPage() {
 
   const formatRelatedLabel = (item: Purchase | PurchaseOrder) => {
     const date = item.createdAt
-      ? new Date(item.createdAt).toLocaleDateString()
+      ? formatDate(item.createdAt)
       : null;
     return `${date ?? formatEntityLabel({ id: item.id }, common('unknown'))} • ${
       item.status
@@ -337,13 +349,13 @@ export default function SuppliersPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Supplier network"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Vendor ops</span>
-            <span className="status-chip">Live</span>
+            <span className="status-chip">{t('badgeVendorOps')}</span>
+            <span className="status-chip">{t('badgeLive')}</span>
           </>
         }
         actions={
@@ -357,19 +369,19 @@ export default function SuppliersPage() {
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Suppliers</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiSuppliers')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{suppliers.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActive')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{activeSuppliers}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Needs attention</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiNeedsAttention')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{inactiveSuppliers}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Lead-time set</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiLeadTimeSet')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{withLeadTime}</p>
         </article>
       </div>
@@ -384,6 +396,7 @@ export default function SuppliersPage() {
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         >
           <SmartSelect
+            instanceId="filter-status"
             value={filters.status}
             onChange={(value) => pushFilters({ status: value })}
             options={statusOptions}
@@ -391,6 +404,7 @@ export default function SuppliersPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="filter-balance-due"
             value={filters.balanceDue}
             onChange={(value) => pushFilters({ balanceDue: value })}
             options={balanceOptions}
@@ -465,12 +479,11 @@ export default function SuppliersPage() {
             <StatusBanner message={t('noSuppliers')} />
           ) : (
             <div className="overflow-auto">
-              <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
+              <table className="min-w-[640px] w-full text-left text-sm text-gold-100">
                 <thead className="text-xs uppercase text-gold-400">
                   <tr>
                     <th className="px-3 py-2">{t('name')}</th>
-                    <th className="px-3 py-2">{t('phone')}</th>
-                    <th className="px-3 py-2">{t('email')}</th>
+                    <th className="px-3 py-2">{t('phone')} / {t('email')}</th>
                     <th className="px-3 py-2">{t('status')}</th>
                     <th className="px-3 py-2">{t('leadTimeDays')}</th>
                     <th className="px-3 py-2">{t('notesOptional')}</th>
@@ -479,12 +492,31 @@ export default function SuppliersPage() {
                 <tbody>
                   {suppliers.map((supplier) => (
                     <tr key={supplier.id} className="border-t border-gold-700/20">
-                      <td className="px-3 py-2 font-semibold">{supplier.name}</td>
-                      <td className="px-3 py-2">{supplier.phone ?? '—'}</td>
-                      <td className="px-3 py-2">{supplier.email ?? '—'}</td>
-                      <td className="px-3 py-2">{supplier.status}</td>
-                      <td className="px-3 py-2">{supplier.leadTimeDays ?? '—'}</td>
-                      <td className="px-3 py-2">{supplier.notes ?? '—'}</td>
+                      <td className="px-3 py-2">
+                        <p className="font-semibold text-gold-100">{supplier.name}</p>
+                      </td>
+                      <td className="px-3 py-2">
+                        {supplier.phone ? <p className="text-gold-300">{supplier.phone}</p> : null}
+                        {supplier.email ? <p className="text-[11px] text-gold-500">{supplier.email}</p> : null}
+                        {!supplier.phone && !supplier.email ? <span className="text-gold-600">—</span> : null}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded border px-2 py-0.5 text-[11px] ${getSupplierStatusStyle(supplier.status)}`}>
+                          {supplier.status === 'ACTIVE'
+                            ? t('statusActive')
+                            : supplier.status === 'INACTIVE'
+                              ? t('statusInactive')
+                              : t('statusArchived')}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-gold-300">
+                        {supplier.leadTimeDays
+                          ? t('leadTimeLabel', { days: supplier.leadTimeDays })
+                          : '—'}
+                      </td>
+                      <td className="max-w-[200px] truncate px-3 py-2 text-xs text-gold-400">
+                        {supplier.notes ?? '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -497,7 +529,7 @@ export default function SuppliersPage() {
           suppliers.map((supplier) => (
             <div
               key={supplier.id}
-              className="rounded border border-gold-700/30 bg-black/40 p-3"
+              className={`rounded border bg-black/40 p-4 transition-colors ${editingId === supplier.id ? 'border-gold-500/50' : 'border-gold-700/30'}`}
             >
               {editingId === supplier.id && editing ? (
                 <div className="grid gap-2 md:grid-cols-3">
@@ -552,6 +584,7 @@ export default function SuppliersPage() {
                     className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                   />
                   <SmartSelect
+                    instanceId={`supplier-${supplier.id}-status`}
                     value={editing.status}
                     onChange={(value) =>
                       setEditing({
@@ -568,32 +601,42 @@ export default function SuppliersPage() {
                   />
                 </div>
               ) : (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-gold-100">{supplier.name}</p>
-                    <p className="text-xs text-gold-400">
-                      {supplier.phone || supplier.email || t('noContact')}
-                    </p>
-                    <p className="text-xs text-gold-500/70">
-                      {supplier.leadTimeDays
-                        ? t('leadTimeLabel', { days: supplier.leadTimeDays })
-                        : t('leadTimeMissing')}
-                    </p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-gold-100">{supplier.name}</p>
+                      <span className={`rounded border px-2 py-0.5 text-[11px] ${getSupplierStatusStyle(supplier.status)}`}>
+                        {supplier.status === 'ACTIVE'
+                          ? t('statusActive')
+                          : supplier.status === 'INACTIVE'
+                            ? t('statusInactive')
+                            : t('statusArchived')}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gold-400">
+                      {supplier.phone ? <span>{supplier.phone}</span> : null}
+                      {supplier.email ? <span>{supplier.email}</span> : null}
+                      {!supplier.phone && !supplier.email ? <span>{t('noContact')}</span> : null}
+                      {supplier.leadTimeDays && supplier.leadTimeDays > 0 ? (
+                        <span className="rounded bg-gold-900/20 px-2 py-0.5 text-[11px] text-gold-300">
+                          {t('leadTimeLabel', { days: supplier.leadTimeDays })}
+                        </span>
+                      ) : (
+                        <span className="text-gold-600">{t('leadTimeMissing')}</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-gold-400">
-                      {supplier.status}
-                    </span>
+                  {canWrite ? (
                     <button
                       type="button"
                       onClick={() => startEdit(supplier)}
                       disabled={!canWrite}
                       title={!canWrite ? noAccess('title') : undefined}
-                      className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
+                      className="shrink-0 rounded border border-gold-700/50 px-3 py-1.5 text-xs text-gold-100 hover:border-gold-500/60"
                     >
                       {actions('edit')}
                     </button>
-                  </div>
+                  ) : null}
                 </div>
               )}
               <button

@@ -69,9 +69,6 @@ export function installBarcodeScanner(options: BarcodeScannerOptions) {
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
-    if (!enabled) {
-      return;
-    }
     if (event.metaKey || event.ctrlKey || event.altKey) {
       return;
     }
@@ -97,7 +94,7 @@ export function installBarcodeScanner(options: BarcodeScannerOptions) {
     if (!isEditableTarget(event.target)) {
       scheduleFinalize();
     } else {
-      scheduleFinalize();
+      reset();
     }
   };
 

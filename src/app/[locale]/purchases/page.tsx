@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getOrCreateDeviceId } from '@/lib/auth';
@@ -16,6 +16,8 @@ import {
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
+import { useVariantSearch } from '@/lib/use-variant-search';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
@@ -25,13 +27,14 @@ import {
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
-import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
+import { formatEntityLabel, formatVariantLabel, shortId } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Branch = { id: string; name: string };
 type Supplier = { id: string; name: string; status: string };
@@ -65,6 +68,8 @@ export default function PurchasesPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
+  const locale = useLocale();
+  const { formatDate } = useFormatDate();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('purchases.write');
   const [isLoading, setIsLoading] = useState(true);
@@ -84,6 +89,8 @@ export default function PurchasesPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
   const [offline, setOffline] = useState(false);
   const [syncBlocked, setSyncBlocked] = useState(false);
@@ -95,6 +102,7 @@ export default function PurchasesPage() {
     supplierId: '',
   });
   const { activeBranch, resolveBranchId } = useBranchScope();
+  const { loadOptions: loadVariantOptions, getVariantData, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
   const [lines, setLines] = useState<PurchaseLine[]>([
     { id: crypto.randomUUID(), variantId: '', quantity: '', unitCost: '', unitId: '' },
   ]);
@@ -130,6 +138,28 @@ export default function PurchasesPage() {
     ],
     [common],
   );
+
+  const purchaseStatusLabels = useMemo<Record<string, string>>(
+    () => ({
+      PENDING: common('statusPending'),
+      PARTIAL: common('statusPartial'),
+      COMPLETED: common('statusCompleted'),
+      CANCELLED: common('statusCancelled'),
+    }),
+    [common],
+  );
+
+  const getStatusStyle = (status: string): string => {
+    switch (status) {
+      case 'APPROVED': return 'border-blue-500/50 bg-blue-500/10 text-blue-200';
+      case 'RECEIVED': case 'COMPLETED': return 'border-green-500/50 bg-green-500/10 text-green-200';
+      case 'PENDING_APPROVAL': case 'PENDING': return 'border-amber-500/50 bg-amber-500/10 text-amber-200';
+      case 'PARTIALLY_RECEIVED': case 'PARTIAL': return 'border-purple-500/50 bg-purple-500/10 text-purple-200';
+      case 'CANCELLED': return 'border-red-500/50 bg-red-500/10 text-red-300';
+      case 'DRAFT': return 'border-gold-700/50 bg-black/40 text-gold-400';
+      default: return 'border-gold-700/50 bg-black/40 text-gold-400';
+    }
+  };
 
   const branchOptions = useMemo(
     () => [
@@ -177,7 +207,32 @@ export default function PurchasesPage() {
     }
   }, [activeBranch?.id, form.branchId]);
 
-  const load = async (targetPage = 1, nextPageSize?: number) => {
+  const loadReferenceData = useCallback(async () => {
+    if (!navigator.onLine) return;
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const [branchData, supplierData, variantData, unitList] = await Promise.all([
+        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', { token }),
+        apiFetch<PaginatedResponse<Supplier> | Supplier[]>('/suppliers?limit=200', { token }),
+        apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', { token }),
+        loadUnits(token),
+      ]);
+      setBranches(normalizePaginated(branchData).items);
+      setSuppliers(normalizePaginated(supplierData).items);
+      setVariants(normalizePaginated(variantData).items);
+      seedVariantCache(normalizePaginated(variantData).items);
+      setUnits(unitList);
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     setIsLoading(true);
     const token = getAccessToken();
     if (!token) {
@@ -198,6 +253,7 @@ export default function PurchasesPage() {
       setBranches(cache.branches ?? []);
       setSuppliers(cache.suppliers ?? []);
       setVariants(cache.variants ?? []);
+      seedVariantCache(cache.variants ?? []);
       setUnits(cache.units ?? []);
       setPurchases([]);
       setNextCursor(null);
@@ -210,7 +266,7 @@ export default function PurchasesPage() {
     try {
       const effectivePageSize = nextPageSize ?? pageSize;
       const cursor =
-        targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+        targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
       const query = buildCursorQuery({
         limit: effectivePageSize,
         cursor: cursor ?? undefined,
@@ -222,42 +278,25 @@ export default function PurchasesPage() {
         to: filters.to || undefined,
         includeTotal: targetPage === 1 ? '1' : undefined,
       });
-      const [branchData, supplierData, variantData, unitList, purchaseData] =
-        await Promise.all([
-          apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
-            token,
-          }),
-          apiFetch<PaginatedResponse<Supplier> | Supplier[]>('/suppliers?limit=200', {
-            token,
-          }),
-          apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', {
-            token,
-          }),
-          loadUnits(token),
-          apiFetch<PaginatedResponse<Purchase> | Purchase[]>(
-            `/purchases${query}`,
-            { token },
-          ),
-        ]);
-      setBranches(normalizePaginated(branchData).items);
-      setSuppliers(normalizePaginated(supplierData).items);
-      setVariants(normalizePaginated(variantData).items);
-      setUnits(unitList);
+      const purchaseData = await apiFetch<PaginatedResponse<Purchase> | Purchase[]>(
+        `/purchases${query}`,
+        { token },
+      );
       const purchaseResult = normalizePaginated(purchaseData);
       setPurchases(purchaseResult.items);
       setNextCursor(purchaseResult.nextCursor);
       if (typeof purchaseResult.total === 'number') {
         setTotal(purchaseResult.total);
       }
-    setPage(targetPage);
-    setPageCursors((prev) => {
-      const nextState: Record<number, string | null> =
-        targetPage === 1 ? { 1: null } : { ...prev };
-      if (purchaseResult.nextCursor) {
-        nextState[targetPage + 1] = purchaseResult.nextCursor;
-      }
-      return nextState;
-    });
+      setPage(targetPage);
+      setPageCursors((prev) => {
+        const nextState: Record<number, string | null> =
+          targetPage === 1 ? { 1: null } : { ...prev };
+        if (purchaseResult.nextCursor) {
+          nextState[targetPage + 1] = purchaseResult.nextCursor;
+        }
+        return nextState;
+      });
     } catch (err) {
       setMessage({
         action: 'load',
@@ -267,7 +306,11 @@ export default function PurchasesPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, effectiveFilterBranchId, filters.search, filters.status, filters.supplierId, filters.from, filters.to, t, setMessage]);
+
+  useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
     setPage(1);
@@ -282,6 +325,7 @@ export default function PurchasesPage() {
     filters.supplierId,
     filters.from,
     filters.to,
+    load,
   ]);
 
   useEffect(() => {
@@ -319,7 +363,15 @@ export default function PurchasesPage() {
 
   const createPurchase = async () => {
     const token = getAccessToken();
-    if (!token || !effectiveFormBranchId || !form.supplierId) {
+    if (!token) {
+      return;
+    }
+    if (!effectiveFormBranchId) {
+      setMessage({ action: 'save', outcome: 'warning', message: t('branchRequired') });
+      return;
+    }
+    if (!form.supplierId) {
+      setMessage({ action: 'save', outcome: 'warning', message: t('supplierRequired') });
       return;
     }
     const payloadLines = lines
@@ -331,6 +383,7 @@ export default function PurchasesPage() {
         unitId: line.unitId || undefined,
       }));
     if (!payloadLines.length) {
+      setMessage({ action: 'save', outcome: 'warning', message: t('noValidLines') });
       return;
     }
     setMessage(null);
@@ -367,7 +420,7 @@ export default function PurchasesPage() {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : t('offlineQueueFailed');
-        setMessage(message);
+        setMessage({ action: 'sync', outcome: 'failure', message });
         setIsCreating(false);
         return;
       }
@@ -423,7 +476,7 @@ export default function PurchasesPage() {
     if (!token || !paymentForm.purchaseId || !paymentForm.amount) {
       return;
     }
-    if (paymentForm.method === 'BANK_TRANSFER' && !paymentForm.reference) {
+    if ((paymentForm.method === 'BANK_TRANSFER' || paymentForm.method === 'MOBILE_MONEY') && !paymentForm.reference) {
       setMessage({ action: 'save', outcome: 'info', message: t('bankTransferReference') });
       return;
     }
@@ -467,7 +520,7 @@ export default function PurchasesPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow={t('title')}
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
@@ -482,27 +535,27 @@ export default function PurchasesPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Purchase rows
+            {t('kpiTotal')}
           </p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{purchases.length}</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{total ?? purchases.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Draft lines
+            {t('kpiDraftLines')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{lines.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Payment target
+            {t('kpiPaymentTarget')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">
-            {paymentForm.purchaseId ? 'Selected' : 'None'}
+            {paymentForm.purchaseId ? t('kpiSelected') : t('kpiNone')}
           </p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Current page
+            {t('kpiPage')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{page}</p>
         </article>
@@ -517,6 +570,7 @@ export default function PurchasesPage() {
         onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
       >
         <SmartSelect
+          instanceId="purchases-filter-status"
           value={filters.status}
           onChange={(value) => pushFilters({ status: value })}
           options={statusOptions}
@@ -524,6 +578,7 @@ export default function PurchasesPage() {
           className="nvi-select-container"
         />
         <SmartSelect
+          instanceId="purchases-filter-branch"
           value={filters.branchId}
           onChange={(value) => pushFilters({ branchId: value })}
           options={branchOptions}
@@ -531,6 +586,7 @@ export default function PurchasesPage() {
           className="nvi-select-container"
         />
         <SmartSelect
+          instanceId="purchases-filter-supplier"
           value={filters.supplierId}
           onChange={(value) => pushFilters({ supplierId: value })}
           options={supplierOptions}
@@ -585,6 +641,7 @@ export default function PurchasesPage() {
         <h3 className="text-lg font-semibold text-gold-100">{t('createTitle')}</h3>
         <div className="grid gap-3 sm:grid-cols-2">
           <SmartSelect
+            instanceId="purchases-create-branch"
             value={form.branchId}
             onChange={(value) => setForm({ ...form, branchId: value })}
             options={branches.map((branch) => ({
@@ -596,6 +653,7 @@ export default function PurchasesPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="purchases-create-supplier"
             value={form.supplierId}
             onChange={(value) => setForm({ ...form, supplierId: value })}
             options={suppliers.map((supplier) => ({
@@ -610,28 +668,28 @@ export default function PurchasesPage() {
         <div className="space-y-2 nvi-stagger">
           {lines.map((line) => (
             <div key={line.id} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-              <SmartSelect
-                value={line.variantId}
-                onChange={(value) =>
-                  updateLine(line.id, {
-                    variantId: value,
-                    unitId:
-                      variants.find((variant) => variant.id === value)?.sellUnitId ||
-                      variants.find((variant) => variant.id === value)?.baseUnitId ||
-                      line.unitId,
-                  })
-                }
-                options={variants.map((variant) => ({
-                  value: variant.id,
+              <AsyncSmartSelect
+                instanceId={`purchases-line-${line.id}-variant`}
+                value={getVariantOption(line.variantId)}
+                loadOptions={loadVariantOptions}
+                defaultOptions={variants.map((v) => ({
+                  value: v.id,
                   label: formatVariantLabel({
-                    id: variant.id,
-                    name: variant.name,
-                    productName: variant.product?.name ?? null,
+                    id: v.id,
+                    name: v.name,
+                    productName: v.product?.name ?? null,
                   }),
                 }))}
+                onChange={(opt) => {
+                  const variantId = opt?.value ?? '';
+                  const vd = getVariantData(variantId) ?? variants.find((v) => v.id === variantId);
+                  updateLine(line.id, {
+                    variantId,
+                    unitId: vd?.baseUnitId ?? vd?.sellUnitId ?? line.unitId,
+                  });
+                }}
                 placeholder={t('variant')}
                 isClearable
-                className="nvi-select-container"
               />
               <input
                 value={line.quantity}
@@ -642,6 +700,7 @@ export default function PurchasesPage() {
                 className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
               />
               <SmartSelect
+                instanceId={`purchases-line-${line.id}-unit`}
                 value={line.unitId}
                 onChange={(value) => updateLine(line.id, { unitId: value })}
                 options={units.map((unit) => ({
@@ -697,9 +756,10 @@ export default function PurchasesPage() {
 
       <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('paymentTitle')}</h3>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="md:col-span-2">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="sm:col-span-2">
             <SmartSelect
+              instanceId="purchases-payment-purchase"
               value={paymentForm.purchaseId}
               onChange={(value) =>
                 setPaymentForm({ ...paymentForm, purchaseId: value })
@@ -709,9 +769,9 @@ export default function PurchasesPage() {
                 label: `${
                   purchase.supplier?.name ??
                   (purchase.createdAt
-                    ? new Date(purchase.createdAt).toLocaleDateString()
+                    ? formatDate(purchase.createdAt)
                     : formatEntityLabel({ id: purchase.id }, common('unknown')))
-                } • ${purchase.status}`,
+                } • ${purchaseStatusLabels[purchase.status] ?? purchase.status} • #${shortId(purchase.id)}`,
               }))}
               placeholder={t('selectPurchase')}
               isClearable
@@ -719,6 +779,7 @@ export default function PurchasesPage() {
             />
           </div>
           <SmartSelect
+            instanceId="purchases-payment-method"
             value={paymentForm.method}
             onChange={(value) =>
               setPaymentForm({ ...paymentForm, method: value })
@@ -746,7 +807,7 @@ export default function PurchasesPage() {
               setPaymentForm({ ...paymentForm, reference: event.target.value })
             }
             placeholder={t('referenceOptional')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 md:col-span-2"
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
           <input
             value={paymentForm.methodLabel}
@@ -754,7 +815,7 @@ export default function PurchasesPage() {
               setPaymentForm({ ...paymentForm, methodLabel: event.target.value })
             }
             placeholder={t('methodLabelOptional')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 md:col-span-2"
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
         </div>
         <button
@@ -776,10 +837,11 @@ export default function PurchasesPage() {
             <StatusBanner message={t('noPurchases')} />
           ) : (
             <div className="overflow-auto">
-              <table className="min-w-[640px] w-full text-left text-sm text-gold-100">
+              <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
                 <thead className="text-xs uppercase text-gold-400">
                   <tr>
                     <th className="px-3 py-2">{t('supplierFallback')}</th>
+                    <th className="px-3 py-2">{common('branch')}</th>
                     <th className="px-3 py-2">{t('statusLabel')}</th>
                     <th className="px-3 py-2">{t('createdAt')}</th>
                     <th className="px-3 py-2">{t('total')}</th>
@@ -788,14 +850,20 @@ export default function PurchasesPage() {
                 <tbody>
                   {purchases.map((purchase) => (
                     <tr key={purchase.id} className="border-t border-gold-700/20">
-                      <td className="px-3 py-2 font-semibold">
-                        {purchase.supplier?.name ?? t('supplierFallback')}
-                      </td>
-                      <td className="px-3 py-2">{purchase.status}</td>
                       <td className="px-3 py-2">
-                        {new Date(purchase.createdAt).toLocaleString()}
+                        <p className="font-semibold text-gold-100">{purchase.supplier?.name ?? t('supplierFallback')}</p>
+                        <p className="text-[11px] text-gold-500">#{shortId(purchase.id)}</p>
                       </td>
-                      <td className="px-3 py-2">{purchase.total}</td>
+                      <td className="px-3 py-2 text-gold-300">{purchase.branch?.name ?? '—'}</td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded border px-2 py-0.5 text-[11px] ${getStatusStyle(purchase.status)}`}>
+                          {purchaseStatusLabels[purchase.status] ?? purchase.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-gold-300">
+                        {formatDate(purchase.createdAt)}
+                      </td>
+                      <td className="px-3 py-2 font-semibold text-gold-100">{purchase.total}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -808,26 +876,35 @@ export default function PurchasesPage() {
           purchases.map((purchase) => (
             <div
               key={purchase.id}
-              className="rounded border border-gold-700/30 bg-black/40 p-3"
+              className="rounded border border-gold-700/30 bg-black/40 p-4"
             >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-gold-100">
-                    {purchase.supplier?.name ?? t('supplierFallback')} • {purchase.status}
-                  </p>
-                  <p className="text-xs text-gold-400">
-                    {purchase.id} • {new Date(purchase.createdAt).toLocaleString()}
-                  </p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-gold-100 truncate">
+                      {purchase.supplier?.name ?? t('supplierFallback')}
+                    </p>
+                    <span className={`rounded border px-2 py-0.5 text-[11px] ${getStatusStyle(purchase.status)}`}>
+                      {purchaseStatusLabels[purchase.status] ?? purchase.status}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gold-400">
+                    {purchase.branch?.name ? <span>{purchase.branch.name}</span> : null}
+                    <span>#{shortId(purchase.id)}</span>
+                    <span>{formatDate(purchase.createdAt)}</span>
+                  </div>
                 </div>
-                <div className="text-xs text-gold-300">
-                  {t('totalLabel', { value: purchase.total })}
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-semibold text-gold-100">{purchase.total}</p>
                 </div>
               </div>
               {purchase.payments?.length ? (
-                <div className="mt-2 text-xs text-gold-400">
-                  {t('paymentsLabel')}{' '}
+                <div className="mt-2 flex flex-wrap gap-2">
                   {purchase.payments.map((payment) => (
-                    <span key={payment.id} className="mr-2">
+                    <span
+                      key={payment.id}
+                      className="rounded bg-gold-900/30 px-2 py-0.5 text-[11px] text-gold-300"
+                    >
                       {payment.method} {payment.amount}
                     </span>
                   ))}

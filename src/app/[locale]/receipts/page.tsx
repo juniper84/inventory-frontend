@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useTranslations } from 'next-intl';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -9,6 +9,8 @@ import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
+import { useVariantSearch } from '@/lib/use-variant-search';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
@@ -28,12 +30,14 @@ import {
 import {
   buildReceiptLines,
   type ReceiptData as ReceiptPrintData,
+  type ReceiptLabels,
 } from '@/lib/receipt-print';
 import { ReceiptPreview } from '@/components/receipts/ReceiptPreview';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useCurrency, formatCurrency, useFormatDate, useTimezone, useDateFormat } from '@/lib/business-context';
 
 type ReceiptData = ReceiptPrintData;
 
@@ -70,6 +74,11 @@ export default function ReceiptsPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
+  const locale = useLocale();
+  const { formatDate, formatDateTime } = useFormatDate();
+  const timezone = useTimezone();
+  const dateFormat = useDateFormat();
+  const currency = useCurrency();
   const permissions = getPermissionSet();
   const canRead = permissions.has('sales.read');
   const canRefund = permissions.has('sales.write');
@@ -109,12 +118,14 @@ export default function ReceiptsPage() {
   });
   const [returnToStock, setReturnToStock] = useState(true);
   const { activeBranch, resolveBranchId } = useBranchScope();
+  const { loadOptions: loadVariantOptions, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
   const [returnItems, setReturnItems] = useState([
     { variantId: '', quantity: '', unitPrice: '' },
   ]);
   const [refundReason, setRefundReason] = useState('');
   const [refundReturnToStock, setRefundReturnToStock] = useState(true);
   const [isRefunding, setIsRefunding] = useState(false);
+  const printTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [printer, setPrinter] = useState<EscPosConnection | null>(null);
   const [isConnectingPrinter, setIsConnectingPrinter] = useState(false);
   const [useHardwarePrint, setUseHardwarePrint] = useState(false);
@@ -160,7 +171,54 @@ export default function ReceiptsPage() {
     }
   }, [debouncedSearch, filters.search, pushFilters]);
 
-  const load = async (targetPage = 1, nextPageSize?: number) => {
+  const loadCustomerOptions = useCallback(async (inputValue: string) => {
+    const token = getAccessToken();
+    if (!token) return [];
+    try {
+      const data = await apiFetch<PaginatedResponse<Customer> | Customer[]>(
+        `/customers?search=${encodeURIComponent(inputValue)}&limit=25`,
+        { token },
+      );
+      return normalizePaginated(data).items.map((c) => ({ value: c.id, label: c.name }));
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    const results = await Promise.allSettled([
+      apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', { token }),
+      apiFetch<PaginatedResponse<Customer> | Customer[]>('/customers?limit=50', { token }),
+      apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', { token }),
+      apiFetch<PaginatedResponse<User> | User[]>('/users?limit=200', { token }),
+    ]);
+    if (results[0].status === 'fulfilled') {
+      setBranches(normalizePaginated(results[0].value).items);
+    } else {
+      setBranches([]);
+    }
+    if (results[1].status === 'fulfilled') {
+      setCustomers(normalizePaginated(results[1].value).items);
+    } else {
+      setCustomers([]);
+    }
+    if (results[2].status === 'fulfilled') {
+      const variantList = normalizePaginated(results[2].value).items;
+      setVariants(variantList);
+      seedVariantCache(variantList);
+    } else {
+      setVariants([]);
+    }
+    if (results[3].status === 'fulfilled') {
+      setUsers(normalizePaginated(results[3].value).items);
+    } else {
+      setUsers([]);
+    }
+  }, [seedVariantCache]);
+
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     setIsLoading(true);
     const token = getAccessToken();
     if (!token) {
@@ -199,38 +257,6 @@ export default function ReceiptsPage() {
       }
       return nextState;
     });
-      const results = await Promise.allSettled([
-        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
-          token,
-        }),
-        apiFetch<PaginatedResponse<Customer> | Customer[]>('/customers?limit=200', {
-          token,
-        }),
-        apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', {
-          token,
-        }),
-        apiFetch<PaginatedResponse<User> | User[]>('/users?limit=200', { token }),
-      ]);
-      if (results[0].status === 'fulfilled') {
-        setBranches(normalizePaginated(results[0].value).items);
-      } else {
-        setBranches([]);
-      }
-      if (results[1].status === 'fulfilled') {
-        setCustomers(normalizePaginated(results[1].value).items);
-      } else {
-        setCustomers([]);
-      }
-      if (results[2].status === 'fulfilled') {
-        setVariants(normalizePaginated(results[2].value).items);
-      } else {
-        setVariants([]);
-      }
-      if (results[3].status === 'fulfilled') {
-        setUsers(normalizePaginated(results[3].value).items);
-      } else {
-        setUsers([]);
-      }
     } catch (err) {
       setMessage({
         action: 'load',
@@ -240,20 +266,18 @@ export default function ReceiptsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, pageCursors, filters.search, effectiveFilterBranchId, filters.paymentMethod, filters.from, filters.to, t]);
+
+  useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
     load(1);
-  }, [
-    filters.search,
-    filters.branchId,
-    filters.paymentMethod,
-    filters.from,
-    filters.to,
-  ]);
+  }, [load]);
 
   useEffect(() => {
     if (activeBranch?.id && !returnForm.branchId) {
@@ -261,11 +285,28 @@ export default function ReceiptsPage() {
     }
   }, [activeBranch?.id, returnForm.branchId]);
 
+  useEffect(() => {
+    return () => {
+      if (printTimerRef.current) clearTimeout(printTimerRef.current);
+    };
+  }, []);
+
   const buildReceiptText = useCallback(
     (receipt: ReceiptResponse) => {
       if (!receipt.data) {
         return null;
       }
+      const labels: ReceiptLabels = {
+        receipt: common('receiptLabelReceipt'),
+        cashier: common('receiptLabelCashier'),
+        customer: common('receiptLabelCustomer'),
+        tin: common('receiptLabelTin'),
+        subtotal: common('receiptLabelSubtotal'),
+        discounts: common('receiptLabelDiscounts'),
+        vat: common('receiptLabelVat'),
+        total: common('receiptLabelTotal'),
+        payment: common('receiptLabelPayment'),
+      };
       return buildReceiptLines(
         {
           receiptNumber: receipt.receiptNumber,
@@ -273,9 +314,14 @@ export default function ReceiptsPage() {
           data: receipt.data,
         },
         32,
+        currency,
+        locale,
+        labels,
+        timezone,
+        dateFormat,
       );
     },
-    [],
+    [currency, locale, common],
   );
 
   const connectPrinter = async () => {
@@ -333,8 +379,10 @@ export default function ReceiptsPage() {
           setMessage({ action: 'save', outcome: 'warning', message: t('noReceiptData') });
         }
       } else {
-        setTimeout(() => window.print(), 100);
+        printTimerRef.current = setTimeout(() => window.print(), 100);
       }
+    } catch (err) {
+      setMessage({ action: 'save', outcome: 'failure', message: getApiErrorMessage(err, t('reprintFailed')) });
     } finally {
       setIsReprinting(null);
     }
@@ -519,7 +567,6 @@ export default function ReceiptsPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow={t('title')}
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
@@ -554,28 +601,28 @@ export default function ReceiptsPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Receipt rows
+            {t('kpiReceiptRows')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{receipts.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Current page
+            {t('kpiCurrentPage')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{page}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Outstanding
+            {t('kpiOutstanding')}
           </p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{outstandingAmount.toFixed(2)}</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{formatCurrency(outstandingAmount, currency)}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Selected receipt
+            {t('kpiSelectedReceipt')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">
-            {selected ? selected.receiptNumber : 'None'}
+            {selected ? selected.receiptNumber : t('none')}
           </p>
         </article>
       </div>
@@ -589,6 +636,7 @@ export default function ReceiptsPage() {
         onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
       >
         <SmartSelect
+          instanceId="receipts-filter-branch"
           value={filters.branchId}
           onChange={(value) => pushFilters({ branchId: value })}
           options={branchOptions}
@@ -596,6 +644,7 @@ export default function ReceiptsPage() {
           className="nvi-select-container"
         />
         <SmartSelect
+          instanceId="receipts-filter-payment-method"
           value={filters.paymentMethod}
           onChange={(value) => pushFilters({ paymentMethod: value })}
           options={paymentOptions}
@@ -636,7 +685,7 @@ export default function ReceiptsPage() {
                     <tr key={receipt.id} className="border-t border-gold-700/20">
                       <td className="px-3 py-2 font-semibold">{receipt.receiptNumber}</td>
                       <td className="px-3 py-2">
-                        {new Date(receipt.issuedAt).toLocaleString()}
+                        {formatDateTime(receipt.issuedAt)}
                       </td>
                       <td className="px-3 py-2">
                         {receipt.sale?.total ?? t('empty')}
@@ -644,12 +693,14 @@ export default function ReceiptsPage() {
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2 text-xs">
                           <button
+                            type="button"
                             onClick={() => setSelected(receipt)}
                             className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
                           >
                             {actions('view')}
                           </button>
                           <button
+                            type="button"
                             onClick={() => reprint(receipt.id)}
                             className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
                             disabled={!canRead || isReprinting === receipt.id}
@@ -679,17 +730,19 @@ export default function ReceiptsPage() {
               <div>
                 <p className="text-gold-100">{receipt.receiptNumber}</p>
                 <p className="text-xs text-gold-400">
-                  {new Date(receipt.issuedAt).toLocaleString()}
+                  {formatDateTime(receipt.issuedAt)}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => setSelected(receipt)}
                   className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
                 >
                   {actions('view')}
                 </button>
                 <button
+                  type="button"
                   onClick={() => reprint(receipt.id)}
                   className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
                   disabled={!canRead || isReprinting === receipt.id}
@@ -776,14 +829,15 @@ export default function ReceiptsPage() {
           </h3>
           <p className="text-xs text-gold-400">
             {t('outstandingLabel', {
-              amount: outstandingAmount.toFixed(2),
+              amount: formatCurrency(outstandingAmount, currency),
               due: selected.sale.creditDueDate
-                ? new Date(selected.sale.creditDueDate).toLocaleDateString()
+                ? formatDate(selected.sale.creditDueDate)
                 : '',
             })}
           </p>
           <div className="grid gap-2 md:grid-cols-2">
             <SmartSelect
+              instanceId="receipts-settlement-method"
               value={settlement.method}
               onChange={(value) =>
                 setSettlement({ ...settlement, method: value })
@@ -826,6 +880,7 @@ export default function ReceiptsPage() {
             />
           </div>
           <button
+            type="button"
             onClick={submitSettlement}
             className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canSettleCredit || isSettling}
@@ -877,6 +932,7 @@ export default function ReceiptsPage() {
         </h3>
         <div className="grid gap-2 md:grid-cols-3">
           <SmartSelect
+            instanceId="receipts-return-branch"
             value={returnForm.branchId}
             onChange={(value) =>
               setReturnForm({ ...returnForm, branchId: value })
@@ -889,15 +945,12 @@ export default function ReceiptsPage() {
             isClearable
             className="nvi-select-container"
           />
-          <SmartSelect
-            value={returnForm.customerId}
-            onChange={(value) =>
-              setReturnForm({ ...returnForm, customerId: value })
-            }
-            options={customers.map((customer) => ({
-              value: customer.id,
-              label: customer.name,
-            }))}
+          <AsyncSmartSelect
+            instanceId="receipts-return-customer"
+            value={returnForm.customerId ? { value: returnForm.customerId, label: customers.find((c) => c.id === returnForm.customerId)?.name ?? returnForm.customerId } : null}
+            onChange={(opt) => setReturnForm({ ...returnForm, customerId: opt?.value ?? '' })}
+            loadOptions={loadCustomerOptions}
+            defaultOptions={customers.map((c) => ({ value: c.id, label: c.name }))}
             placeholder={t('customerOptional')}
             isClearable
             className="nvi-select-container"
@@ -922,19 +975,21 @@ export default function ReceiptsPage() {
         <div className="space-y-2 nvi-stagger">
           {returnItems.map((item, index) => (
             <div key={`return-${index}`} className="grid gap-2 md:grid-cols-3">
-              <SmartSelect
-                value={item.variantId}
-                onChange={(value) =>
-                  updateReturnItem(index, { variantId: value })
-                }
-                options={variants.map((variant) => ({
-                  value: variant.id,
+              <AsyncSmartSelect
+                instanceId={`receipts-return-item-${index}-variant`}
+                value={getVariantOption(item.variantId)}
+                loadOptions={loadVariantOptions}
+                defaultOptions={variants.map((v) => ({
+                  value: v.id,
                   label: formatVariantLabel({
-                    id: variant.id,
-                    name: variant.name,
-                    productName: variant.product?.name ?? null,
+                    id: v.id,
+                    name: v.name,
+                    productName: v.product?.name ?? null,
                   }),
                 }))}
+                onChange={(opt) =>
+                  updateReturnItem(index, { variantId: opt?.value ?? '' })
+                }
                 placeholder={t('selectVariant')}
                 isClearable
                 className="nvi-select-container"

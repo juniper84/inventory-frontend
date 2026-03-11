@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   apiFetch,
@@ -28,11 +28,14 @@ import {
   getBranchModeForPathname,
   resolveBranchIdForMode,
 } from '@/lib/branch-policy';
+import { useCurrency, useFormatDate } from '@/lib/business-context';
+import { ZERO_DECIMAL_CURRENCIES } from '@/lib/currencies';
 import {
   ArcElement,
   BarElement,
   CategoryScale,
   Chart as ChartJS,
+  type ChartOptions,
   Legend,
   LineElement,
   LinearScale,
@@ -51,6 +54,13 @@ ChartJS.register(
   Tooltip,
   Legend,
 );
+
+const truncateAxisLabel = (value: string, maxLength = 28): string => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
+};
 
 type Branch = { id: string; name: string };
 
@@ -187,6 +197,8 @@ const DEFAULT_FILTERS = {
 
 export function ReportsWorkspace({ section }: { section: ReportSection }) {
   const t = useTranslations('reports');
+  const locale = useLocale();
+  const { formatDate } = useFormatDate();
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
   const searchParams = useSearchParams();
@@ -195,6 +207,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
   const permissions = getPermissionSet();
   const canReadReports = permissions.has('reports.read');
   const canExport = permissions.has('customers.export');
+  const currency = useCurrency();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -233,7 +246,12 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
   );
   const [threshold, setThreshold] = useState('5');
   const [expiryDays, setExpiryDays] = useState('30');
+  const [outstandingPage, setOutstandingPage] = useState(1);
+  const [lowStockPage, setLowStockPage] = useState(1);
+  const lowStockPageSize = 10;
+  const outstandingPageSize = 8;
   const [hasInitialized, setHasInitialized] = useState(false);
+  const loadControllerRef = useRef<AbortController | null>(null);
 
   const reportsRootPath = useMemo(() => {
     const segments = pathname.split('/').filter(Boolean);
@@ -304,14 +322,38 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
     (variancePage - 1) * variancePageSize,
     variancePage * variancePageSize,
   );
-  const currencyFormatter = useMemo(
-    () =>
-      new Intl.NumberFormat(undefined, {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2,
-      }),
-    [],
+  const outstandingTotalPages = Math.max(1, Math.ceil(outstanding.length / outstandingPageSize));
+  const pagedOutstanding = outstanding.slice(
+    (outstandingPage - 1) * outstandingPageSize,
+    outstandingPage * outstandingPageSize,
   );
+  const lowStockTotalPages = Math.max(1, Math.ceil(lowStock.length / lowStockPageSize));
+  const pagedLowStock = lowStock.slice(
+    (lowStockPage - 1) * lowStockPageSize,
+    lowStockPage * lowStockPageSize,
+  );
+  const currencyFormatter = useMemo(() => {
+    const resolved = currency || 'TZS';
+    const fractionDigits = ZERO_DECIMAL_CURRENCIES.has(resolved) ? 0 : 2;
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: resolved,
+      currencyDisplay: 'code',
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
+  }, [locale, currency]);
+
+  const formatKpi = (value: number): string => {
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000) {
+      return (value / 1_000_000).toLocaleString(locale, { maximumFractionDigits: 1 }) + 'M';
+    }
+    if (abs >= 10_000) {
+      return (value / 1000).toLocaleString(locale, { maximumFractionDigits: 1 }) + 'K';
+    }
+    return currencyFormatter.format(value);
+  };
 
   const salesByDay = useMemo(() => {
     const buckets = new Map<string, number>();
@@ -439,6 +481,9 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
   }, [stockCountVariance]);
 
   const load = useCallback(async (mode: 'full' | 'refresh' = 'full') => {
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
     if (mode === 'full') {
       setIsLoading(true);
     } else {
@@ -489,68 +534,67 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
       ] = await Promise.all([
         apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
           token,
+          signal: controller.signal,
         }),
         loadUnits(token),
         apiFetch<CustomerAggregate[]>(
           `/reports/customers/sales?${params.toString()}`,
-          {
-            token,
-          },
+          { token, signal: controller.signal },
         ),
         apiFetch<CustomerAggregate[]>(
           `/reports/customers/refunds?${params.toString()}`,
-          {
-            token,
-          },
+          { token, signal: controller.signal },
         ),
         apiFetch<CustomerAggregate[]>(
-          `/reports/customers/top${branchParam ? `?${branchParam}` : ''}`,
-          { token },
+          `/reports/customers/top?${params.toString()}`,
+          { token, signal: controller.signal },
         ),
         apiFetch<Outstanding[]>(
-          `/reports/customers/outstanding${branchParam ? `?${branchParam}` : ''}`,
-          { token },
+          `/reports/customers/outstanding?${params.toString()}`,
+          { token, signal: controller.signal },
         ),
         apiFetch<StockSnapshot[]>(`/reports/stock?${params.toString()}`, {
           token,
+          signal: controller.signal,
         }),
-        apiFetch<Sale[]>(`/reports/sales?${params.toString()}`, { token }),
-        apiFetch<VatLine[]>(`/reports/vat?${params.toString()}`, { token }),
-        apiFetch<VatSummary>(`/reports/vat-summary?${params.toString()}`, { token }),
-        apiFetch<PnlReport>(`/reports/pnl?${params.toString()}`, { token }),
+        apiFetch<Sale[]>(`/reports/sales?${params.toString()}`, { token, signal: controller.signal }),
+        apiFetch<VatLine[]>(`/reports/vat?${params.toString()}`, { token, signal: controller.signal }),
+        apiFetch<VatSummary>(`/reports/vat-summary?${params.toString()}`, { token, signal: controller.signal }),
+        apiFetch<PnlReport>(`/reports/pnl?${params.toString()}`, { token, signal: controller.signal }),
         apiFetch<LowStock[]>(
           `/reports/low-stock?${new URLSearchParams({
             threshold,
             ...(effectiveBranchId ? { branchId: effectiveBranchId } : {}),
           }).toString()}`,
-          { token },
+          { token, signal: controller.signal },
         ),
         apiFetch<ExpiringBatch[]>(
           `/reports/expiry?${new URLSearchParams({
             days: expiryDays,
             ...(effectiveBranchId ? { branchId: effectiveBranchId } : {}),
           }).toString()}`,
-          { token },
+          { token, signal: controller.signal },
         ),
         apiFetch<StockCountVariance[]>(
           `/reports/stock-count-variance?${new URLSearchParams({
-            branchId: effectiveBranchId,
-            from: filters.startDate,
-            to: filters.endDate,
+            ...(effectiveBranchId ? { branchId: effectiveBranchId } : {}),
+            ...(filters.startDate ? { from: filters.startDate } : {}),
+            ...(filters.endDate ? { to: filters.endDate } : {}),
           }).toString()}`,
-          { token },
+          { token, signal: controller.signal },
         ),
         apiFetch<StaffPerformance[]>(
           `/reports/staff?${params.toString()}`,
-          { token },
+          { token, signal: controller.signal },
         ),
         apiFetch<TopLossesReport>(
-          `/reports/losses/top?limit=8&days=30${
-            effectiveBranchId
-              ? `&branchId=${encodeURIComponent(effectiveBranchId)}`
-              : ''
-          }`,
-          { token },
+          `/reports/losses/top?${new URLSearchParams({
+            limit: '8',
+            ...(effectiveBranchId ? { branchId: effectiveBranchId } : {}),
+            ...(filters.startDate ? { from: filters.startDate } : {}),
+            ...(filters.endDate ? { to: filters.endDate } : {}),
+          }).toString()}`,
+          { token, signal: controller.signal },
         ),
       ]);
       setBranches(normalizePaginated(branchData).items);
@@ -570,14 +614,19 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
       setStaff(staffData);
       setTopLosses(lossesData);
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       setMessage({
         action: 'load',
         outcome: 'failure',
         message: getApiErrorMessage(err, t('loadFailed')),
       });
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (loadControllerRef.current === controller) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, [
     expiryDays,
@@ -769,13 +818,14 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
   };
 
   const overviewStockChartData = {
-    labels: topStockItems.map((row) => row.label),
+    labels: topStockItems.map((row) => truncateAxisLabel(row.label, 26)),
     datasets: [
       {
         label: t('stockOnHand'),
         data: topStockItems.map((row) => row.quantity),
         backgroundColor: '#2f6f8a',
         borderRadius: 8,
+        maxBarThickness: 80,
       },
     ],
   };
@@ -820,6 +870,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
         ],
         backgroundColor: ['#50b980', '#c35151', '#c58c3f', '#6e7a8c'],
         borderRadius: 8,
+        maxBarThickness: 80,
       },
     ],
   };
@@ -832,6 +883,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
         data: topCustomerChartRows.map((row) => row.total),
         backgroundColor: '#e2b83f',
         borderRadius: 8,
+        maxBarThickness: 80,
       },
     ],
   };
@@ -856,6 +908,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
         data: inventoryQuantityByBranch.map((row) => row.quantity),
         backgroundColor: '#2f6f8a',
         borderRadius: 8,
+        maxBarThickness: 80,
       },
     ],
   };
@@ -868,6 +921,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
         data: lowStockByBranch.map((row) => row.count),
         backgroundColor: '#c58c3f',
         borderRadius: 8,
+        maxBarThickness: 80,
       },
     ],
   };
@@ -894,6 +948,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
         data: sortedStaff.slice(0, 8).map((row) => row.total),
         backgroundColor: '#50b980',
         borderRadius: 8,
+        maxBarThickness: 80,
       },
     ],
   };
@@ -930,6 +985,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
         data: topLosses?.items.map((row) => Number(row.totalCost ?? 0)) ?? [],
         backgroundColor: '#c35151',
         borderRadius: 8,
+        maxBarThickness: 80,
       },
     ],
   };
@@ -946,12 +1002,44 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
     },
     scales: {
       x: {
-        ticks: { color: '#b7ab84' },
+        ticks: {
+          color: '#b7ab84',
+          maxRotation: 0,
+          minRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 8,
+        },
         grid: { color: 'rgba(198, 167, 86, 0.12)' },
       },
       y: {
         ticks: { color: '#b7ab84' },
         grid: { color: 'rgba(198, 167, 86, 0.12)' },
+      },
+    },
+  };
+
+  const inventoryValuationChartOptions: ChartOptions<'bar'> = {
+    ...cartesianChartOptions,
+    indexAxis: 'y',
+    scales: {
+      x: {
+        ...(cartesianChartOptions.scales?.x ?? {}),
+        ticks: {
+          color: '#b7ab84',
+          maxRotation: 0,
+          minRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 6,
+        },
+        grid: { color: 'rgba(198, 167, 86, 0.12)' },
+      },
+      y: {
+        ...(cartesianChartOptions.scales?.y ?? {}),
+        ticks: {
+          color: '#b7ab84',
+          autoSkip: false,
+        },
+        grid: { color: 'rgba(198, 167, 86, 0.08)' },
       },
     },
   };
@@ -970,7 +1058,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
           <>
             <span className="status-chip">{t('statusLive')}</span>
             <span className="status-chip">{t('statusMultiBranch')}</span>
-            <span className="status-chip">{t('currencyTzs')}</span>
+            <span className="status-chip">{currency}</span>
           </>
         }
       />
@@ -1000,40 +1088,40 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
           <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
             {t('revenue')}
           </p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            {pnl ? pnl.totals.revenue.toLocaleString() : '—'}
+          <p className="mt-2 text-2xl leading-tight font-semibold text-[color:var(--foreground)] truncate">
+            {pnl ? formatKpi(pnl.totals.revenue) : '—'}
           </p>
         </div>
         <div className="kpi-card nvi-tile p-5">
           <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
             {t('cost')}
           </p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            {pnl ? pnl.totals.cost.toLocaleString() : '—'}
+          <p className="mt-2 text-2xl leading-tight font-semibold text-[color:var(--foreground)] truncate">
+            {pnl ? formatKpi(pnl.totals.cost) : '—'}
           </p>
         </div>
         <div className="kpi-card nvi-tile p-5">
           <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
             {t('expenses')}
           </p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            {pnl ? pnl.totals.expenses.toLocaleString() : '—'}
+          <p className="mt-2 text-2xl leading-tight font-semibold text-[color:var(--foreground)] truncate">
+            {pnl ? formatKpi(pnl.totals.expenses) : '—'}
           </p>
         </div>
-        <div className="kpi-card nvi-tile p-5">
+        <div className={`kpi-card nvi-tile p-5 ${pnl ? (pnl.totals.netProfit < 0 ? 'border-[color:#c35151]/40 bg-[#c35151]/5' : pnl.totals.netProfit > 0 ? 'border-[color:#50b980]/40 bg-[#50b980]/5' : '') : ''}`}>
           <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
             {t('netProfit')}
           </p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            {pnl ? pnl.totals.netProfit.toLocaleString() : '—'}
+          <p className={`mt-2 text-2xl leading-tight font-semibold truncate ${pnl ? (pnl.totals.netProfit < 0 ? 'text-[#c35151]' : pnl.totals.netProfit > 0 ? 'text-[#50b980]' : 'text-[color:var(--foreground)]') : 'text-[color:var(--foreground)]'}`}>
+            {pnl ? formatKpi(pnl.totals.netProfit) : '—'}
           </p>
         </div>
         <div className="kpi-card nvi-tile p-5">
           <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
             {t('vat')}
           </p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            {vatTotal.toLocaleString()}
+          <p className="mt-2 text-2xl leading-tight font-semibold text-[color:var(--foreground)] truncate">
+            {formatKpi(vatTotal)}
           </p>
         </div>
       </div>
@@ -1094,57 +1182,54 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
       </div>
 
       {isOverview ? (
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] nvi-stagger">
-        <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
+      <div className="grid gap-6 nvi-stagger">
+        {/* Sales Trend — full width */}
+        <div className="command-card nvi-panel nvi-glow-card relative overflow-hidden p-6 space-y-4 nvi-reveal">
+          <div className="nvi-scan-overlay" />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
-                {t('salesTrendEyebrow')}
-              </p>
-              <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-                {t('salesTrendTitle')}
-              </h3>
-              <p className="text-sm text-[color:var(--muted)]">
-                {t('salesTrendSubtitle')}
-              </p>
+              <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('salesTrendEyebrow')}</p>
+              <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{t('salesTrendTitle')}</h3>
+              <p className="text-sm text-[color:var(--muted)]">{t('salesTrendSubtitle')}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 rounded-lg border border-[color:var(--border)]/60 bg-[color:var(--surface)]/50 px-3 py-1.5 text-xs text-[color:var(--muted)]">
+                <span className="nvi-ping-dot" />
+                {t('transactions')}: <span className="font-semibold text-[color:var(--foreground)] ml-1">{salesRows.length}</span>
+              </div>
+              <div className="flex items-center gap-2 rounded-lg border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/10 px-3 py-1.5 text-xs">
+                <span className="font-semibold text-[color:var(--accent)]">{currencyFormatter.format(salesTotal)}</span>
+              </div>
             </div>
           </div>
           {salesByDay.length > 0 ? (
-            <div className="h-56 sm:h-64 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-              <Line data={overviewSalesChartData} options={cartesianChartOptions} />
+            <div className="h-72 sm:h-80 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
+              <Line data={overviewSalesChartData} options={cartesianChartOptions as ChartOptions<'line'>} />
             </div>
           ) : (
             <StatusBanner message={t('noData')} />
           )}
-          <div className="flex flex-wrap gap-4 text-sm text-[color:var(--muted)]">
-            <span>{t('transactions')}: {salesRows.length}</span>
-            <span>{t('totalSales')}: {salesTotal.toLocaleString()}</span>
-          </div>
         </div>
-        <div className="command-card nvi-panel p-6 space-y-4 nvi-reveal">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
-              {t('inventoryValuationEyebrow')}
-            </p>
-            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-              {t('inventoryValuation')}
-            </h3>
+        {/* Inventory Valuation — full width below */}
+        <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-4 nvi-reveal">
+          <div className="nvi-scan-overlay" />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('inventoryValuationEyebrow')}</p>
+              <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{t('inventoryValuation')}</h3>
+            </div>
+            <div className="flex items-center gap-2 rounded-lg border border-[#2f6f8a]/40 bg-[#2f6f8a]/10 px-3 py-1.5 text-xs">
+              <span className="nvi-ping-dot" style={{ background: '#2f6f8a' }} />
+              <span className="font-semibold text-[#7ab8cc]">{totalStockUnits.toLocaleString(locale)} {t('units') ?? 'units'}</span>
+            </div>
           </div>
           {topStockItems.length > 0 ? (
-            <div className="h-56 sm:h-64 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-              <Bar data={overviewStockChartData} options={cartesianChartOptions} />
+            <div className="h-72 sm:h-80 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
+              <Bar data={overviewStockChartData} options={inventoryValuationChartOptions} />
             </div>
           ) : (
             <StatusBanner message={t('noData')} />
           )}
-          <div className="text-sm text-[color:var(--muted)]">
-            {t('inventoryValuationTotal', {
-              value: `TZS ${currencyFormatter.format(0)}`,
-            })}
-          </div>
-          <div className="text-sm text-[color:var(--muted)]">
-            {t('totalStockUnits', { count: totalStockUnits.toLocaleString() })}
-          </div>
         </div>
       </div>
       ) : null}
@@ -1168,7 +1253,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
               {t('revenue')}
             </p>
             <p className="mt-2 text-lg font-semibold text-[color:var(--foreground)]">
-              {pnl ? pnl.totals.revenue.toLocaleString() : '—'}
+              {pnl ? pnl.totals.revenue.toLocaleString(locale) : '—'}
             </p>
           </div>
           <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
@@ -1176,7 +1261,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
               {t('cost')}
             </p>
             <p className="mt-2 text-lg font-semibold text-[color:var(--foreground)]">
-              {pnl ? pnl.totals.cost.toLocaleString() : '—'}
+              {pnl ? pnl.totals.cost.toLocaleString(locale) : '—'}
             </p>
           </div>
           <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
@@ -1184,7 +1269,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
               {t('expenses')}
             </p>
             <p className="mt-2 text-lg font-semibold text-[color:var(--foreground)]">
-              {pnl ? pnl.totals.expenses.toLocaleString() : '—'}
+              {pnl ? pnl.totals.expenses.toLocaleString(locale) : '—'}
             </p>
           </div>
           <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
@@ -1192,7 +1277,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
               {t('grossProfit')}
             </p>
             <p className="mt-2 text-lg font-semibold text-[color:var(--foreground)]">
-              {pnl ? pnl.totals.grossProfit.toLocaleString() : '—'}
+              {pnl ? pnl.totals.grossProfit.toLocaleString(locale) : '—'}
             </p>
           </div>
           <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
@@ -1200,7 +1285,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
               {t('losses')}
             </p>
             <p className="mt-2 text-lg font-semibold text-[color:var(--foreground)]">
-              {pnl ? pnl.totals.losses.toLocaleString() : '—'}
+              {pnl ? pnl.totals.losses.toLocaleString(locale) : '—'}
             </p>
           </div>
           <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
@@ -1208,7 +1293,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
               {t('netProfit')}
             </p>
             <p className="mt-2 text-lg font-semibold text-[color:var(--foreground)]">
-              {pnl ? pnl.totals.netProfit.toLocaleString() : '—'}
+              {pnl ? pnl.totals.netProfit.toLocaleString(locale) : '—'}
             </p>
           </div>
         </div>
@@ -1223,7 +1308,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
           </h3>
           {pnl?.byDay?.length ? (
             <div className="h-56 sm:h-72 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-              <Line data={salesProfitChartData} options={cartesianChartOptions} />
+              <Line data={salesProfitChartData} options={cartesianChartOptions as ChartOptions<'line'>} />
             </div>
           ) : (
             <StatusBanner message={t('noData')} />
@@ -1234,86 +1319,127 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
             {t('pnlBreakdown')}
           </h3>
           <div className="h-56 sm:h-72 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-            <Bar data={pnlBreakdownChartData} options={cartesianChartOptions} />
+            <Bar data={pnlBreakdownChartData} options={cartesianChartOptions as ChartOptions<'bar'>} />
           </div>
         </div>
       </div>
       ) : null}
 
-      {isSalesProfit ? (
-      <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-              {t('vatBreakdown')}
-            </h3>
-            <span className="status-chip">{t('vatTotal')}: {vatTotal.toLocaleString()}</span>
-          </div>
-          {vatSummary && vatSummary.byRate.length > 0 ? (
-            <div className="grid gap-2 text-sm text-[color:var(--muted)] md:grid-cols-2">
-              <div className="space-y-2">
-                <p className="text-xs uppercase text-[color:var(--muted)]">
-                  {t('vatByRate')}
-                </p>
-                {vatSummary.byRate.map((row) => (
-                  <div key={row.vatRate}>
-                    {t('vatRateLabel', { value: row.vatRate })} ·{' '}
-                    {row.vatAmount.toLocaleString()}
-                  </div>
-                ))}
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs uppercase text-[color:var(--muted)]">
-                  {t('vatByDay')}
-                </p>
-                {vatSummary.byDay.slice(-7).map((row) => (
-                  <div key={row.date}>
-                    {row.date} · {row.vatAmount.toLocaleString()}
-                  </div>
-                ))}
-              </div>
+      {isSalesProfit ? (() => {
+        const maxVat = vatSummary ? Math.max(...vatSummary.byDay.map(r => r.vatAmount), 1) : 1;
+        const maxPnl = pnl?.byDay ? Math.max(...pnl.byDay.map(r => Math.abs(r.netProfit)), 1) : 1;
+        return (
+        <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
+          {/* VAT Breakdown — futuristic bars */}
+          <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-4 nvi-reveal">
+            <div className="nvi-scan-overlay" />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{t('vatBreakdown')}</h3>
+              <span className="nvi-metric-chip">{t('vatTotal')}: {currencyFormatter.format(vatTotal)}</span>
             </div>
-          ) : (
-            <StatusBanner message={t('noData')} />
-          )}
-        </div>
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('pnlByDay')}
-          </h3>
-          {pnl?.byDay?.length ? (
-            <div className="space-y-2 text-sm text-[color:var(--muted)]">
-              {pnl.byDay.slice(-7).map((row) => (
-                <div key={row.date} className="flex flex-wrap items-center justify-between gap-2">
-                  <span>{row.date}</span>
-                  <span>
-                    {t('netProfit')}: {row.netProfit.toLocaleString()}
-                  </span>
+            {vatSummary && vatSummary.byRate.length > 0 ? (
+              <div className="grid gap-5 md:grid-cols-2">
+                <div className="space-y-3">
+                  <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">{t('vatByRate')}</p>
+                  {vatSummary.byRate.map((row) => (
+                    <div key={row.vatRate} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-[color:var(--muted)]">{t('vatRateLabel', { value: row.vatRate })}</span>
+                        <span className="font-semibold text-[color:var(--accent)]">{currencyFormatter.format(row.vatAmount)}</span>
+                      </div>
+                      <div className="nvi-bar-track">
+                        <div
+                          className="nvi-bar-fill nvi-bar-fill--gold"
+                          style={{ width: `${Math.round((row.vatAmount / (vatTotal || 1)) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <StatusBanner message={t('noData')} />
-          )}
+                <div className="space-y-3">
+                  <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">{t('vatByDay')}</p>
+                  {vatSummary.byDay.slice(-7).map((row, i) => (
+                    <div key={row.date} className="space-y-1" style={{ animationDelay: `${i * 50}ms` }}>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-[color:var(--muted)]">{row.date}</span>
+                        <span className="font-semibold text-[color:var(--foreground)]">{currencyFormatter.format(row.vatAmount)}</span>
+                      </div>
+                      <div className="nvi-bar-track">
+                        <div
+                          className="nvi-bar-fill nvi-bar-fill--blue"
+                          style={{ width: `${Math.round((row.vatAmount / maxVat) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <StatusBanner message={t('noData')} />
+            )}
+          </div>
+
+          {/* P&L by Day — color-coded rows */}
+          <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-4 nvi-reveal">
+            <div className="nvi-scan-overlay" />
+            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{t('pnlByDay')}</h3>
+            {pnl?.byDay?.length ? (
+              <div className="space-y-2">
+                {pnl.byDay.slice(-7).map((row, i) => {
+                  const isPositive = row.netProfit > 0;
+                  const isNegative = row.netProfit < 0;
+                  const barPct = Math.round((Math.abs(row.netProfit) / maxPnl) * 100);
+                  return (
+                    <div
+                      key={row.date}
+                      className="rounded-lg border px-4 py-3 space-y-2 nvi-slide-left"
+                      style={{
+                        animationDelay: `${i * 60}ms`,
+                        borderColor: isPositive ? 'rgba(80,185,128,0.25)' : isNegative ? 'rgba(195,81,81,0.25)' : 'rgba(226,184,63,0.15)',
+                        background: isPositive ? 'rgba(80,185,128,0.05)' : isNegative ? 'rgba(195,81,81,0.05)' : 'rgba(226,184,63,0.03)',
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-[color:var(--muted)]">{row.date}</span>
+                        <span className={`text-sm font-bold ${isPositive ? 'text-[#50b980]' : isNegative ? 'text-[#c35151]' : 'text-[color:var(--muted)]'}`}>
+                          {row.netProfit > 0 ? '+' : ''}{currencyFormatter.format(row.netProfit)}
+                        </span>
+                      </div>
+                      <div className="nvi-bar-track">
+                        <div
+                          className={`nvi-bar-fill ${isPositive ? 'nvi-bar-fill--green' : isNegative ? 'nvi-bar-fill--red' : 'nvi-bar-fill--gold'}`}
+                          style={{ width: `${barPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <StatusBanner message={t('noData')} />
+            )}
+          </div>
         </div>
-      </div>
-      ) : null}
+        );
+      })() : null}
 
       {isCustomers ? (
       <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-3 nvi-reveal">
+          <div className="nvi-scan-overlay" />
           <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
             {t('topCustomers')}
           </h3>
           {topCustomerChartRows.length > 0 ? (
             <div className="h-56 sm:h-72 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-              <Bar data={customerTopChartData} options={cartesianChartOptions} />
+              <Bar data={customerTopChartData} options={cartesianChartOptions as ChartOptions<'bar'>} />
             </div>
           ) : (
             <StatusBanner message={t('noCustomerTotals')} />
           )}
         </div>
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
+        <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-3 nvi-reveal">
+          <div className="nvi-scan-overlay" />
           <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
             {t('salesSummary')}
           </h3>
@@ -1347,212 +1473,57 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
       </div>
       ) : null}
 
-      {isCustomers ? (
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('customerSales')}
-          </h3>
-          <button
-            type="button"
-            onClick={exportCsv}
-            className="inline-flex items-center gap-2 rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--foreground)] disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isExporting || !canExport}
-            title={!canExport ? noAccess('title') : undefined}
-          >
-            {isExporting ? <Spinner size="xs" variant="dots" /> : null}
-            {isExporting ? t('exporting') : t('exportCsv')}
-          </button>
-        </div>
-        {sales.length === 0 ? (
-          <StatusBanner message={t('noCustomerSales')} />
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/20">
-            <table className="w-full min-w-[560px] text-left text-sm">
-              <thead className="border-b border-[color:var(--border)] text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                <tr>
-                  <th className="px-4 py-3">{t('customerSales')}</th>
-                  <th className="px-4 py-3">{t('transactions')}</th>
-                  <th className="px-4 py-3 text-right">{t('totalSales')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pagedSortedSales.map((row) => (
-                  <tr
-                    key={row.customerId ?? 'unknown'}
-                    className="border-b border-[color:var(--border)]/50 text-[color:var(--muted)] last:border-b-0"
-                  >
-                    <td className="px-4 py-3">{row.customerName ?? common('unknown')}</td>
-                    <td className="px-4 py-3">{row.count}</td>
-                    <td className="px-4 py-3 text-right">
-                      {currencyFormatter.format(Number(row.total ?? 0))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {sales.length > 0 ? (
-          <PaginationControls
-            page={salesPage}
-            pageSize={salesPageSize}
-            total={sales.length}
-            itemCount={pagedSortedSales.length}
-            availablePages={Array.from({ length: salesTotalPages }, (_, index) => index + 1)}
-            hasNext={salesPage < salesTotalPages}
-            hasPrev={salesPage > 1}
-            isLoading={isLoading}
-            onPageChange={(targetPage) => setSalesPage(targetPage)}
-            onPageSizeChange={(nextSize) => {
-              setSalesPageSize(nextSize);
-              setSalesPage(1);
-            }}
-          />
-        ) : null}
-      </div>
-      ) : null}
-
-      {isCustomers ? (
-      <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
-        <div className="command-card nvi-panel p-6 space-y-2 nvi-reveal">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('refundsByCustomer')}
-          </h3>
-          {refunds.length === 0 ? (
-            <StatusBanner message={t('noRefunds')} />
-          ) : (
-            refunds.map((row) => (
-              <div key={row.customerId ?? 'unknown'} className="text-sm text-[color:var(--muted)]">
-                {row.customerName ?? common('unknown')} · {t('refundsCount', { count: row.count })} ·{' '}
-                {row.total}
-              </div>
-            ))
-          )}
-        </div>
-        <div className="command-card nvi-panel p-6 space-y-2 nvi-reveal">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('topCustomers')}
-          </h3>
-          {topCustomers.length === 0 ? (
-            <StatusBanner message={t('noCustomerTotals')} />
-          ) : (
-            topCustomers.map((row) => (
-              <div key={row.customerId ?? 'unknown'} className="text-sm text-[color:var(--muted)]">
-                {row.customerName ?? common('unknown')} · {row.total}
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-      ) : null}
-
-      {isCustomers ? (
-      <div className="command-card nvi-panel p-6 space-y-2 nvi-reveal">
-        <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-          {t('outstandingBalances')}
-        </h3>
-        {outstanding.length === 0 ? (
-          <StatusBanner message={t('noOutstanding')} />
-        ) : (
-          outstanding.map((row) => (
-            <div key={row.id} className="text-sm text-[color:var(--muted)]">
-              {row.customerNameSnapshot ?? common('unknown')} · {row.outstandingAmount}
-              {row.creditDueDate
-                ? ` · ${t('dueOn', {
-                    date: new Date(row.creditDueDate).toLocaleDateString(),
-                  })}`
-                : ''}
-            </div>
-          ))
-        )}
-      </div>
-      ) : null}
-
-      {isInventory ? (
-      <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
-        <div className="command-card nvi-panel p-6 space-y-2 nvi-reveal">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('stockOnHand')}
-          </h3>
-          {inventoryQuantityByBranch.length > 0 ? (
-            <div className="h-56 sm:h-72 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-              <Bar data={inventoryByBranchChartData} options={cartesianChartOptions} />
-            </div>
-          ) : (
-            <StatusBanner message={t('noStock')} />
-          )}
-          <div className="text-sm text-[color:var(--muted)]">
-            {t('totalStockUnits', { count: totalStockUnits.toLocaleString() })}
-          </div>
-        </div>
-        <div className="command-card nvi-panel p-6 space-y-2 nvi-reveal">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('lowStock')}
-          </h3>
-          {lowStockByBranch.length > 0 ? (
-            <div className="h-56 sm:h-72 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-              <Bar data={lowStockChartData} options={cartesianChartOptions} />
-            </div>
-          ) : (
-            <StatusBanner message={t('noLowStock')} />
-          )}
-          <div className="text-sm text-[color:var(--muted)]">
-            {t('lowStock')}: {lowStock.length.toLocaleString()}
-          </div>
-        </div>
-      </div>
-      ) : null}
-
-      {isInventory ? (
-      <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
-        <div className="command-card nvi-panel p-6 space-y-2 nvi-reveal">
+      {isCustomers ? (() => {
+        const maxSalesTotal = sortedCustomerSales.length > 0 ? Number(sortedCustomerSales[0].total ?? 0) : 1;
+        return (
+        <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-4 nvi-reveal">
+          <div className="nvi-scan-overlay" />
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-              {t('lowStock')}
-            </h3>
-            <input
-              value={threshold}
-              onChange={(event) => setThreshold(event.target.value)}
-              className="w-20 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1 text-xs text-[color:var(--foreground)]"
-              placeholder={t('threshold')}
-            />
+            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{t('customerSales')}</h3>
+            <button
+              type="button"
+              onClick={exportCsv}
+              className="inline-flex items-center gap-2 rounded-lg border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/8 px-3 py-1.5 text-xs font-medium text-[color:var(--accent)] hover:bg-[color:var(--accent)]/15 transition disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={isExporting || !canExport}
+              title={!canExport ? noAccess('title') : undefined}
+            >
+              {isExporting ? <Spinner size="xs" variant="dots" /> : null}
+              {isExporting ? t('exporting') : t('exportCsv')}
+            </button>
           </div>
-          <p className="text-xs text-[color:var(--muted)]/80">{t('inventoryRefreshHint')}</p>
-          {lowStock.length === 0 ? (
-            <StatusBanner message={t('noLowStock')} />
+          {sales.length === 0 ? (
+            <StatusBanner message={t('noCustomerSales')} />
           ) : (
             <div className="overflow-x-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/20">
-              <table className="w-full min-w-[560px] text-left text-sm">
-                <thead className="border-b border-[color:var(--border)] text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">
+              <table className="w-full min-w-[580px] text-left text-sm">
+                <thead className="border-b border-[color:var(--border)] bg-[color:var(--surface)]/30 text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">
                   <tr>
-                    <th className="px-4 py-3">{t('variant')}</th>
-                    <th className="px-4 py-3">{t('branch')}</th>
-                    <th className="px-4 py-3 text-right">{t('countedQty')}</th>
+                    <th className="px-4 py-3 w-8">#</th>
+                    <th className="px-4 py-3">{t('customerSales')}</th>
+                    <th className="px-4 py-3 text-center">{t('transactions')}</th>
+                    <th className="px-4 py-3 text-right">{t('totalSales')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {lowStock.map((row) => {
-                    const unitLabel = resolveUnitLabel(row.variant?.baseUnitId ?? null);
+                  {pagedSortedSales.map((row, i) => {
+                    const rank = (salesPage - 1) * salesPageSize + i + 1;
+                    const rowTotal = Number(row.total ?? 0);
+                    const barPct = Math.round((rowTotal / maxSalesTotal) * 100);
                     return (
                       <tr
-                        key={row.id}
-                        className="border-b border-[color:var(--border)]/50 text-[color:var(--muted)] last:border-b-0"
+                        key={row.customerId ?? 'unknown'}
+                        className="report-row border-b border-[color:var(--border)]/40 last:border-b-0"
                       >
+                        <td className="px-4 py-3 text-xs font-bold text-[color:var(--muted)]/60">{rank}</td>
                         <td className="px-4 py-3">
-                          {formatVariantLabel(
-                            {
-                              id: row.variant?.id ?? null,
-                              name: row.variant?.name ?? null,
-                              productName: row.variant?.product?.name ?? null,
-                            },
-                            common('unknown'),
-                          )}
+                          <div className="text-[color:var(--foreground)]">{row.customerName ?? common('unknown')}</div>
+                          <div className="mt-1 nvi-bar-track" style={{ width: `${barPct}%`, minWidth: '20px' }}>
+                            <div className="nvi-bar-fill nvi-bar-fill--gold" style={{ width: '100%' }} />
+                          </div>
                         </td>
-                        <td className="px-4 py-3">{row.branch?.name ?? common('branch')}</td>
-                        <td className="px-4 py-3 text-right">
-                          {row.quantity}
-                          {unitLabel ? ` (${unitLabel})` : ''}
+                        <td className="px-4 py-3 text-center text-[color:var(--muted)]">{row.count}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-[color:var(--accent)]">
+                          {currencyFormatter.format(rowTotal)}
                         </td>
                       </tr>
                     );
@@ -1561,22 +1532,267 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
               </table>
             </div>
           )}
+          {sales.length > 0 ? (
+            <PaginationControls
+              page={salesPage}
+              pageSize={salesPageSize}
+              total={sales.length}
+              itemCount={pagedSortedSales.length}
+              availablePages={Array.from({ length: salesTotalPages }, (_, index) => index + 1)}
+              hasNext={salesPage < salesTotalPages}
+              hasPrev={salesPage > 1}
+              isLoading={isLoading}
+              onPageChange={(targetPage) => setSalesPage(targetPage)}
+              onPageSizeChange={(nextSize) => {
+                setSalesPageSize(nextSize);
+                setSalesPage(1);
+              }}
+            />
+          ) : null}
         </div>
-        <div className="command-card nvi-panel p-6 space-y-2 nvi-reveal">
+        );
+      })() : null}
+
+      {isCustomers ? (
+      <div className="grid gap-4 lg:grid-cols-2 items-start nvi-stagger">
+        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
+          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
+            {t('refundsByCustomer')}
+          </h3>
+          {refunds.length === 0 ? (
+            <StatusBanner message={t('noRefunds')} />
+          ) : (
+            <div className="divide-y divide-[color:var(--border)]/40 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/20">
+              {refunds.slice(0, 10).map((row) => (
+                <div key={row.customerId ?? 'unknown'} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                  <span className="truncate text-[color:var(--foreground)]">{row.customerName ?? common('unknown')}</span>
+                  <span className="shrink-0 text-[color:var(--muted)] text-xs">{t('refundsCount', { count: row.count })}</span>
+                  <span className="shrink-0 font-medium text-[#c35151]">{currencyFormatter.format(Number(row.total ?? 0))}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
+          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
+            {t('topCustomers')}
+          </h3>
+          {topCustomers.length === 0 ? (
+            <StatusBanner message={t('noCustomerTotals')} />
+          ) : (
+            <div className="divide-y divide-[color:var(--border)]/40 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/20">
+              {topCustomers.map((row, index) => (
+                <div key={row.customerId ?? 'unknown'} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                  <span className="w-5 shrink-0 text-center text-xs font-semibold text-[color:var(--muted)]">{index + 1}</span>
+                  <span className="flex-1 truncate text-[color:var(--foreground)]">{row.customerName ?? common('unknown')}</span>
+                  <span className="shrink-0 font-medium text-[color:var(--accent)]">{currencyFormatter.format(Number(row.total ?? 0))}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      ) : null}
+
+      {isCustomers ? (() => {
+        const maxOutstanding = outstanding.length > 0
+          ? Math.max(...outstanding.map(r => Number(r.outstandingAmount ?? 0)), 1)
+          : 1;
+        return (
+        <div className="command-card nvi-panel nvi-glow-card relative overflow-hidden p-6 space-y-4 nvi-reveal">
+          <div className="nvi-scan-overlay" />
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{t('outstandingBalances')}</h3>
+            {outstanding.length > 0 ? (
+              <span className="nvi-metric-chip">
+                <span className="nvi-ping-dot nvi-ping-dot--gold" />
+                {outstanding.length} {t('total') ?? 'total'}
+              </span>
+            ) : null}
+          </div>
+          {outstanding.length === 0 ? (
+            <StatusBanner message={t('noOutstanding')} />
+          ) : (
+            <>
+              <div className="divide-y divide-[color:var(--border)]/40 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/20">
+                {pagedOutstanding.map((row, i) => {
+                  const amount = Number(row.outstandingAmount ?? 0);
+                  const heat = amount / maxOutstanding;
+                  const amtColor = heat > 0.7 ? '#c35151' : heat > 0.4 ? '#c58c3f' : '#e2b83f';
+                  return (
+                    <div
+                      key={row.id}
+                      className="report-row flex items-center gap-3 px-4 py-3 text-sm nvi-slide-left"
+                      style={{ animationDelay: `${i * 40}ms` }}
+                    >
+                      <span className="flex-1 truncate text-[color:var(--foreground)]">
+                        {row.customerNameSnapshot ?? common('unknown')}
+                      </span>
+                      {row.creditDueDate ? (
+                        <span className="shrink-0 text-xs text-[color:var(--muted)] hidden sm:inline">
+                          {t('dueOn', { date: formatDate(row.creditDueDate) })}
+                        </span>
+                      ) : null}
+                      <span className="shrink-0 font-bold" style={{ color: amtColor }}>
+                        {currencyFormatter.format(amount)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <PaginationControls
+                page={outstandingPage}
+                pageSize={outstandingPageSize}
+                total={outstanding.length}
+                itemCount={pagedOutstanding.length}
+                availablePages={Array.from({ length: outstandingTotalPages }, (_, i) => i + 1)}
+                hasNext={outstandingPage < outstandingTotalPages}
+                hasPrev={outstandingPage > 1}
+                isLoading={isLoading}
+                onPageChange={(p) => setOutstandingPage(p)}
+                onPageSizeChange={() => setOutstandingPage(1)}
+              />
+            </>
+          )}
+        </div>
+        );
+      })() : null}
+
+      {isInventory ? (
+      <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
+        <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-3 nvi-reveal">
+          <div className="nvi-scan-overlay" />
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{t('stockOnHand')}</h3>
+            <span className="nvi-metric-chip">
+              <span className="nvi-ping-dot" style={{ background: '#2f6f8a' }} />
+              {totalStockUnits.toLocaleString(locale)} {t('units') ?? 'units'}
+            </span>
+          </div>
+          {inventoryQuantityByBranch.length > 0 ? (
+            <div className="h-56 sm:h-72 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
+              <Bar data={inventoryByBranchChartData} options={cartesianChartOptions as ChartOptions<'bar'>} />
+            </div>
+          ) : (
+            <StatusBanner message={t('noStock')} />
+          )}
+        </div>
+        <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-3 nvi-reveal">
+          <div className="nvi-scan-overlay" />
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{t('lowStock')}</h3>
+            <span className="nvi-metric-chip">
+              <span className="nvi-ping-dot nvi-ping-dot--gold" />
+              {lowStock.length.toLocaleString(locale)} {t('items') ?? 'items'}
+            </span>
+          </div>
+          {lowStockByBranch.length > 0 ? (
+            <div className="h-56 sm:h-72 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
+              <Bar data={lowStockChartData} options={cartesianChartOptions as ChartOptions<'bar'>} />
+            </div>
+          ) : (
+            <StatusBanner message={t('noLowStock')} />
+          )}
+        </div>
+      </div>
+      ) : null}
+
+      {isInventory ? (
+      <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
+        <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-3 nvi-reveal">
+          <div className="nvi-scan-overlay" />
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-              {t('expiry')}
+              {t('lowStock')}
             </h3>
-            <input
-              value={expiryDays}
-              onChange={(event) => setExpiryDays(event.target.value)}
-              className="w-20 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1 text-xs text-[color:var(--foreground)]"
-              placeholder={t('days')}
-            />
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[color:var(--muted)]">{t('threshold')}:</span>
+              <input
+                value={threshold}
+                onChange={(event) => setThreshold(event.target.value)}
+                className="w-16 rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1 text-xs text-[color:var(--foreground)] text-center"
+                placeholder={t('threshold')}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-[color:var(--muted)]/70">{t('inventoryRefreshHint')}</p>
+          {lowStock.length === 0 ? (
+            <StatusBanner message={t('noLowStock')} />
+          ) : (
+            <>
+              <div className="overflow-x-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/20">
+                <table className="w-full min-w-[560px] text-left text-sm">
+                  <thead className="border-b border-[color:var(--border)] text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                    <tr>
+                      <th className="px-4 py-3">{t('variant')}</th>
+                      <th className="px-4 py-3">{t('branch')}</th>
+                      <th className="px-4 py-3 text-right">{t('countedQty')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedLowStock.map((row) => {
+                      const unitLabel = resolveUnitLabel(row.variant?.baseUnitId ?? null);
+                      const qty = Number(row.quantity ?? 0);
+                      const qtyColor = qty <= 1 ? '#c35151' : qty <= 3 ? '#c58c3f' : '#d0c49a';
+                      return (
+                        <tr
+                          key={row.id}
+                          className="report-row border-b border-[color:var(--border)]/40 last:border-b-0"
+                        >
+                          <td className="px-4 py-3 text-[color:var(--foreground)]">
+                            {formatVariantLabel(
+                              {
+                                id: row.variant?.id ?? null,
+                                name: row.variant?.name ?? null,
+                                productName: row.variant?.product?.name ?? null,
+                              },
+                              common('unknown'),
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-[color:var(--muted)]">{row.branch?.name ?? common('branch')}</td>
+                          <td className="px-4 py-3 text-right font-bold" style={{ color: qtyColor }}>
+                            {row.quantity}{unitLabel ? ` ${unitLabel}` : ''}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="overflow-x-auto">
+                <PaginationControls
+                  page={lowStockPage}
+                  pageSize={lowStockPageSize}
+                  total={lowStock.length}
+                  itemCount={pagedLowStock.length}
+                  availablePages={Array.from({ length: lowStockTotalPages }, (_, i) => i + 1)}
+                  hasNext={lowStockPage < lowStockTotalPages}
+                  hasPrev={lowStockPage > 1}
+                  isLoading={isLoading}
+                  onPageChange={(p) => setLowStockPage(p)}
+                  onPageSizeChange={() => setLowStockPage(1)}
+                />
+              </div>
+            </>
+          )}
+        </div>
+        <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-3 nvi-reveal">
+          <div className="nvi-scan-overlay" />
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">{t('expiry')}</h3>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[color:var(--muted)]">{t('days')}:</span>
+              <input
+                value={expiryDays}
+                onChange={(event) => setExpiryDays(event.target.value)}
+                className="w-16 rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1 text-xs text-[color:var(--foreground)] text-center"
+                placeholder={t('days')}
+              />
+            </div>
           </div>
           {expiryByDay.length > 0 ? (
             <div className="h-52 sm:h-56 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-              <Line data={expiryTrendChartData} options={cartesianChartOptions} />
+              <Line data={expiryTrendChartData} options={cartesianChartOptions as ChartOptions<'line'>} />
             </div>
           ) : (
             <StatusBanner message={t('noExpiry')} />
@@ -1598,7 +1814,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
                     )}{' '}
                     ({row.branch?.name ?? common('branch')})
                   </span>
-                  <span>{new Date(row.expiryDate).toLocaleDateString()}</span>
+                  <span>{formatDate(row.expiryDate)}</span>
                 </div>
               ))}
             </div>
@@ -1609,25 +1825,41 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
 
       {isOperations ? (
       <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('staffPerformance')}
-          </h3>
+        <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-3 nvi-reveal">
+          <div className="nvi-scan-overlay" />
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
+              {t('staffPerformance')}
+            </h3>
+            <span className="nvi-metric-chip">
+              <span className="nvi-ping-dot" style={{ background: '#2f6f8a' }} />
+              {sortedStaff.length} {t('staff') ?? 'staff'}
+            </span>
+          </div>
           {sortedStaff.length > 0 ? (
             <div className="h-56 sm:h-72 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-              <Bar data={staffTotalsChartData} options={cartesianChartOptions} />
+              <Bar data={staffTotalsChartData} options={cartesianChartOptions as ChartOptions<'bar'>} />
             </div>
           ) : (
             <StatusBanner message={t('noStaffPerformance')} />
           )}
         </div>
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('stockCountVariance')}
-          </h3>
+        <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-3 nvi-reveal">
+          <div className="nvi-scan-overlay" />
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
+              {t('stockCountVariance')}
+            </h3>
+            {varianceByDay.length > 0 ? (
+              <span className="nvi-metric-chip">
+                <span className="nvi-ping-dot nvi-ping-dot--red" />
+                {stockCountVariance.length} {t('counts') ?? 'counts'}
+              </span>
+            ) : null}
+          </div>
           {varianceByDay.length > 0 ? (
             <div className="h-56 sm:h-72 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-              <Line data={varianceTrendChartData} options={cartesianChartOptions} />
+              <Line data={varianceTrendChartData} options={cartesianChartOptions as ChartOptions<'line'>} />
             </div>
           ) : (
             <StatusBanner message={t('noStockCountVariance')} />
@@ -1637,15 +1869,24 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
       ) : null}
 
       {isOperations ? (
-      <div className="command-card nvi-panel p-6 space-y-2 nvi-reveal">
+      <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-4 nvi-reveal">
+        <div className="nvi-scan-overlay" />
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('stockCountVariance')}
-          </h3>
+          <div className="flex items-center gap-3">
+            <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
+              {t('stockCountVariance')}
+            </h3>
+            {stockCountVariance.length > 0 ? (
+              <span className="nvi-metric-chip">
+                <span className="nvi-ping-dot nvi-ping-dot--red" />
+                {stockCountVariance.length} {t('records') ?? 'records'}
+              </span>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={() => void load('refresh')}
-            className="inline-flex items-center gap-2 rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--foreground)]"
+            className="inline-flex items-center gap-2 rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)]/60 px-3 py-1.5 text-xs text-[color:var(--foreground)] transition-all hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]"
             disabled={isRefreshing}
           >
             {isRefreshing ? <Spinner size="xs" variant="grid" /> : null}
@@ -1655,135 +1896,209 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
         {stockCountVariance.length === 0 ? (
           <StatusBanner message={t('noStockCountVariance')} />
         ) : (
-          <div className="grid gap-2 text-sm text-[color:var(--muted)] md:grid-cols-5">
-            <span className="text-xs uppercase text-[color:var(--muted)]">{t('branch')}</span>
-            <span className="text-xs uppercase text-[color:var(--muted)]">{t('variant')}</span>
-            <span className="text-xs uppercase text-[color:var(--muted)]">{t('expectedQty')}</span>
-            <span className="text-xs uppercase text-[color:var(--muted)]">{t('countedQty')}</span>
-            <span className="text-xs uppercase text-[color:var(--muted)]">{t('variance')}</span>
-            {pagedVariance.map((row) => (
-              <div key={row.id} className="contents">
-                <div>{row.branchName ?? common('branch')}</div>
-                <div>
-                  {formatVariantLabel(
-                    {
-                      id: row.variantId ?? null,
-                      name: row.variantName ?? null,
-                      productName: row.productName ?? null,
-                    },
-                    '—',
-                  )}
-                </div>
-                <div>{row.expectedQuantity ?? '—'}</div>
-                <div>{row.countedQuantity ?? '—'}</div>
-                <div>
-                  {row.variance ?? '—'}{' '}
-                  <span className="text-xs text-[color:var(--muted)]">
-                    {row.reason ? `(${row.reason})` : ''}
-                  </span>
-                </div>
-              </div>
-            ))}
+          <div className="overflow-x-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/20">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="border-b border-[color:var(--border)] text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                <tr>
+                  <th className="px-4 py-3">{t('branch')}</th>
+                  <th className="px-4 py-3">{t('variant')}</th>
+                  <th className="px-4 py-3 text-right">{t('expectedQty')}</th>
+                  <th className="px-4 py-3 text-right">{t('countedQty')}</th>
+                  <th className="px-4 py-3 text-right">{t('variance')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedVariance.map((row, i) => {
+                  const v = Number(row.variance ?? 0);
+                  const vColor = v < 0 ? '#c35151' : v > 0 ? '#4caf82' : 'var(--muted)';
+                  const vPrefix = v > 0 ? '+' : '';
+                  return (
+                    <tr
+                      key={row.id}
+                      className="report-row border-b border-[color:var(--border)]/40 last:border-b-0 nvi-slide-left"
+                      style={{ animationDelay: `${i * 35}ms` }}
+                    >
+                      <td className="px-4 py-3 text-[color:var(--muted)]">{row.branchName ?? common('branch')}</td>
+                      <td className="px-4 py-3 text-[color:var(--foreground)] font-medium">
+                        {formatVariantLabel(
+                          { id: row.variantId ?? null, name: row.variantName ?? null, productName: row.productName ?? null },
+                          '—',
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-[color:var(--muted)]">{row.expectedQuantity ?? '—'}</td>
+                      <td className="px-4 py-3 text-right text-[color:var(--muted)]">{row.countedQuantity ?? '—'}</td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="font-bold" style={{ color: vColor }}>
+                          {vPrefix}{row.variance ?? '—'}
+                        </span>
+                        {row.reason ? (
+                          <span className="ml-1 text-xs text-[color:var(--muted)]/60">({row.reason})</span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
         {stockCountVariance.length > 0 ? (
-          <PaginationControls
-            page={variancePage}
-            pageSize={variancePageSize}
-            total={stockCountVariance.length}
-            itemCount={pagedVariance.length}
-            availablePages={Array.from(
-              { length: varianceTotalPages },
-              (_, index) => index + 1,
-            )}
-            hasNext={variancePage < varianceTotalPages}
-            hasPrev={variancePage > 1}
-            isLoading={isLoading}
-            onPageChange={(targetPage) => setVariancePage(targetPage)}
-            onPageSizeChange={(nextSize) => {
-              setVariancePageSize(nextSize);
-              setVariancePage(1);
-            }}
-          />
+          <div className="overflow-x-auto">
+            <PaginationControls
+              page={variancePage}
+              pageSize={variancePageSize}
+              total={stockCountVariance.length}
+              itemCount={pagedVariance.length}
+              availablePages={Array.from(
+                { length: varianceTotalPages },
+                (_, index) => index + 1,
+              )}
+              hasNext={variancePage < varianceTotalPages}
+              hasPrev={variancePage > 1}
+              isLoading={isLoading}
+              onPageChange={(targetPage) => setVariancePage(targetPage)}
+              onPageSizeChange={(nextSize) => {
+                setVariancePageSize(nextSize);
+                setVariancePage(1);
+              }}
+            />
+          </div>
         ) : null}
       </div>
       ) : null}
 
-      {isOperations ? (
-      <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('staffPerformance')}
-          </h3>
-          {sortedStaff.length === 0 ? (
-            <StatusBanner message={t('noStaffPerformance')} />
-          ) : (
-            <div className="overflow-x-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/20">
-              <table className="w-full min-w-[520px] text-left text-sm">
-                <thead className="border-b border-[color:var(--border)] text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                  <tr>
-                    <th className="px-4 py-3">{t('staffPerformance')}</th>
-                    <th className="px-4 py-3 text-right">{t('transactions')}</th>
-                    <th className="px-4 py-3 text-right">{t('totalSales')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedStaff.map((row, index) => (
-                    <tr
-                      key={`${row.label}-${index}`}
-                      className="border-b border-[color:var(--border)]/50 text-[color:var(--muted)] last:border-b-0"
-                    >
-                      <td className="px-4 py-3">{row.label}</td>
-                      <td className="px-4 py-3 text-right">{row.salesCount}</td>
-                      <td className="px-4 py-3 text-right">
-                        {currencyFormatter.format(row.total)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {isOperations ? (() => {
+        const maxStaffTotal = sortedStaff.length > 0 ? Math.max(...sortedStaff.map((s) => s.total)) : 1;
+        const maxLoss = topLosses?.items.length ? Math.max(...topLosses.items.map((l) => l.totalCost)) : 1;
+        const rankMedal = (rank: number) =>
+          rank === 1 ? '#e2b83f' : rank === 2 ? '#aab0b8' : rank === 3 ? '#c08050' : 'var(--muted)';
+        return (
+        <div className="grid gap-4 lg:grid-cols-2 nvi-stagger">
+          {/* Staff performance ranked list */}
+          <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-4 nvi-reveal">
+            <div className="nvi-scan-overlay" />
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
+                {t('staffPerformance')}
+              </h3>
+              {sortedStaff.length > 0 ? (
+                <span className="nvi-metric-chip">
+                  <span className="nvi-ping-dot" style={{ background: '#2f6f8a' }} />
+                  {sortedStaff.length} {t('staff') ?? 'staff'}
+                </span>
+              ) : null}
             </div>
-          )}
-        </div>
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-          <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
-            {t('losses')}
-          </h3>
-          <p className="text-xs text-[color:var(--muted)]/80">
-            {t('lossesWindowLabel', { days: topLosses?.days ?? 30 })}
-          </p>
-          {topLosses?.items.length ? (
-            <>
-              <div className="h-52 sm:h-56 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
-                <Bar data={lossesChartData} options={cartesianChartOptions} />
+            {sortedStaff.length === 0 ? (
+              <StatusBanner message={t('noStaffPerformance')} />
+            ) : (
+              <div className="space-y-2">
+                {sortedStaff.map((row, index) => {
+                  const rank = index + 1;
+                  const barPct = maxStaffTotal > 0 ? (row.total / maxStaffTotal) * 100 : 0;
+                  return (
+                    <div
+                      key={`${row.label}-${index}`}
+                      className="report-row rounded-xl border border-[color:var(--border)]/50 bg-[color:var(--surface)]/30 px-4 py-3 space-y-1.5 nvi-slide-left"
+                      style={{ animationDelay: `${index * 45}ms` }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                          style={{
+                            background: `${rankMedal(rank)}22`,
+                            color: rankMedal(rank),
+                            border: `1px solid ${rankMedal(rank)}44`,
+                          }}
+                        >
+                          {rank}
+                        </span>
+                        <span className="flex-1 truncate text-sm font-medium text-[color:var(--foreground)]">
+                          {row.label}
+                        </span>
+                        <span className="shrink-0 text-xs text-[color:var(--muted)]">
+                          {row.salesCount} {t('transactions') ?? 'txns'}
+                        </span>
+                        <span className="shrink-0 text-sm font-bold" style={{ color: rankMedal(rank) }}>
+                          {formatKpi(row.total)}
+                        </span>
+                      </div>
+                      <div className="nvi-bar-track" style={{ height: '3px' }}>
+                        <div
+                          className="nvi-bar-fill nvi-bar-fill--blue"
+                          style={{
+                            width: `${barPct}%`,
+                            background: rankMedal(rank),
+                            opacity: 0.7,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="space-y-2 text-sm text-[color:var(--muted)]">
-                {topLosses.items.slice(0, 6).map((row) => (
-                  <div
-                    key={row.variantId}
-                    className="flex items-center justify-between gap-3"
-                  >
-                    <span>
-                      {formatVariantLabel(
-                        {
-                          id: row.variantId,
-                          name: row.variantName,
-                          productName: row.productName,
-                        },
-                        common('unknown'),
-                      )}
-                    </span>
-                    <span>{currencyFormatter.format(row.totalCost)}</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <StatusBanner message={t('noData')} />
-          )}
+            )}
+          </div>
+
+          {/* Losses panel */}
+          <div className="command-card nvi-panel relative overflow-hidden p-6 space-y-4 nvi-reveal">
+            <div className="nvi-scan-overlay" />
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[color:var(--foreground)]">
+                {t('losses')}
+              </h3>
+              {topLosses?.items.length ? (
+                <span className="nvi-metric-chip">
+                  <span className="nvi-ping-dot nvi-ping-dot--red" />
+                  {topLosses.items.length} {t('items') ?? 'items'}
+                </span>
+              ) : null}
+            </div>
+            <p className="text-xs text-[color:var(--muted)]/80">
+              {t('lossesWindowLabel', { days: topLosses?.days ?? 30 })}
+            </p>
+            {topLosses?.items.length ? (
+              <>
+                <div className="h-48 sm:h-52 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3">
+                  <Bar data={lossesChartData} options={cartesianChartOptions as ChartOptions<'bar'>} />
+                </div>
+                <div className="space-y-2">
+                  {topLosses.items.slice(0, 6).map((row, i) => {
+                    const barPct = maxLoss > 0 ? (row.totalCost / maxLoss) * 100 : 0;
+                    return (
+                      <div
+                        key={row.variantId}
+                        className="report-row rounded-xl border border-[#c35151]/20 bg-[#c35151]/5 px-4 py-3 space-y-1.5 nvi-slide-left"
+                        style={{ animationDelay: `${i * 40}ms` }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#c35151]/20 text-xs font-bold text-[#c35151]">
+                            {i + 1}
+                          </span>
+                          <span className="flex-1 truncate text-sm text-[color:var(--foreground)]">
+                            {formatVariantLabel(
+                              { id: row.variantId, name: row.variantName, productName: row.productName },
+                              common('unknown'),
+                            )}
+                          </span>
+                          <span className="shrink-0 text-sm font-bold text-[#c35151]">
+                            {formatKpi(row.totalCost)}
+                          </span>
+                        </div>
+                        <div className="nvi-bar-track" style={{ height: '3px' }}>
+                          <div className="nvi-bar-fill nvi-bar-fill--red" style={{ width: `${barPct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <StatusBanner message={t('noData')} />
+            )}
+          </div>
         </div>
-      </div>
-      ) : null}
+        );
+      })() : null}
     </section>
   );
 }

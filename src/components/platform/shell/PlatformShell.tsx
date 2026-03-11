@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import type { CSSProperties, ReactNode } from 'react';
 import { PLATFORM_NAV_ITEMS, PLATFORM_SHORTCUTS } from '@/components/platform/shell/platform-nav';
 import { resolvePlatformDockContent } from '@/components/platform/shell/platform-context';
+import { clearPlatformSession } from '@/lib/auth';
 
 type PlatformViewMode = 'auto' | 'desktop' | 'compact';
 
@@ -133,7 +134,7 @@ export function PlatformShell({
           <h2 className="platform-brand__title">{t('brandTitle')}</h2>
           <p className="platform-brand__subtitle">{t('brandSubtitle')}</p>
         </div>
-        <nav className="platform-rail__nav">
+        <nav className="platform-rail__nav" aria-label="Platform navigation">
           {navItems.map((item) => (
             <Link
               key={item.path}
@@ -145,6 +146,16 @@ export function PlatformShell({
               <span className="platform-rail__link-desc">{item.description}</span>
             </Link>
           ))}
+          <button
+            type="button"
+            onClick={() => {
+              clearPlatformSession();
+              router.push(`${basePath}/login`);
+            }}
+            className="platform-rail__link mt-auto text-left"
+          >
+            <span className="platform-rail__link-title">{t('logout')}</span>
+          </button>
         </nav>
       </aside>
 

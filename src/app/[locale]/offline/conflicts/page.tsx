@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
 import { useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -13,6 +13,7 @@ import {
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
+import { formatEnum } from '@/lib/format-enum';
 import { getPermissionSet } from '@/lib/permissions';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
@@ -40,6 +41,20 @@ export default function OfflineConflictsPage() {
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [message, setMessage] = useToastState();
+  const actionTypeLabels: Record<string, string> = useMemo(() => ({
+    SALE_COMPLETE: t('actionTypeSaleComplete'),
+    PURCHASE_DRAFT: t('actionTypePurchaseDraft'),
+    STOCK_ADJUSTMENT: t('actionTypeStockAdjustment'),
+  }), [t]);
+
+  const conflictStatusLabels: Record<string, string> = useMemo(() => ({
+    PENDING: t('statusPending'),
+    APPLIED: t('statusApplied'),
+    REJECTED: t('statusRejected'),
+    CONFLICT: t('statusConflict'),
+    FAILED: t('statusFailed'),
+  }), [t]);
+
   const approvalConflicts = useMemo(
     () => conflicts.filter((conflict) => conflict.conflictReason === 'APPROVAL_REQUIRED').length,
     [conflicts],
@@ -49,7 +64,7 @@ export default function OfflineConflictsPage() {
     [conflicts],
   );
 
-  const load = async (cursor?: string, append = false) => {
+  const load = useCallback(async (cursor?: string, append = false) => {
     const token = getAccessToken();
     const deviceId = getOrCreateDeviceId();
     if (append) {
@@ -90,11 +105,11 @@ export default function OfflineConflictsPage() {
         setIsLoading(false);
       }
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   const resolveConflict = async (actionId: string, resolution: string) => {
     const token = getAccessToken();
@@ -140,6 +155,9 @@ export default function OfflineConflictsPage() {
   };
 
   const getResolutionOptions = (reason?: string | null) => {
+    if (reason === 'VAT_CHANGED') {
+      return [{ key: 'DISMISS', label: t('dismiss') }];
+    }
     const options: Array<{ key: string; label: string }> = [
       { key: 'RETRY', label: t('retry') },
     ];
@@ -160,32 +178,32 @@ export default function OfflineConflictsPage() {
   return (
     <section className="space-y-4 nvi-reveal">
       <PremiumPageHeader
-        eyebrow="CONFLICT CENTER"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">OFFLINE RECOVERY</span>
-            <span className="nvi-badge">ACTION REQUIRED</span>
+            <span className="nvi-badge">{t('badgeOfflineRecovery')}</span>
+            <span className="nvi-badge">{t('badgeActionRequired')}</span>
           </>
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">OPEN CONFLICTS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiOpenConflicts')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{conflicts.length}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">APPROVAL BLOCKS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiApprovalBlocks')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{approvalConflicts}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">PRICE VARIANCE</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiPriceVariance')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{priceConflicts}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">NEXT PAGE</p>
-          <p className="mt-2 text-lg font-semibold text-gold-100">{nextCursor ? 'YES' : 'NO'}</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiNextPage')}</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{nextCursor ? t('yes') : t('no')}</p>
         </article>
       </div>
       {message ? <StatusBanner message={message} /> : null}
@@ -199,8 +217,8 @@ export default function OfflineConflictsPage() {
               className="rounded border border-red-600/40 bg-red-950/30 p-4 text-sm text-red-100"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-semibold">{conflict.actionType}</span>
-                <span className="text-xs text-red-200">{conflict.status}</span>
+                <span className="font-semibold">{formatEnum(actionTypeLabels, conflict.actionType)}</span>
+                <span className="text-xs text-red-200">{formatEnum(conflictStatusLabels, conflict.status)}</span>
               </div>
               <p className="mt-2 text-xs text-red-200">
                 {t('reason', { value: conflict.conflictReason ?? common('unknown') })}

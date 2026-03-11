@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useBranchScope } from '@/lib/use-branch-scope';
@@ -11,16 +10,18 @@ import { useToastState } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { StatusBanner } from '@/components/StatusBanner';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
+import { useVariantSearch } from '@/lib/use-variant-search';
 import { getPermissionSet } from '@/lib/permissions';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 
 type Branch = { id: string; name: string };
 type Variant = { id: string; name: string; product?: { name?: string | null } };
 type Batch = { id: string; code: string; expiryDate?: string | null };
-type TransferItemInput = { variantId: string; quantity: string; batchId: string };
+type TransferItemInput = { id: string; variantId: string; quantity: string; batchId: string };
 type Transfer = {
   id: string;
   status: string;
@@ -40,8 +41,7 @@ export default function TransferWizardPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
-  const params = useParams<{ locale: string }>();
-  const locale = params?.locale ?? 'en';
+  const locale = useLocale();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('transfers.write');
   const [message, setMessage] = useToastState();
@@ -65,8 +65,9 @@ export default function TransferWizardPage() {
     feeNote: '',
   });
   const [items, setItems] = useState<TransferItemInput[]>([
-    { variantId: '', quantity: '', batchId: '' },
+    { id: crypto.randomUUID(), variantId: '', quantity: '', batchId: '' },
   ]);
+  const { loadOptions: loadVariantOptions, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
   const { activeBranch, resolveBranchId } = useBranchScope();
   const effectiveSourceBranchId = resolveBranchId(form.sourceBranchId) || '';
 
@@ -100,7 +101,9 @@ export default function TransferWizardPage() {
           apiFetch<SettingsResponse>('/settings', { token }),
         ]);
         setBranches(normalizePaginated(branchData).items);
-        setVariants(normalizePaginated(variantData).items);
+        const variantList = normalizePaginated(variantData).items;
+        setVariants(variantList);
+        seedVariantCache(variantList);
         setBatchTrackingEnabled(!!settings.stockPolicies?.batchTrackingEnabled);
         if (!form.feeCurrency && settings.localeSettings?.currency) {
           setForm((prev) => ({ ...prev, feeCurrency: settings.localeSettings?.currency ?? '' }));
@@ -124,11 +127,11 @@ export default function TransferWizardPage() {
       return;
     }
     const key = `${branchId}-${variantId}`;
-    const data = await apiFetch<Batch[]>(
+    const data = await apiFetch<Batch[] | PaginatedResponse<Batch>>(
       `/stock/batches?branchId=${branchId}&variantId=${variantId}`,
       { token },
     );
-    setBatchOptions((prev) => ({ ...prev, [key]: data }));
+    setBatchOptions((prev) => ({ ...prev, [key]: normalizePaginated(data).items }));
   };
 
   const updateItem = (index: number, patch: Partial<TransferItemInput>) => {
@@ -140,7 +143,7 @@ export default function TransferWizardPage() {
   };
 
   const addItem = () => {
-    setItems((prev) => [...prev, { variantId: '', quantity: '', batchId: '' }]);
+    setItems((prev) => [...prev, { id: crypto.randomUUID(), variantId: '', quantity: '', batchId: '' }]);
   };
 
   const removeItem = (index: number) => {
@@ -283,28 +286,28 @@ export default function TransferWizardPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Draft items
+            {t('kpiDraftItems')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{items.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Valid items
+            {t('kpiValidItems')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{validItems.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Current step
+            {t('kpiCurrentStep')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">{t(`${step}Step`)}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Transfer created
+            {t('kpiTransferCreated')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">
-            {createdTransfer ? 'Yes' : 'No'}
+            {createdTransfer ? t('transferCreatedYes') : t('transferCreatedNo')}
           </p>
         </article>
       </div>
@@ -329,6 +332,7 @@ export default function TransferWizardPage() {
           <h3 className="text-lg font-semibold text-gold-100">{t('detailsTitle')}</h3>
           <div className="grid gap-3 md:grid-cols-2">
             <SmartSelect
+              instanceId="wizard-source-branch"
               value={form.sourceBranchId}
               onChange={(value) => setForm((prev) => ({ ...prev, sourceBranchId: value }))}
               options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
@@ -336,6 +340,7 @@ export default function TransferWizardPage() {
               className="nvi-select-container"
             />
             <SmartSelect
+              instanceId="wizard-destination-branch"
               value={form.destinationBranchId}
               onChange={(value) =>
                 setForm((prev) => ({ ...prev, destinationBranchId: value }))
@@ -389,24 +394,28 @@ export default function TransferWizardPage() {
             const key = `${effectiveSourceBranchId}-${item.variantId}`;
             const options = batchOptions[key] ?? [];
             return (
-              <div key={`${item.variantId}-${index}`} className="grid gap-2 md:grid-cols-[2fr_1fr_1fr_auto]">
-                <SmartSelect
-                  value={item.variantId}
-                  onChange={(value) => {
+              <div key={item.id} className="grid gap-2 md:grid-cols-[2fr_1fr_1fr_auto]">
+                <AsyncSmartSelect
+                  instanceId={`wizard-item-${item.id}-variant`}
+                  value={getVariantOption(item.variantId)}
+                  loadOptions={loadVariantOptions}
+                  defaultOptions={variants.map((v) => ({
+                    value: v.id,
+                    label: formatVariantLabel({
+                      id: v.id,
+                      name: v.name,
+                      productName: v.product?.name ?? null,
+                    }),
+                  }))}
+                  onChange={(opt) => {
+                    const value = opt?.value ?? '';
                     updateItem(index, { variantId: value, batchId: '' });
                     if (effectiveSourceBranchId) {
                       loadBatches(effectiveSourceBranchId, value).catch(() => undefined);
                     }
                   }}
-                  options={variants.map((variant) => ({
-                    value: variant.id,
-                    label: formatVariantLabel({
-                      id: variant.id,
-                      name: variant.name,
-                      productName: variant.product?.name ?? null,
-                    }),
-                  }))}
                   placeholder={t('selectVariant')}
+                  isClearable
                   className="nvi-select-container"
                 />
                 <input
@@ -417,6 +426,7 @@ export default function TransferWizardPage() {
                 />
                 {batchTrackingEnabled ? (
                   <SmartSelect
+                    instanceId={`wizard-item-${item.id}-batch`}
                     value={item.batchId}
                     onChange={(value) => updateItem(index, { batchId: value })}
                     options={options.map((batch) => ({
@@ -473,7 +483,7 @@ export default function TransferWizardPage() {
           {validItems.length ? (
             <div className="space-y-2 text-sm text-gold-200">
               {validItems.map((item, idx) => (
-                <div key={`${item.variantId}-${idx}`} className="rounded border border-gold-700/40 bg-black/40 p-3">
+                <div key={item.id} className="rounded border border-gold-700/40 bg-black/40 p-3">
                   <p className="text-gold-100">
                     {formatEntityLabel(
                       { name: variants.find((v) => v.id === item.variantId)?.name ?? null, id: item.variantId },

@@ -420,7 +420,7 @@ export function PlatformConsole({
   });
   const [businessSearch, setBusinessSearch] = useState('');
   const [businessStatusFilter, setBusinessStatusFilter] = useState<
-    'ACTIVE' | 'UNDER_REVIEW' | 'ARCHIVED' | 'DELETED'
+    'ACTIVE' | 'UNDER_REVIEW' | 'SUSPENDED' | 'ARCHIVED' | 'DELETED'
   >('ACTIVE');
   const [selectedBusinessId, setSelectedBusinessId] = useState('');
   const [openedBusinessId, setOpenedBusinessId] = useState(focusBusinessId ?? '');
@@ -772,14 +772,7 @@ export function PlatformConsole({
 
   useEffect(() => {
     loadData();
-  }, [token]);
-
-  useEffect(() => {
-    if (!token || metricsRange === 'custom') {
-      return;
-    }
-    loadMetrics();
-  }, [metricsRange, token]);
+  }, [loadData]);
 
   const createBusiness = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -789,21 +782,12 @@ export function PlatformConsole({
     setMessage(null);
     setCreatingBusiness(true);
     try {
-      const response = await apiFetch<{ verificationToken?: string }>(
-        '/platform/businesses',
-        {
-          token,
-          method: 'POST',
-          body: JSON.stringify(createForm),
-        },
-      );
-      setMessage(
-        response.verificationToken
-          ? t('businessCreatedToken', {
-              token: response.verificationToken,
-            })
-          : t('businessCreated'),
-      );
+      await apiFetch('/platform/businesses', {
+        token,
+        method: 'POST',
+        body: JSON.stringify(createForm),
+      });
+      setMessage(t('businessCreated'));
       setCreateForm({
         businessName: '',
         ownerName: '',
@@ -931,6 +915,7 @@ export function PlatformConsole({
     businessTrendRange,
     queuesSummary,
     overviewSnapshot,
+    locale,
   });
 
   if (isLoading) {
@@ -995,6 +980,7 @@ export function PlatformConsole({
       <PlatformHealthCommandSurface
         show={showHealth}
         t={t}
+        locale={locale}
         healthMatrix={healthMatrix}
         actionLoading={actionLoading}
         healthLoading={healthLoading}
@@ -1172,6 +1158,7 @@ export function PlatformConsole({
       <PlatformSubscriptionIntelligenceSurface
         show={showBusinesses && !showBusinessDetailPage}
         t={t}
+        locale={locale}
         historyBusinessId={historyBusinessId}
         setHistoryBusinessId={setHistoryBusinessId}
         businessSelectOptions={businessSelectOptions}
@@ -1185,6 +1172,7 @@ export function PlatformConsole({
       <PlatformExportsCommandSurface
         show={showExports}
         t={t}
+        locale={locale}
         withAction={withAction}
         loadExportJobs={loadExportJobs}
         loadExportQueueStats={loadExportQueueStats}
@@ -1240,6 +1228,7 @@ export function PlatformConsole({
       <PlatformAuditCommandSurface
         show={showAudit}
         t={t}
+        locale={locale}
         auditBusinessId={auditBusinessId}
         setAuditBusinessId={setAuditBusinessId}
         businessSelectOptions={businessSelectOptions}

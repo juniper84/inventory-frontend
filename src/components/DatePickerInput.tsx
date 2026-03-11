@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { DayPicker } from 'react-day-picker';
 import { createPortal } from 'react-dom';
@@ -13,8 +13,11 @@ type DatePickerInputProps = {
   disabled?: boolean;
 };
 
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+const pad = (n: number) => String(n).padStart(2, '0');
 const formatDate = (date: Date) =>
-  date.toISOString().slice(0, 10);
+  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 
 export function DatePickerInput({
   value,
@@ -29,6 +32,7 @@ export function DatePickerInput({
     null,
   );
   const anchorRef = useRef<HTMLDivElement>(null);
+  const portalRef = useRef<HTMLDivElement>(null);
   const selected = useMemo(
     () => (value ? new Date(`${value}T00:00:00`) : undefined),
     [value],
@@ -48,12 +52,48 @@ export function DatePickerInput({
     });
   };
 
+  // Close on click-outside
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        anchorRef.current?.contains(target) ||
+        portalRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setOpen(false);
+      setPortalStyle(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Reposition on scroll or resize
+  useEffect(() => {
+    if (!open) return;
+    const reposition = () => updatePortalStyle();
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+    return () => {
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [open]);
+
   return (
     <div className="relative" ref={anchorRef}>
       <div className="flex items-center gap-2">
         <input
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onBlur={(event) => {
+            const v = event.target.value;
+            if (v && !DATE_REGEX.test(v)) {
+              onChange('');
+            }
+          }}
           placeholder={placeholder}
           className={className}
           disabled={disabled}
@@ -81,6 +121,7 @@ export function DatePickerInput({
       {open && portalStyle
         ? createPortal(
             <div
+              ref={portalRef}
               style={portalStyle}
               className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3 shadow-xl"
             >
@@ -92,6 +133,7 @@ export function DatePickerInput({
                     onChange(formatDate(date));
                   }
                   setOpen(false);
+                  setPortalStyle(null);
                 }}
               />
             </div>,

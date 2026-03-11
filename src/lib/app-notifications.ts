@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type ToastVariant = 'success' | 'error' | 'warning' | 'info';
 export type ToastChannel = 'toast' | 'banner' | 'modal';
@@ -75,13 +75,30 @@ const ACTION_CHANNELS: Record<ActionKind, ToastChannel> = {
   save: 'toast',
 };
 
+const TOAST_DURATION_MS: Record<ToastVariant, number> = {
+  success: 4200,
+  info: 4200,
+  warning: 4200,
+  error: 7000,
+};
+
+function defaultDurationMs(variant: ToastVariant): number {
+  return TOAST_DURATION_MS[variant];
+}
+
 function inferVariant(message: string): ToastVariant {
   const normalized = message.toLowerCase();
   if (
     normalized.startsWith('failed') ||
     normalized.startsWith('error') ||
+    normalized.startsWith('imeshindwa') ||
+    normalized.startsWith('hitilafu') ||
+    normalized.startsWith('kosa') ||
     normalized.includes('invalid') ||
-    normalized.includes('denied')
+    normalized.includes('denied') ||
+    normalized.includes('batili') ||
+    normalized.includes('imezuiwa') ||
+    normalized.includes('imekataliwa kwa sababu')
   ) {
     return 'error';
   }
@@ -91,7 +108,12 @@ function inferVariant(message: string): ToastVariant {
     normalized.includes('missing') ||
     normalized.includes('must') ||
     normalized.includes('blocked') ||
-    normalized.includes('needs approval')
+    normalized.includes('needs approval') ||
+    normalized.includes('inahitaji') ||
+    normalized.includes('inakosekana') ||
+    normalized.includes('lazima') ||
+    normalized.includes('imezuiliwa') ||
+    normalized.includes('inahitaji idhini')
   ) {
     return 'warning';
   }
@@ -109,7 +131,21 @@ function inferVariant(message: string): ToastVariant {
     normalized.includes('sent') ||
     normalized.includes('synced') ||
     normalized.includes('opened') ||
-    normalized.includes('closed')
+    normalized.includes('closed') ||
+    normalized.includes('imehifadhiwa') ||
+    normalized.includes('imeundwa') ||
+    normalized.includes('imesasishwa') ||
+    normalized.includes('imetumwa') ||
+    normalized.includes('imefanikiwa') ||
+    normalized.includes('imefungwa') ||
+    normalized.includes('imesawazishwa') ||
+    normalized.includes('imefutwa') ||
+    normalized.includes('imeidhinishwa') ||
+    normalized.includes('imekataliwa') ||
+    normalized.includes('imerekodiwa') ||
+    normalized.includes('imethibitishwa') ||
+    normalized.includes('imepangwa foleni') ||
+    normalized.includes('imekamilika')
   ) {
     return 'success';
   }
@@ -125,13 +161,11 @@ function normalizeToastInput(input: ToastInput): ToastPayload {
     return { message: input };
   }
   if ('action' in input) {
-    const channel = input.channel ?? ACTION_CHANNELS[input.action];
     return {
       title: input.title,
       message: input.message,
       variant: ACTION_VARIANTS[input.outcome],
       durationMs: input.durationMs,
-      ...(channel === 'toast' ? {} : {}),
     };
   }
   return input;
@@ -141,11 +175,12 @@ export function pushToast(payload: ToastPayload) {
   if (typeof window === 'undefined') {
     return;
   }
+  const resolvedVariant = payload.variant ?? inferVariant(payload.message);
   const detail: ToastPayload = {
     title: payload.title,
     message: payload.message,
-    variant: payload.variant ?? inferVariant(payload.message),
-    durationMs: payload.durationMs ?? 4200,
+    variant: resolvedVariant,
+    durationMs: payload.durationMs ?? defaultDurationMs(resolvedVariant),
   };
   window.dispatchEvent(new CustomEvent(TOAST_EVENT, { detail }));
 }
@@ -191,22 +226,31 @@ export function useToastState() {
   const [message, setMessage] = useState<string | null>(null);
   const timeoutRef = useRef<number | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
   const setToast = useCallback((next: ToastInput | null) => {
     if (!next) {
       setMessage(null);
       return;
     }
     const toast = normalizeToastInput(next);
+    const resolvedVariant = toast.variant ?? inferVariant(toast.message);
     pushToast({
       ...toast,
-      variant: toast.variant ?? inferVariant(toast.message),
+      variant: resolvedVariant,
     });
     setMessage(toast.message);
     if (typeof window !== 'undefined') {
       if (timeoutRef.current) {
         window.clearTimeout(timeoutRef.current);
       }
-      const duration = toast.durationMs ?? 4200;
+      const duration = toast.durationMs ?? defaultDurationMs(resolvedVariant);
       timeoutRef.current = window.setTimeout(() => {
         setMessage(null);
       }, duration);

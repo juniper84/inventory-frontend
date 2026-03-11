@@ -19,19 +19,22 @@ import {
   decodeJwt,
   getAccessToken,
   getPlatformAccessToken,
+  getPlatformRefreshToken,
   getRefreshToken,
+  getStoredUser,
 } from '@/lib/auth';
 import {
   getActiveBranch,
   setActiveBranch,
 } from '@/lib/branch-context';
+import { setStoredCurrency, setStoredTimezone, setStoredDateFormat } from '@/lib/business-context';
 import {
   isBranchSelectorVisible,
 } from '@/lib/branch-policy';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { Spinner } from '@/components/Spinner';
-import { ManualHelpPanel } from '@/components/manual/ManualHelpPanel';
 import { SupportChatWidget } from '@/components/support-chat/SupportChatWidget';
+import { dispatchHelpCenterOpen } from '@/lib/support-chat-handoff';
 import {
   clearOfflineData,
   rotateOfflineKey,
@@ -45,6 +48,14 @@ import { recordOfflineStatus, syncOfflineQueue } from '@/lib/offline-sync';
 const AUTH_PATHS = ['/login', '/signup', '/invite', '/verify-email', '/password-reset'];
 type Branch = { id: string; name: string };
 type AppViewMode = 'auto' | 'desktop' | 'compact';
+type BellNotification = {
+  id: string;
+  title: string;
+  message?: string | null;
+  priority: string;
+  status?: string;
+  createdAt: string;
+};
 const APP_VIEW_MODE_KEY = 'nvi.app.viewMode';
 
 const NAV_VISIBILITY_POLICY: Record<string, 'hide' | 'disabled'> = {
@@ -128,10 +139,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const storedUser = typeof window !== 'undefined' ? getStoredUser() : null;
+  const userInitials = storedUser?.name
+    ? storedUser.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
+    : '?';
   const [branches, setBranches] = useState<Branch[]>([]);
   const [activeBranchId, setActiveBranchId] = useState('');
   const [notificationCount, setNotificationCount] = useState(0);
   const [approvalCount, setApprovalCount] = useState(0);
+  const [bellOpen, setBellOpen] = useState(false);
+  const [bellItems, setBellItems] = useState<BellNotification[]>([]);
+  const bellRef = useRef<HTMLDivElement>(null);
   const [readOnlyState, setReadOnlyState] = useState<{
     enabled: boolean;
     reason: string | null;
@@ -194,6 +214,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setIsLoggingOut(true);
     setIdleCountdownSeconds(null);
     if (isPlatformRoute) {
+      const platformRefreshToken = getPlatformRefreshToken();
+      if (platformToken && platformRefreshToken) {
+        try {
+          await apiFetch('/platform/auth/logout', {
+            method: 'POST',
+            token: platformToken,
+            body: JSON.stringify({ refreshToken: platformRefreshToken }),
+          });
+        } catch (err) {
+          console.warn('Platform server logout failed', err);
+        }
+      }
       clearPlatformSession();
       router.replace(`/${pathname.split('/')[1]}/platform/login`);
       return;
@@ -243,6 +275,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     apiFetch<{
       readOnlyEnabled?: boolean;
       readOnlyReason?: string | null;
+      localeSettings?: { currency?: string; timezone?: string; dateFormat?: string };
       onboarding?: {
         enabled?: boolean;
         enforced?: boolean;
@@ -253,6 +286,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .then((settings) => {
         if (!active) {
           return;
+        }
+        if (settings.localeSettings?.currency) {
+          setStoredCurrency(settings.localeSettings.currency);
+        }
+        if (settings.localeSettings?.timezone) {
+          setStoredTimezone(settings.localeSettings.timezone);
+        }
+        if (settings.localeSettings?.dateFormat) {
+          setStoredDateFormat(settings.localeSettings.dateFormat);
         }
         setReadOnlyState({
           enabled: Boolean(settings.readOnlyEnabled),
@@ -479,6 +521,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    const refresh = () => setTicker(Date.now());
+    window.addEventListener('nvi-session-changed', refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener('nvi-session-changed', refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
+
+  useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
@@ -530,7 +582,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const navSections = [
+  const navSections = useMemo(() => [
     {
       title: sectionT('command'),
       items: [
@@ -775,7 +827,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         },
       ],
     },
-  ];
+  ], [base, navT, sectionT]);
 
   const visibleNavSections = useMemo(
     () =>
@@ -970,9 +1022,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         }
         const notifItems = normalizePaginated(notifications).items;
         const approvalItems = normalizePaginated(approvals).items;
-        setNotificationCount(
-          notifItems.filter((item) => item.status && item.status !== 'READ').length,
-        );
+        const unread = notifItems.filter((item) => item.status && item.status !== 'READ');
+        setNotificationCount(unread.length);
+        setBellItems((unread as BellNotification[]).slice(0, 5));
         setApprovalCount(approvalItems.length);
       } catch (err) {
         console.warn('Failed to load shell badge counts', err);
@@ -989,6 +1041,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.clearInterval(timer);
     };
   }, [token, isPlatformRoute]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (bellRef.current && !bellRef.current.contains(event.target as Node)) {
+        setBellOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const mainContent = missingPermission ? (
     <NoAccessState
@@ -1039,6 +1111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {t('brand')} {navT('platform')}
             </h1>
             <button
+              type="button"
               onClick={handleLogout}
               className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
             >
@@ -1053,43 +1126,59 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (isAuthRoute) {
     return (
-      <div className="min-h-screen bg-[#0a0e14] text-gold-100">
-        <div className="relative min-h-screen overflow-hidden">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(245,158,11,0.14),transparent_55%)]" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(59,130,246,0.12),transparent_50%)]" />
-          <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(15,23,42,0.95),rgba(2,6,23,0.8))]" />
-          <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-12 px-6 pb-16 pt-20 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-xl space-y-6">
-              <p className="text-xs uppercase tracking-[0.4em] text-gold-500">
-                {t('brand')}
-              </p>
-              <h1 className="text-4xl font-semibold leading-tight text-gold-100 md:text-5xl">
-                {authT('commandRoomTitle')}
-              </h1>
-              <p className="text-base text-gold-300 md:text-lg">
-                {authT('commandRoomSubtitle')}
-              </p>
-              <div className="inline-flex items-center gap-4 rounded-2xl border border-gold-700/40 bg-black/60 px-5 py-4 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.35em] text-gold-500">
-                    {authT('systemStatusTitle')}
-                  </p>
-                  <p className="text-sm text-gold-100">
-                    {authT('systemStatusValue')}
-                  </p>
-                </div>
-                <span className="rounded-full border border-emerald-400/60 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
-                  {authT('systemStatusTag')}
-                </span>
+      <div className="auth-lux-root">
+        <div className="auth-lux-wrap">
+          <section className="auth-lux-hero nvi-reveal">
+            <div className="auth-lux-brand">
+              <div className="auth-lux-logo" aria-hidden />
+              <div>
+                <h1>{t('brand')}</h1>
+                <small>{authT('premiumInventoryControl')}</small>
               </div>
             </div>
-            <div className="flex w-full max-w-md flex-col justify-between rounded-3xl border border-white/10 bg-[#0f172a]/80 px-8 py-10 shadow-[0_40px_120px_rgba(0,0,0,0.6)] backdrop-blur-xl">
-              {children}
+
+            <h2>{authT('secureAccessTitle')}</h2>
+            <p>{authT('secureAccessSubtitle')}</p>
+
+            <div className="auth-lux-feature-grid">
+              <article className="auth-lux-feature">
+                <div className="auth-lux-feature-glyph">B</div>
+                <h3>{authT('branchReadyTitle')}</h3>
+                <p>{authT('branchReadySubtitle')}</p>
+              </article>
+              <article className="auth-lux-feature">
+                <div className="auth-lux-feature-glyph">S</div>
+                <h3>{authT('fastProductSetupTitle')}</h3>
+                <p>{authT('fastProductSetupSubtitle')}</p>
+              </article>
+              <article className="auth-lux-feature">
+                <div className="auth-lux-feature-glyph">$</div>
+                <h3>{authT('financeSnapshotsTitle')}</h3>
+                <p>{authT('financeSnapshotsSubtitle')}</p>
+              </article>
+              <article className="auth-lux-feature">
+                <div className="auth-lux-feature-glyph">?</div>
+                <h3>{authT('builtinHelpTitle')}</h3>
+                <p>{authT('builtinHelpSubtitle')}</p>
+              </article>
             </div>
-          </div>
+
+            <div className="auth-lux-tags">
+              <span className="auth-lux-tag">{authT('encryptedSessions')}</span>
+              <span className="auth-lux-tag">{authT('roleBasedAccess')}</span>
+              <span className="auth-lux-tag">{authT('auditFriendlyActions')}</span>
+            </div>
+
+            <div className="auth-lux-status">
+              <span className="auth-lux-status-dot" aria-hidden />
+              <span>{authT('systemStatusValue')}</span>
+            </div>
+          </section>
+
+          <section className="auth-lux-card nvi-reveal">
+            {children}
+          </section>
         </div>
-        <ManualHelpPanel />
-        <SupportChatWidget />
       </div>
     );
   }
@@ -1101,7 +1190,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <NotificationSurface locale={locale} />
           <LocalToastSurface />
           <main className="px-6 py-10">{children}</main>
-          <ManualHelpPanel />
           <SupportChatWidget />
         </div>
       </AuthGate>
@@ -1117,9 +1205,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Spinner variant="orbit" size="md" className="scale-150" />
               <div className="space-y-1">
                 <p className="text-lg font-semibold">{shellT('loggingOut')}</p>
-                <p className="text-xs text-gold-300 animate-pulse">
-                  {shellT('loggingOut')}
-                </p>
               </div>
             </div>
           </div>
@@ -1219,13 +1304,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ) : null}
         <NotificationSurface locale={locale} />
         <LocalToastSurface />
-        <header className="sticky top-0 z-30 border-b border-[color:var(--border)] bg-[color:var(--surface-soft)] px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
+        <header className="topbar-header sticky top-0 z-30 px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 sm:gap-3">
               <button
                 type="button"
                 onClick={() => setMobileNavOpen((prev) => !prev)}
-                className={`rounded border border-[color:var(--border)] px-2 py-1 text-xs text-[color:var(--foreground)] ${
+                className={`rounded border border-gold-800/40 bg-transparent px-2 py-1 text-xs text-gold-300 transition hover:border-gold-600/60 hover:text-gold-200 ${
                   forceDesktopShell
                     ? 'hidden'
                     : forceCompactShell
@@ -1235,7 +1320,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 ☰
               </button>
-              <h1 className="text-sm font-semibold tracking-[0.15em] text-[color:var(--foreground)] sm:text-lg sm:tracking-[0.2em]">
+              <h1 className="topbar-brand text-sm sm:text-base">
                 {t('brand')}
               </h1>
               {isReadOnly ? (
@@ -1245,7 +1330,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               ) : null}
             </div>
             <div
-              className={`flex items-center gap-2 text-sm text-[color:var(--muted)] ${
+              className={`flex items-center gap-2 ${
                 forceDesktopShell
                   ? 'hidden'
                   : forceCompactShell
@@ -1253,31 +1338,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : 'md:hidden'
               }`}
             >
+              <Link href={`${base}/pos`} className="topbar-pos-btn">
+                POS
+              </Link>
               <button
                 type="button"
                 onClick={() => setPaletteOpen(true)}
-                className="rounded border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)]"
+                className="topbar-icon-btn"
               >
                 ⌘K
               </button>
+              <Link
+                href={`${base}/notifications`}
+                className="topbar-icon-btn relative"
+                aria-label={shellT('notifications')}
+              >
+                🔔
+                {notificationCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gold-500 text-[9px] font-bold text-black">
+                    {notificationCount > 9 ? '9+' : notificationCount}
+                  </span>
+                ) : null}
+              </Link>
               <button
                 type="button"
                 onClick={() => setMobileControlsOpen((prev) => !prev)}
-                className="rounded border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)]"
+                className="topbar-avatar-btn"
+                title={storedUser?.name ?? 'Account'}
               >
-                {shellT('jump')}
-              </button>
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={isLoggingOut}
-                className="rounded border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)]"
-              >
-                {actionsT('logout')}
+                {userInitials}
               </button>
             </div>
             <div
-              className={`flex-wrap items-center gap-3 text-sm text-[color:var(--muted)] ${
+              className={`items-center gap-2 text-sm ${
                 forceCompactShell
                   ? 'hidden'
                   : forceDesktopShell
@@ -1287,112 +1380,180 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <BusinessSwitcher />
               {showBranchSelector ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs uppercase tracking-[0.25em]">
-                    {shellT('branch')}
-                  </span>
-                  <SmartSelect
-                    instanceId="branch-select"
-                    value={activeBranchId}
-                    options={branches.map((branch) => ({
-                      value: branch.id,
-                      label: branch.name,
-                    }))}
-                    placeholder={shellT('selectBranch')}
-                    onChange={(nextId) => {
-                      setActiveBranchId(nextId);
-                      const selected = branches.find(
-                        (branch) => branch.id === nextId,
-                      );
-                      if (selected) {
-                        setActiveBranch({ id: selected.id, name: selected.name });
-                      }
-                    }}
-                    className="min-w-[150px] lg:min-w-[180px] text-xs"
-                  />
-                </div>
-              ) : null}
-              <div className="flex items-center gap-2">
-                <span className="text-xs uppercase tracking-[0.25em]">
-                  {shellT('jump')}
-                </span>
                 <SmartSelect
-                  instanceId="jump-select"
-                  value=""
-                  options={visibleNavSections.map((section) => ({
-                    label: section.title,
-                    options: section.items
-                      .filter((item) => !item.disabled)
-                      .map((item) => ({ value: item.href, label: item.label })),
+                  instanceId="branch-select"
+                  value={activeBranchId}
+                  options={branches.map((branch) => ({
+                    value: branch.id,
+                    label: branch.name,
                   }))}
-                  placeholder={shellT('select')}
-                  onChange={(value) => {
-                    if (value) {
-                      router.push(value);
+                  placeholder={shellT('selectBranch')}
+                  onChange={(nextId) => {
+                    setActiveBranchId(nextId);
+                    const selected = branches.find((branch) => branch.id === nextId);
+                    if (selected) {
+                      setActiveBranch({ id: selected.id, name: selected.name });
                     }
                   }}
-                  className="min-w-[150px] lg:min-w-[180px] text-xs"
+                  className="min-w-[140px] lg:min-w-[170px] text-xs"
                 />
-                <button
-                  type="button"
-                  onClick={() => setPaletteOpen(true)}
-                  className="rounded border border-[color:var(--border)] px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)]"
-                >
-                  ⌘K
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs uppercase tracking-[0.25em]">
-                  {shellT('viewMode')}
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    data-active={viewMode === 'auto'}
-                    onClick={() => setViewMode('auto')}
-                    className="rounded-full border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)] data-[active=true]:border-[color:var(--accent)] data-[active=true]:bg-[color:var(--accent-soft)]"
-                  >
-                    {shellT('viewModeAuto')}
-                  </button>
-                  <button
-                    type="button"
-                    data-active={viewMode === 'desktop'}
-                    onClick={() => setViewMode('desktop')}
-                    className="rounded-full border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)] data-[active=true]:border-[color:var(--accent)] data-[active=true]:bg-[color:var(--accent-soft)]"
-                  >
-                    {shellT('viewModeDesktop')}
-                  </button>
-                  <button
-                    type="button"
-                    data-active={viewMode === 'compact'}
-                    onClick={() => setViewMode('compact')}
-                    className="rounded-full border border-[color:var(--border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--foreground)] data-[active=true]:border-[color:var(--accent)] data-[active=true]:bg-[color:var(--accent-soft)]"
-                  >
-                    {shellT('viewModeCompact')}
-                  </button>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs uppercase tracking-[0.25em]">
-                  {shellT('lang')}
-                </span>
-                <div className="flex gap-2">
-                  <Link href="/en" className="hover:text-[color:var(--foreground)]">
-                    EN
-                  </Link>
-                  <Link href="/sw" className="hover:text-[color:var(--foreground)]">
-                    SW
-                  </Link>
-                </div>
-              </div>
+              ) : null}
+
+              <Link href={`${base}/pos`} className="topbar-pos-btn">
+                POS
+              </Link>
+
               <button
                 type="button"
-                onClick={handleLogout}
-                disabled={isLoggingOut}
-                className="rounded border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--foreground)]"
+                onClick={() => setPaletteOpen(true)}
+                className="topbar-icon-btn"
+                title="Command palette"
               >
-                {isLoggingOut ? shellT('loggingOut') : actionsT('logout')}
+                ⌘K
               </button>
+
+              <button
+                type="button"
+                onClick={() => dispatchHelpCenterOpen({ tab: 'manual' })}
+                className="topbar-icon-btn"
+                title="Help"
+              >
+                ?
+              </button>
+
+              <div className="relative" ref={bellRef}>
+                <button
+                  type="button"
+                  onClick={() => setBellOpen((prev) => !prev)}
+                  className="topbar-icon-btn relative"
+                  title={shellT('notifications')}
+                  aria-label={shellT('notifications')}
+                >
+                  🔔
+                  {notificationCount > 0 ? (
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gold-500 text-[9px] font-bold text-black">
+                      {notificationCount > 9 ? '9+' : notificationCount}
+                    </span>
+                  ) : null}
+                </button>
+                {bellOpen ? (
+                  <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-gold-700/40 bg-black shadow-2xl">
+                    <div className="flex items-center justify-between border-b border-gold-700/30 px-4 py-2">
+                      <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">
+                        {shellT('notifications')}
+                      </p>
+                      {notificationCount > 0 ? (
+                        <span className="rounded-full bg-gold-500/20 px-2 py-0.5 text-[10px] font-semibold text-gold-300">
+                          {notificationCount}
+                        </span>
+                      ) : null}
+                    </div>
+                    {bellItems.length === 0 ? (
+                      <p className="px-4 py-5 text-center text-xs text-gold-500">
+                        {shellT('noNotifications')}
+                      </p>
+                    ) : (
+                      <ul>
+                        {bellItems.map((item) => (
+                          <li
+                            key={item.id}
+                            className="border-b border-gold-700/20 px-4 py-3 last:border-0"
+                          >
+                            <p className="text-[9px] uppercase tracking-[0.2em] text-gold-500">
+                              {item.priority}
+                            </p>
+                            <p className="mt-0.5 text-xs font-semibold text-gold-100">
+                              {item.title}
+                            </p>
+                            {item.message ? (
+                              <p className="mt-0.5 line-clamp-2 text-[11px] text-gold-400">
+                                {item.message}
+                              </p>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="border-t border-gold-700/30 px-4 py-2">
+                      <Link
+                        href={`${base}/notifications`}
+                        onClick={() => setBellOpen(false)}
+                        className="text-xs text-gold-400 hover:text-gold-200"
+                      >
+                        {shellT('viewAllNotifications')} →
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  type="button"
+                  className="topbar-avatar-btn"
+                  onClick={() => setUserMenuOpen((prev) => !prev)}
+                  title={storedUser?.name ?? 'Account'}
+                >
+                  {userInitials}
+                </button>
+                {userMenuOpen && (
+                  <div className="topbar-user-menu">
+                    <div className="topbar-user-menu__header">
+                      <div className="topbar-user-menu__header-avatar">
+                        {userInitials}
+                      </div>
+                      <div className="topbar-user-menu__header-text">
+                        <p className="topbar-user-menu__header-name">{storedUser?.name ?? 'User'}</p>
+                        <p className="topbar-user-menu__header-email">{storedUser?.email ?? ''}</p>
+                      </div>
+                    </div>
+                    <div className="topbar-user-menu__section">
+                      <p className="topbar-user-menu__label">{shellT('viewMode')}</p>
+                      <div className="topbar-user-menu__mode-toggle">
+                        {(['auto', 'desktop', 'compact'] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            data-active={viewMode === mode}
+                            onClick={() => { setViewMode(mode); setUserMenuOpen(false); }}
+                            className="topbar-user-menu__mode-btn"
+                          >
+                            {shellT(`viewMode${mode.charAt(0).toUpperCase()}${mode.slice(1)}` as 'viewModeAuto' | 'viewModeDesktop' | 'viewModeCompact')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="topbar-user-menu__section">
+                      <p className="topbar-user-menu__label">{shellT('lang')}</p>
+                      <div className="topbar-user-menu__lang-row">
+                        <Link
+                          href="/en"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="topbar-user-menu__lang-btn"
+                        >
+                          EN
+                        </Link>
+                        <Link
+                          href="/sw"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="topbar-user-menu__lang-btn"
+                        >
+                          SW
+                        </Link>
+                      </div>
+                    </div>
+                    <div className="topbar-user-menu__divider" />
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      disabled={isLoggingOut}
+                      className="topbar-user-menu__logout"
+                    >
+                      {isLoggingOut ? shellT('loggingOut') : actionsT('logout')}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           {mobileControlsOpen ? (
@@ -1405,6 +1566,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : 'md:hidden'
               }`}
             >
+              <div className="flex items-center gap-3 rounded-xl border border-[color:var(--border)] bg-[rgba(22,17,6,0.6)] px-3 py-2.5">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-[rgba(246,211,122,0.35)] bg-[rgba(246,211,122,0.1)] text-sm font-bold text-[#f6d37a]">
+                  {userInitials}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-[color:var(--foreground)]">{storedUser?.name ?? 'User'}</p>
+                  <p className="truncate text-[11px] text-[color:var(--muted)]">{storedUser?.email ?? ''}</p>
+                </div>
+              </div>
               <BusinessSwitcher />
               {showBranchSelector ? (
                 <SmartSelect
@@ -1483,6 +1653,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   {shellT('viewModeCompact')}
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className="mt-1 w-full rounded-xl border border-red-500/20 bg-red-950/30 px-3 py-2.5 text-left text-sm font-medium text-red-400 transition hover:border-red-500/40 hover:bg-red-950/50 disabled:opacity-60"
+              >
+                {isLoggingOut ? shellT('loggingOut') : actionsT('logout')}
+              </button>
             </div>
           ) : null}
         </header>
@@ -1643,7 +1821,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </nav>
           <main
-            className="read-only-zone flex-1 px-4 py-6 pb-24 sm:px-6 md:py-8 md:pb-8"
+            className="read-only-zone min-w-0 flex-1 px-4 py-6 pb-24 sm:px-6 md:py-8 md:pb-8"
             data-readonly={isReadOnly ? 'true' : 'false'}
           >
             {mainContent}
@@ -1749,7 +1927,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         ) : null}
-        <ManualHelpPanel />
         <SupportChatWidget />
       </div>
     </AuthGate>

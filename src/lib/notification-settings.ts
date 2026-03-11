@@ -108,14 +108,14 @@ export const NOTIFICATION_GROUPS: Record<
 const defaultRecipients: NotificationRecipientConfig = {
   roleIds: [],
   userIds: [],
-  includeOwners: true,
+  includeOwners: false,
   includeManagers: false,
   branchScoped: true,
 };
 
 export const buildDefaultNotificationSettings = (): NotificationSettings => ({
   channels: {
-    email: true,
+    email: false,
     sms: false,
     whatsapp: false,
   },
@@ -135,7 +135,7 @@ export const buildDefaultNotificationSettings = (): NotificationSettings => ({
     (acc, key) => {
       acc[key] = {
         channels: {
-          email: true,
+          email: false,
           sms: false,
           whatsapp: false,
         },
@@ -146,7 +146,7 @@ export const buildDefaultNotificationSettings = (): NotificationSettings => ({
   ),
   events: NOTIFICATION_EVENTS.reduce((acc, key) => {
     acc[key] = {
-      enabled: true,
+      enabled: false,
     };
     return acc;
   }, {} as Record<NotificationEventKey, NotificationEventSettings>),
@@ -167,8 +167,8 @@ const normalizeRecipients = (
     userIds: Array.isArray(source.userIds)
       ? source.userIds.filter((id) => typeof id === 'string')
       : [...fallback.userIds],
-    includeOwners: toBoolean(source.includeOwners, fallback.includeOwners),
-    includeManagers: toBoolean(source.includeManagers, fallback.includeManagers),
+    includeOwners: false,
+    includeManagers: false,
     branchScoped: toBoolean(source.branchScoped, fallback.branchScoped),
   };
 };

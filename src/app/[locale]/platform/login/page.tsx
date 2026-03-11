@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { setPlatformSession } from '@/lib/auth';
@@ -11,6 +11,9 @@ export default function PlatformLoginPage() {
   const t = useTranslations('platformAuth');
   const router = useRouter();
   const params = useParams<{ locale: string }>();
+  const searchParams = useSearchParams();
+  const rawReturnTo = searchParams.get('returnTo') ?? '';
+  const returnTo = rawReturnTo.startsWith('/') && !rawReturnTo.startsWith('//') ? rawReturnTo : '';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -22,15 +25,15 @@ export default function PlatformLoginPage() {
     setError(null);
     setIsSubmitting(true);
     try {
-      const response = await apiFetch<{ accessToken: string }>(
+      const response = await apiFetch<{ accessToken: string; refreshToken?: string }>(
         '/platform/auth/login',
         {
           method: 'POST',
           body: JSON.stringify({ email, password }),
         },
       );
-      setPlatformSession(response.accessToken);
-      router.replace(`/${params.locale}/platform/overview`);
+      setPlatformSession(response.accessToken, response.refreshToken);
+      router.replace(returnTo || `/${params.locale}/platform/overview`);
     } catch (err) {
       setError(getApiErrorMessage(err, t('loginFailed')));
     } finally {
@@ -120,6 +123,8 @@ export default function PlatformLoginPage() {
                   onChange={(event) => setEmail(event.target.value)}
                   placeholder={t('email')}
                   type="email"
+                  autoComplete="email"
+                  required
                   className="w-full rounded border border-gold-700/60 bg-black px-3 py-2.5 text-gold-100 outline-none transition focus:border-gold-400/70"
                 />
               </label>
@@ -132,6 +137,8 @@ export default function PlatformLoginPage() {
                     onChange={(event) => setPassword(event.target.value)}
                     placeholder={t('password')}
                     type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    required
                     className="w-full rounded border border-gold-700/60 bg-black px-3 py-2.5 pr-14 text-gold-100 outline-none transition focus:border-gold-400/70"
                   />
                   <button
@@ -158,7 +165,7 @@ export default function PlatformLoginPage() {
               </button>
 
               {error ? (
-                <p className="rounded border border-red-500/50 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                <p role="alert" className="rounded border border-red-500/50 bg-red-500/10 px-3 py-2 text-sm text-red-300">
                   {error}
                 </p>
               ) : null}

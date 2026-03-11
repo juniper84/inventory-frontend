@@ -77,6 +77,7 @@ export function PlatformHealthCommandSurface({
   devicesMap,
   loadingDevices,
   revokeDevice,
+  locale,
 }: {
   show: boolean;
   t: (key: string, values?: Record<string, string | number | Date>) => string;
@@ -106,6 +107,7 @@ export function PlatformHealthCommandSurface({
     businessId: string,
     reason: string,
   ) => Promise<void>;
+  locale: string;
 }) {
   if (!show) {
     return null;
@@ -165,7 +167,7 @@ export function PlatformHealthCommandSurface({
             </p>
             <p className="text-[11px] text-gold-500">
               {healthMatrix?.generatedAt
-                ? new Date(healthMatrix.generatedAt).toLocaleString()
+                ? new Date(healthMatrix.generatedAt).toLocaleString(locale)
                 : t('notAvailable')}
             </p>
           </div>
@@ -271,6 +273,7 @@ export function PlatformHealthCommandSurface({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <SmartSelect
+            instanceId="platform-health-select-business"
             value={healthBusinessId}
             onChange={setHealthBusinessId}
             options={businessSelectOptions}
@@ -328,6 +331,7 @@ export function PlatformHealthCommandSurface({
         </div>
         <div className="grid gap-3 md:grid-cols-[2fr_2fr_auto]">
           <SmartSelect
+            instanceId="platform-health-device-fleet-business"
             value={deviceFleetBusinessId}
             onChange={setDeviceFleetBusinessId}
             options={businessSelectOptions}

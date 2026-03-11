@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -82,7 +82,7 @@ export default function CategoriesPage() {
     }
   }, [debouncedSearch, filters.search, pushFilters]);
 
-  const load = async (cursor?: string, append = false) => {
+  const load = useCallback(async (cursor?: string, append = false) => {
     const token = getAccessToken();
     if (!token) {
       return;
@@ -92,31 +92,36 @@ export default function CategoriesPage() {
     } else {
       setIsLoading(true);
     }
-    const query = buildCursorQuery({
-      limit: 25,
-      cursor,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-    });
-    const data = await apiFetch<PaginatedResponse<Category> | Category[]>(
-      `/categories${query}`,
-      { token },
-    );
-    const result = normalizePaginated(data);
-    setCategories((prev) =>
-      append ? [...prev, ...result.items] : result.items,
-    );
-    setNextCursor(result.nextCursor);
-    if (append) {
-      setIsLoadingMore(false);
-    } else {
-      setIsLoading(false);
+    try {
+      const query = buildCursorQuery({
+        limit: 25,
+        cursor,
+        search: filters.search || undefined,
+        status: filters.status || undefined,
+      });
+      const data = await apiFetch<PaginatedResponse<Category> | Category[]>(
+        `/categories${query}`,
+        { token },
+      );
+      const result = normalizePaginated(data);
+      setCategories((prev) =>
+        append ? [...prev, ...result.items] : result.items,
+      );
+      setNextCursor(result.nextCursor);
+    } catch (err) {
+      setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('loadFailed')) });
+    } finally {
+      if (append) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [filters.search, filters.status, t]);
 
   useEffect(() => {
-    load().catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
-  }, [filters.search, filters.status]);
+    load();
+  }, [load]);
 
   const createCategory = async () => {
     const token = getAccessToken();
@@ -203,13 +208,13 @@ export default function CategoriesPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Catalog hierarchy"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Taxonomy</span>
-            <span className="status-chip">Live</span>
+            <span className="status-chip">{t('badgeTaxonomy')}</span>
+            <span className="status-chip">{t('badgeLive')}</span>
           </>
         }
         actions={
@@ -224,25 +229,25 @@ export default function CategoriesPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Categories
+            {t('kpiCategories')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{categories.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Active
+            {t('kpiActive')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{activeCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Parent groups
+            {t('kpiParentGroups')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{parentCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Filtered status
+            {t('kpiFilteredStatus')}
           </p>
           <p className="mt-2 text-lg font-semibold text-gold-100">
             {filters.status || common('allStatuses')}
@@ -260,6 +265,7 @@ export default function CategoriesPage() {
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         >
           <SmartSelect
+            instanceId="categories-filter-status"
             value={filters.status}
             onChange={(value) => pushFilters({ status: value })}
             options={statusOptions}
@@ -281,6 +287,7 @@ export default function CategoriesPage() {
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
           <SmartSelect
+            instanceId="category-form-parent"
             value={form.parentId}
             onChange={(value) => setForm({ ...form, parentId: value })}
             options={categories.map((category) => ({
@@ -293,6 +300,7 @@ export default function CategoriesPage() {
           />
         </div>
         <button
+          type="button"
           onClick={createCategory}
           disabled={isCreating || !canWrite}
           title={!canWrite ? noAccess('title') : undefined}
@@ -328,6 +336,7 @@ export default function CategoriesPage() {
                       <td className="px-3 py-2">{category.status}</td>
                       <td className="px-3 py-2">
                         <button
+                          type="button"
                           onClick={() => startEdit(category)}
                           disabled={!canWrite}
                           title={!canWrite ? noAccess('title') : undefined}
@@ -365,6 +374,7 @@ export default function CategoriesPage() {
                       className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                     />
                     <SmartSelect
+                      instanceId={`category-edit-parent-${category.id}`}
                       value={editingForm.parentId}
                       onChange={(value) =>
                         setEditingForm({
@@ -384,6 +394,7 @@ export default function CategoriesPage() {
                     />
                     <div className="flex gap-2">
                         <button
+                          type="button"
                           onClick={saveEdit}
                           disabled={isSaving || !canWrite}
                           title={!canWrite ? noAccess('title') : undefined}
@@ -395,6 +406,7 @@ export default function CategoriesPage() {
                         </span>
                       </button>
                       <button
+                        type="button"
                         onClick={() => setEditingId(null)}
                         className="rounded border border-gold-700/50 px-3 py-1 text-sm text-gold-100"
                       >
@@ -415,6 +427,7 @@ export default function CategoriesPage() {
                       </p>
                     </div>
                     <button
+                      type="button"
                       onClick={() => startEdit(category)}
                       disabled={!canWrite}
                       title={!canWrite ? noAccess('title') : undefined}
@@ -430,6 +443,7 @@ export default function CategoriesPage() {
         )}
         {nextCursor ? (
           <button
+            type="button"
             onClick={() => load(nextCursor, true)}
             disabled={isLoadingMore}
             className="mt-4 rounded border border-gold-500/60 px-4 py-2 text-sm text-gold-200 disabled:opacity-60"

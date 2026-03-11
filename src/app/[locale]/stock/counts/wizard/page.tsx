@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useBranchScope } from '@/lib/use-branch-scope';
@@ -11,12 +10,14 @@ import { useToastState } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { StatusBanner } from '@/components/StatusBanner';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { getPermissionSet } from '@/lib/permissions';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useVariantSearch } from '@/lib/use-variant-search';
 
 type Branch = { id: string; name: string };
 type Variant = {
@@ -46,8 +47,7 @@ export default function StockCountWizardPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
-  const params = useParams<{ locale: string }>();
-  const locale = params?.locale ?? 'en';
+  const locale = useLocale();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('stock.write');
   const [message, setMessage] = useToastState();
@@ -71,6 +71,7 @@ export default function StockCountWizardPage() {
     },
   ]);
   const { activeBranch, resolveBranchId } = useBranchScope();
+  const { loadOptions: loadVariantOptions, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
 
   const validLines = useMemo(
     () =>
@@ -102,7 +103,9 @@ export default function StockCountWizardPage() {
           loadUnits(token),
         ]);
         setBranches(normalizePaginated(branchData).items);
-        setVariants(normalizePaginated(variantData).items);
+        const variantList = normalizePaginated(variantData).items;
+        setVariants(variantList);
+        seedVariantCache(variantList);
         setSnapshots(normalizePaginated(stockData).items);
         setUnits(unitList);
       } catch (err) {
@@ -158,11 +161,11 @@ export default function StockCountWizardPage() {
       return;
     }
     const key = `${branchId}-${variantId}`;
-    const data = await apiFetch<Batch[]>(
+    const data = await apiFetch<Batch[] | PaginatedResponse<Batch>>(
       `/stock/batches?branchId=${branchId}&variantId=${variantId}`,
       { token },
     );
-    setBatchOptions((prev) => ({ ...prev, [key]: data }));
+    setBatchOptions((prev) => ({ ...prev, [key]: normalizePaginated(data).items }));
   };
 
   const submit = async () => {
@@ -173,20 +176,22 @@ export default function StockCountWizardPage() {
     setIsSubmitting(true);
     setMessage(null);
     try {
-      for (const line of validLines) {
-        await apiFetch('/stock/counts', {
-          token,
-          method: 'POST',
-          body: JSON.stringify({
-            branchId: line.branchId,
-            variantId: line.variantId,
-            countedQuantity: Number(line.countedQuantity),
-            unitId: line.unitId || undefined,
-            reason: line.reason || undefined,
-            batchId: line.batchId || undefined,
+      await Promise.all(
+        validLines.map((line) =>
+          apiFetch('/stock/counts', {
+            token,
+            method: 'POST',
+            body: JSON.stringify({
+              branchId: line.branchId,
+              variantId: line.variantId,
+              countedQuantity: Number(line.countedQuantity),
+              unitId: line.unitId || undefined,
+              reason: line.reason || undefined,
+              batchId: line.batchId || undefined,
+            }),
           }),
-        });
-      }
+        ),
+      );
       setLines([
         {
           id: crypto.randomUUID(),
@@ -234,25 +239,25 @@ export default function StockCountWizardPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Draft lines
+            {t('kpiDraftLines')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{lines.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Valid lines
+            {t('kpiValidLines')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{validLines.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Current step
+            {t('kpiCurrentStep')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">{t(`${step}Step`)}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Branches
+            {t('kpiBranches')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
         </article>
@@ -286,6 +291,7 @@ export default function StockCountWizardPage() {
               <div key={line.id} className="rounded border border-gold-700/30 bg-black/40 p-3 space-y-2">
                 <div className="grid gap-2 md:grid-cols-[2fr_1fr_1fr_auto]">
                   <SmartSelect
+                    instanceId={`count-wizard-${line.id}-branch`}
                     value={line.branchId}
                     onChange={(value) => {
                       updateLine(line.id, { branchId: value, batchId: '' });
@@ -297,9 +303,16 @@ export default function StockCountWizardPage() {
                     placeholder={t('selectBranch')}
                     className="nvi-select-container"
                   />
-                  <SmartSelect
-                    value={line.variantId}
-                    onChange={(value) => {
+                  <AsyncSmartSelect
+                    instanceId={`count-wizard-${line.id}-variant`}
+                    value={getVariantOption(line.variantId)}
+                    loadOptions={loadVariantOptions}
+                    defaultOptions={variants.map((v) => ({
+                      value: v.id,
+                      label: formatVariantLabel({ id: v.id, name: v.name, productName: v.product?.name ?? null }),
+                    }))}
+                    onChange={(opt) => {
+                      const value = opt?.value ?? '';
                       const variant = variants.find((item) => item.id === value);
                       updateLine(line.id, {
                         variantId: value,
@@ -310,15 +323,8 @@ export default function StockCountWizardPage() {
                         loadBatches(line.branchId, value).catch(() => undefined);
                       }
                     }}
-                    options={variants.map((variant) => ({
-                      value: variant.id,
-                      label: formatVariantLabel({
-                        id: variant.id,
-                        name: variant.name,
-                        productName: variant.product?.name ?? null,
-                      }),
-                    }))}
                     placeholder={t('selectVariant')}
+                    isClearable
                     className="nvi-select-container"
                   />
                   <input
@@ -339,6 +345,7 @@ export default function StockCountWizardPage() {
                 </div>
                 <div className="grid gap-2 md:grid-cols-3">
                   <SmartSelect
+                    instanceId={`count-wizard-${line.id}-unit`}
                     value={line.unitId}
                     onChange={(value) => updateLine(line.id, { unitId: value })}
                     options={units.map((unit) => ({
@@ -349,6 +356,7 @@ export default function StockCountWizardPage() {
                     className="nvi-select-container"
                   />
                   <SmartSelect
+                    instanceId={`count-wizard-${line.id}-batch`}
                     value={line.batchId}
                     onChange={(value) => updateLine(line.id, { batchId: value })}
                     options={options.map((batch) => ({

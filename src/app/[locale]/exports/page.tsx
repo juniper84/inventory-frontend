@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
+import { confirmAction, useToastState } from '@/lib/app-notifications';
 import {
   apiFetch,
   buildRequestHeaders,
@@ -27,6 +27,7 @@ import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type ExportJob = {
   id: string;
@@ -73,6 +74,8 @@ export default function ExportsPage() {
   const t = useTranslations('exportsPage');
   const common = useTranslations('common');
   const actions = useTranslations('actions');
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isDownloading, setIsDownloading] = useState<Record<string, boolean>>({});
@@ -87,6 +90,8 @@ export default function ExportsPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
   const [exportType, setExportType] = useState('STOCK');
   const [auditAck, setAuditAck] = useState(false);
@@ -174,7 +179,25 @@ export default function ExportsPage() {
     }
   }, [debouncedSearch, filters.search, pushFilters]);
 
-  const loadJobs = async (targetPage = 1, nextPageSize?: number) => {
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const branchData = await apiFetch<PaginatedResponse<Branch> | Branch[]>(
+        '/branches?limit=200',
+        { token },
+      );
+      setBranches(normalizePaginated(branchData).items);
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const loadJobs = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     setIsLoading(true);
     const token = getAccessToken();
     if (!token) {
@@ -183,7 +206,7 @@ export default function ExportsPage() {
     }
     const effectivePageSize = nextPageSize ?? pageSize;
     const cursor =
-      targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+      targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
     try {
       const query = buildCursorQuery({
         limit: effectivePageSize,
@@ -196,15 +219,10 @@ export default function ExportsPage() {
         to: filters.to || undefined,
         includeTotal: targetPage === 1 ? '1' : undefined,
       });
-      const [branchData, data] = await Promise.all([
-        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
-          token,
-        }),
-        apiFetch<PaginatedResponse<ExportJob> | ExportJob[]>(`/exports/jobs${query}`, {
-          token,
-        }),
-      ]);
-      setBranches(normalizePaginated(branchData).items);
+      const data = await apiFetch<PaginatedResponse<ExportJob> | ExportJob[]>(
+        `/exports/jobs${query}`,
+        { token },
+      );
       const result = normalizePaginated(data);
       setJobs(result.items);
       setNextCursor(result.nextCursor);
@@ -229,7 +247,7 @@ export default function ExportsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, filters.search, filters.status, filters.type, filters.branchId, filters.from, filters.to, resolveBranchId, t, setMessage]);
 
   const loadWorkerStatus = async () => {
     const token = getAccessToken();
@@ -248,6 +266,10 @@ export default function ExportsPage() {
   };
 
   useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
+
+  useEffect(() => {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
@@ -260,6 +282,7 @@ export default function ExportsPage() {
     filters.branchId,
     filters.from,
     filters.to,
+    loadJobs,
   ]);
 
   useEffect(() => {
@@ -404,6 +427,12 @@ export default function ExportsPage() {
     if (!token || !importCsv.trim()) {
       return;
     }
+    const ok = await confirmAction({
+      title: t('applyImportConfirmTitle'),
+      message: t('applyImportConfirmMessage'),
+      confirmText: t('applyImportConfirmButton'),
+    });
+    if (!ok) return;
     setMessage(null);
     setIsApplying(true);
     try {
@@ -430,33 +459,33 @@ export default function ExportsPage() {
   }
 
   return (
-    <section className="space-y-4">
+    <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="DATA PIPELINE"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">QUEUE WATCH</span>
-            <span className="nvi-badge">IMPORT READY</span>
+            <span className="nvi-badge">{t('badgeQueueWatch')}</span>
+            <span className="nvi-badge">{t('badgeImportReady')}</span>
           </>
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">VISIBLE JOBS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiVisibleJobs')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{jobs.length}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">COMPLETED</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiCompleted')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{completedJobs}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">FAILED</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiFailed')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{failedJobs}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">QUEUE PENDING</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiQueuePending')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{queuePending}</p>
         </article>
       </div>
@@ -484,7 +513,7 @@ export default function ExportsPage() {
               {t('lastJob', {
                 type: workerStatus.lastJob.type,
                 status: workerStatus.lastJob.status,
-                date: new Date(workerStatus.lastJob.createdAt).toLocaleString(),
+                date: formatDateTime(workerStatus.lastJob.createdAt),
               })}
             </p>
           ) : null}
@@ -496,6 +525,7 @@ export default function ExportsPage() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-[220px]">
             <SmartSelect
+              instanceId="exports-create-type"
               value={exportType}
               onChange={setExportType}
               options={exportTypes}
@@ -504,6 +534,7 @@ export default function ExportsPage() {
           </div>
           <div className="min-w-[220px]">
             <SmartSelect
+              instanceId="exports-create-branch"
               value={branchId}
               onChange={(value) => setBranchId(value)}
               options={branches.map((branch) => ({
@@ -556,6 +587,7 @@ export default function ExportsPage() {
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         >
           <SmartSelect
+            instanceId="exports-filter-status"
             value={filters.status}
             onChange={(value) => pushFilters({ status: value })}
             options={statusOptions}
@@ -563,6 +595,7 @@ export default function ExportsPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="exports-filter-type"
             value={filters.type}
             onChange={(value) => pushFilters({ type: value })}
             options={typeOptions}
@@ -570,6 +603,7 @@ export default function ExportsPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="exports-filter-branch"
             value={filters.branchId}
             onChange={(value) => pushFilters({ branchId: value })}
             options={branchOptions}
@@ -611,11 +645,11 @@ export default function ExportsPage() {
                       <td className="px-3 py-2 font-semibold">{job.type}</td>
                       <td className="px-3 py-2">{job.status}</td>
                       <td className="px-3 py-2">
-                        {new Date(job.createdAt).toLocaleString()}
+                        {formatDateTime(job.createdAt)}
                       </td>
                       <td className="px-3 py-2">
                         {job.completedAt
-                          ? new Date(job.completedAt).toLocaleString()
+                          ? formatDateTime(job.completedAt)
                           : t('notCompleted')}
                       </td>
                       <td className="px-3 py-2">
@@ -652,7 +686,7 @@ export default function ExportsPage() {
                     {job.type} • {job.status}
                   </p>
                   <p className="text-xs text-gold-400">
-                    {new Date(job.createdAt).toLocaleString()}
+                    {formatDateTime(job.createdAt)}
                   </p>
                   {job.metadata?.attachments?.length ? (
                     <div className="text-xs text-gold-300">
@@ -723,6 +757,7 @@ export default function ExportsPage() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-[220px]">
             <SmartSelect
+              instanceId="exports-import-type"
               value={importType}
               onChange={setImportType}
               options={importTypes}

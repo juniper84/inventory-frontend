@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslations } from 'next-intl';
-import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
+import { useRouter } from 'next/navigation';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { confirmAction, useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -11,6 +11,7 @@ import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { StatusBanner } from '@/components/StatusBanner';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
@@ -47,7 +48,7 @@ export default function ProductWizardPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const router = useRouter();
-  const params = useParams<{ locale: string }>();
+  const locale = useLocale();
   const { activeBranch, resolveBranchId } = useBranchScope();
   const [isLoading, setIsLoading] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -119,7 +120,7 @@ export default function ProductWizardPage() {
       return;
     }
     Promise.all([
-      apiFetch<PaginatedResponse<Category> | Category[]>('/categories?limit=200', {
+      apiFetch<PaginatedResponse<Category> | Category[]>('/categories?limit=50', {
         token,
       }),
       apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
@@ -132,7 +133,7 @@ export default function ProductWizardPage() {
         setBranches(normalizePaginated(branchData).items);
         setUnits(unitList);
       })
-      .catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))))
+      .catch((err) => setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('loadFailed')) }))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -163,7 +164,7 @@ export default function ProductWizardPage() {
     scanner.stopStreams?.();
   };
 
-  const stopVideoStream = () => {
+  const stopVideoStream = useCallback(() => {
     const video = videoRef.current;
     const stream = video?.srcObject as MediaStream | null;
     if (stream) {
@@ -172,16 +173,16 @@ export default function ProductWizardPage() {
     if (video) {
       video.srcObject = null;
     }
-  };
+  }, []);
 
-  const stopScan = () => {
+  const stopScan = useCallback(() => {
     resetScanner(scannerRef.current);
     scannerRef.current = null;
     setScanActive(false);
     setScanTargetId(null);
     setScanAutoStart(false);
     stopVideoStream();
-  };
+  }, [stopVideoStream]);
 
   const startScan = async (variantId: string) => {
     if (!videoRef.current) {
@@ -196,7 +197,8 @@ export default function ProductWizardPage() {
       scannerRef.current = reader;
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter((device) => device.kind === 'videoinput');
-      const deviceId = videoDevices[0]?.deviceId;
+      const rearCamera = videoDevices.find((d) => /back|rear|environment/i.test(d.label));
+      const deviceId = (rearCamera ?? videoDevices[0])?.deviceId;
       let handled = false;
       await reader.decodeFromVideoDevice(
         deviceId,
@@ -303,6 +305,20 @@ export default function ProductWizardPage() {
       ),
     );
   }, [units]);
+
+  const loadCategoryOptions = useCallback(async (inputValue: string) => {
+    const token = getAccessToken();
+    if (!token) return [];
+    try {
+      const data = await apiFetch<PaginatedResponse<Category> | Category[]>(
+        `/categories?search=${encodeURIComponent(inputValue)}&limit=25`,
+        { token },
+      );
+      return normalizePaginated(data).items.map((c) => ({ value: c.id, label: c.name }));
+    } catch {
+      return [];
+    }
+  }, []);
 
   const goNext = () => setStep((prev) => Math.min(prev + 1, steps.length - 1));
   const goBack = () => setStep((prev) => Math.max(prev - 1, 0));
@@ -423,10 +439,9 @@ export default function ProductWizardPage() {
       }
 
       const createdVariantMap = new Map<string, string>();
-      for (const variant of filteredVariants) {
-        const created = await apiFetch<{ id: string }>(
-          '/variants',
-          {
+      await Promise.all(
+        filteredVariants.map(async (variant) => {
+          const created = await apiFetch<{ id: string }>('/variants', {
             token,
             method: 'POST',
             body: JSON.stringify({
@@ -448,44 +463,40 @@ export default function ProductWizardPage() {
               vatMode: variant.vatMode,
               trackStock: variant.trackStock,
             }),
-          },
-        );
-        createdVariantMap.set(variant.id, created.id);
-
-        if (variant.barcode.trim()) {
-          await apiFetch('/barcodes', {
-            token,
-            method: 'POST',
-            body: JSON.stringify({ variantId: created.id, code: variant.barcode }),
           });
-        }
-      }
+          createdVariantMap.set(variant.id, created.id);
+          if (variant.barcode.trim()) {
+            await apiFetch('/barcodes', {
+              token,
+              method: 'POST',
+              body: JSON.stringify({ variantId: created.id, code: variant.barcode }),
+            });
+          }
+        }),
+      );
 
-      for (const line of stockLines) {
-        const createdId = createdVariantMap.get(line.variantId);
-        if (!createdId) {
-          continue;
-        }
-        const qty = Number(line.quantity);
-        if (!Number.isFinite(qty) || qty <= 0) {
-          continue;
-        }
-        if (!line.branchId) {
-          continue;
-        }
-        await apiFetch('/stock/adjustments', {
-          token,
-          method: 'POST',
-          body: JSON.stringify({
-            branchId: line.branchId,
-            variantId: createdId,
-            quantity: qty,
-            unitId: line.unitId || undefined,
-            type: 'POSITIVE',
-            reason: t('initialStockReason'),
-          }),
-        });
-      }
+      await Promise.all(
+        stockLines
+          .filter((line) => {
+            const createdId = createdVariantMap.get(line.variantId);
+            const qty = Number(line.quantity);
+            return createdId && Number.isFinite(qty) && qty > 0 && line.branchId;
+          })
+          .map((line) =>
+            apiFetch('/stock/adjustments', {
+              token,
+              method: 'POST',
+              body: JSON.stringify({
+                branchId: line.branchId,
+                variantId: createdVariantMap.get(line.variantId),
+                quantity: Number(line.quantity),
+                unitId: line.unitId || undefined,
+                type: 'POSITIVE',
+                reason: t('initialStockReason'),
+              }),
+            }),
+          ),
+      );
 
       setProduct({ name: '', description: '', categoryId: '' });
       setVariants([
@@ -525,12 +536,12 @@ export default function ProductWizardPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Catalog wizard"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Guided</span>
+            <span className="status-chip">{t('badgeGuided')}</span>
             <span className="status-chip">{steps[step]}</span>
           </>
         }
@@ -539,19 +550,19 @@ export default function ProductWizardPage() {
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Current step</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiCurrentStep')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">{steps[step]}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Variants drafted</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiVariantsDrafted')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Stock lines</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiStockLines')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{stockLines.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Ready variants</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiReadyVariants')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{filteredVariants.length}</p>
         </article>
       </div>
@@ -592,16 +603,13 @@ export default function ProductWizardPage() {
             placeholder={t('descriptionOptional')}
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
-          <SmartSelect
-            value={product.categoryId}
-            onChange={(value) =>
-              setProduct({ ...product, categoryId: value })
-            }
+          <AsyncSmartSelect
+            instanceId="wizard-product-category"
+            value={product.categoryId ? { value: product.categoryId, label: categories.find((c) => c.id === product.categoryId)?.name ?? '' } : null}
+            onChange={(opt) => setProduct({ ...product, categoryId: opt?.value ?? '' })}
+            loadOptions={loadCategoryOptions}
+            defaultOptions={categories.map((c) => ({ value: c.id, label: c.name }))}
             placeholder={t('category')}
-            options={categories.map((category) => ({
-              value: category.id,
-              label: category.name,
-            }))}
           />
         </div>
       ) : null}
@@ -670,6 +678,7 @@ export default function ProductWizardPage() {
                   className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                 />
                 <SmartSelect
+                  instanceId={`wizard-variant-vat-${variant.id}`}
                   value={variant.vatMode}
                   onChange={(value) =>
                     updateVariant(variant.id, { vatMode: value })
@@ -710,6 +719,7 @@ export default function ProductWizardPage() {
                 <label className="space-y-1 text-xs text-gold-300">
                   <span className="text-gold-400">{t('baseUnit')}</span>
                   <SmartSelect
+                    instanceId={`wizard-variant-base-unit-${variant.id}`}
                     value={variant.baseUnitId}
                     onChange={(value) =>
                       updateVariant(variant.id, {
@@ -731,6 +741,7 @@ export default function ProductWizardPage() {
                 <label className="space-y-1 text-xs text-gold-300">
                   <span className="text-gold-400">{t('sellUnit')}</span>
                   <SmartSelect
+                    instanceId={`wizard-variant-sell-unit-${variant.id}`}
                     value={variant.sellUnitId || variant.baseUnitId}
                     onChange={(value) =>
                       updateVariant(variant.id, {
@@ -822,6 +833,7 @@ export default function ProductWizardPage() {
               <div key={variant.id} className="grid gap-2 md:grid-cols-4">
                 <div className="text-sm text-gold-200">{variant.name || t('empty')}</div>
                 <SmartSelect
+                  instanceId={`wizard-variant-branch-${variant.id}`}
                   value={
                     stockLines.find((line) => line.variantId === variant.id)
                       ?.branchId || ''
@@ -848,6 +860,7 @@ export default function ProductWizardPage() {
                   className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                 />
                 <SmartSelect
+                  instanceId={`wizard-variant-unit-${variant.id}`}
                   value={
                     stockLines.find((line) => line.variantId === variant.id)
                       ?.unitId || variant.sellUnitId || variant.baseUnitId || ''
@@ -900,7 +913,7 @@ export default function ProductWizardPage() {
             if (!confirmed) {
               return;
             }
-            router.push(`/${params.locale}/catalog/products`);
+            router.push(`/${locale}/catalog/products`);
           }}
           className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
         >

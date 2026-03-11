@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -24,6 +24,7 @@ import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Approval = {
   id: string;
@@ -42,6 +43,8 @@ type Approval = {
 };
 
 export default function ApprovalsPage() {
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
   const t = useTranslations('approvalsPage');
   const actions = useTranslations('actions');
   const common = useTranslations('common');
@@ -59,6 +62,8 @@ export default function ApprovalsPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
   const [message, setMessage] = useToastState();
   const { filters, pushFilters, resetFilters } = useListFilters({
@@ -73,6 +78,7 @@ export default function ApprovalsPage() {
 
   const statusOptions = useMemo(
     () => [
+      { value: '', label: common('allStatuses') },
       { value: 'PENDING', label: common('statusPending') },
       { value: 'APPROVED', label: common('statusApproved') },
       { value: 'REJECTED', label: common('statusRejected') },
@@ -93,6 +99,29 @@ export default function ApprovalsPage() {
     ],
     [common, t],
   );
+
+  const approvalStatusLabels = useMemo<Record<string, string>>(
+    () => ({
+      PENDING: common('statusPending'),
+      APPROVED: common('statusApproved'),
+      REJECTED: common('statusRejected'),
+      CANCELLED: common('statusCancelled'),
+    }),
+    [common],
+  );
+
+  const approvalActionTypeLabels = useMemo<Record<string, string>>(
+    () => ({
+      STOCK_ADJUSTMENT: t('actionStockAdjustment'),
+      STOCK_COUNT: t('actionStockCount'),
+      REFUND: t('actionRefund'),
+      DISCOUNT: t('actionDiscount'),
+      TRANSFER: t('actionTransfer'),
+      PURCHASE: t('actionPurchase'),
+    }),
+    [t],
+  );
+
   const pendingCount = useMemo(
     () => approvals.filter((approval) => approval.status === 'PENDING').length,
     [approvals],
@@ -131,10 +160,10 @@ export default function ApprovalsPage() {
         : approval.metadata?.type === 'POSITIVE'
           ? '+'
           : '';
-    return `${sign}${numeric.toLocaleString()}`;
+    return `${sign}${numeric.toLocaleString(locale)}`;
   };
 
-  const load = async (
+  const load = useCallback(async (
     nextStatus: string,
     targetPage = 1,
     nextPageSize?: number,
@@ -147,7 +176,7 @@ export default function ApprovalsPage() {
     }
     const effectivePageSize = nextPageSize ?? pageSize;
     const cursor =
-      targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+      targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
     try {
       const query = buildCursorQuery({
         limit: effectivePageSize,
@@ -187,20 +216,14 @@ export default function ApprovalsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, filters.status, filters.actionType, filters.search, filters.from, filters.to, t]);
 
   useEffect(() => {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
     load(filters.status, 1);
-  }, [
-    filters.status,
-    filters.actionType,
-    filters.search,
-    filters.from,
-    filters.to,
-  ]);
+  }, [load, filters.status]);
 
   const approve = async (approvalId: string) => {
     const token = getAccessToken();
@@ -274,13 +297,13 @@ export default function ApprovalsPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Decision queue"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Approvals</span>
-            <span className="status-chip">Live</span>
+            <span className="status-chip">{t('badgeApprovals')}</span>
+            <span className="status-chip">{t('badgeLive')}</span>
           </>
         }
         actions={
@@ -294,19 +317,19 @@ export default function ApprovalsPage() {
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Loaded items</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiLoadedItems')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{approvals.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Pending now</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiPendingNow')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{pendingCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Status filter</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiStatusFilter')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">{filters.status || common('allStatuses')}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Action filter</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActionFilter')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">{filters.actionType || common('allTypes')}</p>
         </article>
       </div>
@@ -321,6 +344,7 @@ export default function ApprovalsPage() {
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         >
           <SmartSelect
+            instanceId="approvals-filter-status"
             value={filters.status}
             onChange={(value) => pushFilters({ status: value })}
             options={statusOptions}
@@ -328,6 +352,7 @@ export default function ApprovalsPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="approvals-filter-type"
             value={filters.actionType}
             onChange={(value) => pushFilters({ actionType: value })}
             options={actionOptions}
@@ -370,7 +395,7 @@ export default function ApprovalsPage() {
                 <tbody>
                   {approvals.map((approval) => (
                     <tr key={approval.id} className="border-t border-gold-700/20">
-                      <td className="px-3 py-2 font-semibold">{approval.actionType}</td>
+                      <td className="px-3 py-2 font-semibold">{approvalActionTypeLabels[approval.actionType] ?? approval.actionType}</td>
                       <td className="px-3 py-2">
                         {approval.targetType || t('targetFallback')} ·{' '}
                         {formatEntityLabel(
@@ -378,7 +403,7 @@ export default function ApprovalsPage() {
                           t('targetFallback'),
                         )}
                       </td>
-                      <td className="px-3 py-2">{approval.status}</td>
+                      <td className="px-3 py-2">{approvalStatusLabels[approval.status] ?? approval.status}</td>
                       <td className="px-3 py-2">
                         {formatEntityLabel(
                           {
@@ -392,12 +417,13 @@ export default function ApprovalsPage() {
                         {formatApprovalQuantity(approval) ?? '—'}
                       </td>
                       <td className="px-3 py-2">
-                        {new Date(approval.requestedAt).toLocaleString()}
+                        {formatDateTime(approval.requestedAt)}
                       </td>
                       <td className="px-3 py-2">
                         {approval.status === 'PENDING' ? (
                           <div className="flex flex-wrap gap-2">
                             <button
+                              type="button"
                               onClick={() => approve(approval.id)}
                               className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
                               disabled={!canApprove || actionBusy[approval.id] === 'approve'}
@@ -411,6 +437,7 @@ export default function ApprovalsPage() {
                                 : actions('approve')}
                             </button>
                             <button
+                              type="button"
                               onClick={() => reject(approval.id)}
                               className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
                               disabled={!canApprove || actionBusy[approval.id] === 'reject'}
@@ -445,7 +472,7 @@ export default function ApprovalsPage() {
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-sm text-gold-100">{approval.actionType}</p>
+                  <p className="text-sm text-gold-100">{approvalActionTypeLabels[approval.actionType] ?? approval.actionType}</p>
                   <p className="text-xs text-gold-400">
                     {approval.targetType || t('targetFallback')} ·{' '}
                     {formatEntityLabel(
@@ -454,7 +481,7 @@ export default function ApprovalsPage() {
                     )}
                   </p>
                 </div>
-                <p className="text-xs text-gold-400">{approval.status}</p>
+                <p className="text-xs text-gold-400">{approvalStatusLabels[approval.status] ?? approval.status}</p>
               </div>
               {approval.reason ? (
                 <p className="text-xs text-gold-300">
@@ -475,12 +502,13 @@ export default function ApprovalsPage() {
                     },
                     common('unknown'),
                   ),
-                  date: new Date(approval.requestedAt).toLocaleString(),
+                  date: formatDateTime(approval.requestedAt),
                 })}
               </p>
               {approval.status === 'PENDING' ? (
                 <div className="flex flex-wrap gap-2">
                   <button
+                    type="button"
                     onClick={() => approve(approval.id)}
                     className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
                     disabled={!canApprove || actionBusy[approval.id] === 'approve'}
@@ -494,6 +522,7 @@ export default function ApprovalsPage() {
                       : actions('approve')}
                   </button>
                   <button
+                    type="button"
                     onClick={() => reject(approval.id)}
                     className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
                     disabled={!canApprove || actionBusy[approval.id] === 'reject'}

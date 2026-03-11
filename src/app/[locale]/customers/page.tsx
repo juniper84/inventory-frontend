@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -9,6 +9,7 @@ import { confirmAction } from '@/lib/app-notifications';
 import { Spinner } from '@/components/Spinner';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { StatusBanner } from '@/components/StatusBanner';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import {
@@ -83,6 +84,15 @@ export default function CustomersPage() {
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchDraft, 350);
 
+  const customerStatusLabels = useMemo<Record<string, string>>(
+    () => ({
+      ACTIVE: common('statusActive'),
+      INACTIVE: common('statusInactive'),
+      ARCHIVED: common('statusArchived'),
+    }),
+    [common],
+  );
+
   const statusOptions = useMemo(
     () => [
       { value: '', label: common('allStatuses') },
@@ -120,7 +130,35 @@ export default function CustomersPage() {
     }
   }, [debouncedSearch, filters.search, pushFilters]);
 
-  const load = async (cursor?: string, append = false) => {
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const data = await apiFetch<PaginatedResponse<PriceList> | PriceList[]>(
+        '/price-lists?limit=50',
+        { token },
+      );
+      setPriceLists(normalizePaginated(data).items);
+    } catch {
+      setPriceLists([]);
+    }
+  }, []);
+
+  const loadPriceListOptions = useCallback(async (inputValue: string) => {
+    const token = getAccessToken();
+    if (!token) return [];
+    try {
+      const data = await apiFetch<PaginatedResponse<PriceList> | PriceList[]>(
+        `/price-lists?search=${encodeURIComponent(inputValue)}&limit=25`,
+        { token },
+      );
+      return normalizePaginated(data).items.map((list) => ({ value: list.id, label: list.name }));
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const load = useCallback(async (cursor?: string, append = false) => {
     const token = getAccessToken();
     if (!token) {
       return;
@@ -130,43 +168,41 @@ export default function CustomersPage() {
     } else {
       setIsLoading(true);
     }
-    const query = buildCursorQuery({
-      limit: 25,
-      cursor,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-      balanceDue: filters.balanceDue || undefined,
-    });
-    const customerData = await apiFetch<PaginatedResponse<Customer> | Customer[]>(
-      `/customers${query}`,
-      { token },
-    );
-    const customerResult = normalizePaginated(customerData);
-    setCustomers((prev) =>
-      append ? [...prev, ...customerResult.items] : customerResult.items,
-    );
-    setNextCursor(customerResult.nextCursor);
-    const listResult = await Promise.allSettled([
-      apiFetch<PaginatedResponse<PriceList> | PriceList[]>(
-        '/price-lists?limit=200',
+    try {
+      const query = buildCursorQuery({
+        limit: 25,
+        cursor,
+        search: filters.search || undefined,
+        status: filters.status || undefined,
+        balanceDue: filters.balanceDue || undefined,
+      });
+      const customerData = await apiFetch<PaginatedResponse<Customer> | Customer[]>(
+        `/customers${query}`,
         { token },
-      ),
-    ]);
-    if (listResult[0].status === 'fulfilled') {
-      setPriceLists(normalizePaginated(listResult[0].value).items);
-    } else {
-      setPriceLists([]);
+      );
+      const customerResult = normalizePaginated(customerData);
+      setCustomers((prev) =>
+        append ? [...prev, ...customerResult.items] : customerResult.items,
+      );
+      setNextCursor(customerResult.nextCursor);
+    } catch (err) {
+      setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('loadFailed')) });
+    } finally {
+      if (append) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoading(false);
+      }
     }
-    if (append) {
-      setIsLoadingMore(false);
-    } else {
-      setIsLoading(false);
-    }
-  };
+  }, [filters.search, filters.status, filters.balanceDue, t]);
 
   useEffect(() => {
-    load().catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
-  }, [filters.search, filters.status, filters.balanceDue]);
+    loadReferenceData();
+  }, [loadReferenceData]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const createCustomer = async () => {
     const token = getAccessToken();
@@ -262,6 +298,12 @@ export default function CustomersPage() {
     if (!token) {
       return;
     }
+    const ok = await confirmAction({
+      title: t('archiveConfirmTitle'),
+      message: t('archiveConfirmMessage'),
+      confirmText: t('archiveConfirmButton'),
+    });
+    if (!ok) return;
     setMessage(null);
     try {
       await apiFetch(`/customers/${customerId}/archive`, {
@@ -324,13 +366,13 @@ export default function CustomersPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Customer command"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">People workflow</span>
-            <span className="status-chip">Live</span>
+            <span className="status-chip">{t('badgePeopleWorkflow')}</span>
+            <span className="status-chip">{t('badgeLive')}</span>
           </>
         }
         actions={
@@ -347,19 +389,19 @@ export default function CustomersPage() {
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Customers</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiCustomers')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{customers.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActive')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{activeCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Price list linked</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiPriceListLinked')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{withPriceList}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Current filter</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiCurrentFilter')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">
             {filters.status || common('allStatuses')}
           </p>
@@ -376,6 +418,7 @@ export default function CustomersPage() {
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         >
           <SmartSelect
+            instanceId="customers-filter-status"
             value={filters.status}
             onChange={(value) => pushFilters({ status: value })}
             options={statusOptions}
@@ -383,6 +426,7 @@ export default function CustomersPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="customers-filter-balance-due"
             value={filters.balanceDue}
             onChange={(value) => pushFilters({ balanceDue: value })}
             options={balanceOptions}
@@ -425,13 +469,12 @@ export default function CustomersPage() {
             placeholder={t('notesOptional')}
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
-          <SmartSelect
-            value={form.priceListId}
-            onChange={(value) => setForm({ ...form, priceListId: value })}
-            options={priceLists.map((list) => ({
-              value: list.id,
-              label: list.name,
-            }))}
+          <AsyncSmartSelect
+            instanceId="customer-create-pricelist"
+            value={form.priceListId ? { value: form.priceListId, label: priceLists.find((l) => l.id === form.priceListId)?.name ?? '' } : null}
+            onChange={(opt) => setForm({ ...form, priceListId: opt?.value ?? '' })}
+            loadOptions={loadPriceListOptions}
+            defaultOptions={priceLists.map((list) => ({ value: list.id, label: list.name }))}
             placeholder={t('defaultPriceList')}
             isClearable
             className="nvi-select-container"
@@ -475,7 +518,7 @@ export default function CustomersPage() {
                       <td className="px-3 py-2 font-semibold">{customer.name}</td>
                       <td className="px-3 py-2">{customer.phone || '—'}</td>
                       <td className="px-3 py-2">{customer.email || '—'}</td>
-                      <td className="px-3 py-2">{customer.status ?? 'ACTIVE'}</td>
+                      <td className="px-3 py-2">{customerStatusLabels[customer.status ?? 'ACTIVE'] ?? customer.status ?? common('statusActive')}</td>
                       <td className="px-3 py-2">
                         {resolvePriceListName(customer.priceListId)}
                       </td>
@@ -531,20 +574,18 @@ export default function CustomersPage() {
                     }
                     className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                   />
-                  <SmartSelect
-                    value={editing.priceListId}
-                    onChange={(value) =>
-                      setEditing({ ...editing, priceListId: value })
-                    }
-                    options={priceLists.map((list) => ({
-                      value: list.id,
-                      label: list.name,
-                    }))}
+                  <AsyncSmartSelect
+                    instanceId={`customer-edit-pricelist-${customer.id}`}
+                    value={editing.priceListId ? { value: editing.priceListId, label: priceLists.find((l) => l.id === editing.priceListId)?.name ?? '' } : null}
+                    onChange={(opt) => setEditing({ ...editing, priceListId: opt?.value ?? '' })}
+                    loadOptions={loadPriceListOptions}
+                    defaultOptions={priceLists.map((list) => ({ value: list.id, label: list.name }))}
                     placeholder={t('defaultPriceList')}
                     isClearable
                     className="nvi-select-container"
                   />
                   <SmartSelect
+                    instanceId={`customer-edit-status-${customer.id}`}
                     value={editing.status ?? 'ACTIVE'}
                     onChange={(value) =>
                       setEditing({
@@ -570,7 +611,7 @@ export default function CustomersPage() {
                     </p>
                     <p className="text-xs text-gold-400">
                       {t('tinLabel', { value: customer.tin || '—' })} ·{' '}
-                      {t('statusLabel', { value: customer.status ?? 'ACTIVE' })}
+                      {t('statusLabel', { value: customerStatusLabels[customer.status ?? 'ACTIVE'] ?? customer.status ?? common('statusActive') })}
                     </p>
                     {customer.notes ? (
                       <p className="text-xs text-gold-400">{customer.notes}</p>

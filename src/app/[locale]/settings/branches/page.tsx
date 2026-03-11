@@ -8,6 +8,7 @@ import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { StatusBanner } from '@/components/StatusBanner';
 import {
   buildCursorQuery,
@@ -60,6 +61,20 @@ export default function BranchesPage() {
     priceListId: '',
   });
 
+  const loadPriceListOptions = async (inputValue: string) => {
+    const token = getAccessToken();
+    if (!token) return [];
+    try {
+      const data = await apiFetch<PaginatedResponse<PriceList> | PriceList[]>(
+        `/price-lists?search=${encodeURIComponent(inputValue)}&limit=25`,
+        { token },
+      );
+      return normalizePaginated(data).items.map((list) => ({ value: list.id, label: list.name }));
+    } catch {
+      return [];
+    }
+  };
+
   const load = async (cursor?: string, append = false) => {
     const token = getAccessToken();
     if (!token) {
@@ -70,34 +85,39 @@ export default function BranchesPage() {
     } else {
       setIsLoading(true);
     }
-    const query = buildCursorQuery({ limit: 25, cursor });
-    const branchData = await apiFetch<PaginatedResponse<Branch> | Branch[]>(
-      `/branches${query}`,
-      { token },
-    );
-    const { items, nextCursor: cursorNext } = normalizePaginated(branchData);
-    setBranches((prev) => (append ? [...prev, ...items] : items));
-    setNextCursor(cursorNext);
-    const listResult = await Promise.allSettled([
-      apiFetch<PaginatedResponse<PriceList> | PriceList[]>(
-        '/price-lists?limit=200',
+    try {
+      const query = buildCursorQuery({ limit: 25, cursor });
+      const branchData = await apiFetch<PaginatedResponse<Branch> | Branch[]>(
+        `/branches${query}`,
         { token },
-      ),
-    ]);
-    if (listResult[0].status === 'fulfilled') {
-      setPriceLists(normalizePaginated(listResult[0].value).items);
-    } else {
-      setPriceLists([]);
-    }
-    if (append) {
-      setIsLoadingMore(false);
-    } else {
-      setIsLoading(false);
+      );
+      const { items, nextCursor: cursorNext } = normalizePaginated(branchData);
+      setBranches((prev) => (append ? [...prev, ...items] : items));
+      setNextCursor(cursorNext);
+      const listResult = await Promise.allSettled([
+        apiFetch<PaginatedResponse<PriceList> | PriceList[]>(
+          '/price-lists?limit=50',
+          { token },
+        ),
+      ]);
+      if (listResult[0].status === 'fulfilled') {
+        setPriceLists(normalizePaginated(listResult[0].value).items);
+      } else {
+        setPriceLists([]);
+      }
+    } catch (err) {
+      setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('loadFailed')) });
+    } finally {
+      if (append) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    load().catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
+    load();
   }, []);
 
   const createBranch = async () => {
@@ -181,34 +201,34 @@ export default function BranchesPage() {
   return (
     <section className="space-y-6">
       <PremiumPageHeader
-        eyebrow="ORG TOPOLOGY"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">BRANCH MAP</span>
-            <span className="nvi-badge">PRICE READY</span>
+            <span className="nvi-badge">{t('badgeBranchMap')}</span>
+            <span className="nvi-badge">{t('badgePriceReady')}</span>
           </>
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">TOTAL BRANCHES</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiTotalBranches')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">WITH PRICE LIST</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiWithPriceList')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">
             {branches.filter((branch) => Boolean(branch.priceListId)).length}
           </p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">MORE PAGES</p>
-          <p className="mt-2 text-lg font-semibold text-gold-100">{nextCursor ? 'YES' : 'NO'}</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiMorePages')}</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{nextCursor ? t('yes') : t('no')}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">CAN WRITE</p>
-          <p className="mt-2 text-lg font-semibold text-gold-100">{canWrite ? 'YES' : 'NO'}</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiCanWrite')}</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{canWrite ? t('yes') : t('no')}</p>
         </article>
       </div>
       {message ? <StatusBanner message={message} /> : null}
@@ -236,13 +256,12 @@ export default function BranchesPage() {
             placeholder={t('phoneOptional')}
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
-          <SmartSelect
-            value={form.priceListId}
-            onChange={(value) => setForm({ ...form, priceListId: value })}
-            options={priceLists.map((list) => ({
-              value: list.id,
-              label: list.name,
-            }))}
+          <AsyncSmartSelect
+            instanceId="branch-create-price-list"
+            value={form.priceListId ? { value: form.priceListId, label: priceLists.find((l) => l.id === form.priceListId)?.name ?? '' } : null}
+            onChange={(opt) => setForm({ ...form, priceListId: opt?.value ?? '' })}
+            loadOptions={loadPriceListOptions}
+            defaultOptions={priceLists.map((list) => ({ value: list.id, label: list.name }))}
             placeholder={t('defaultPriceList')}
             isClearable
             className="nvi-select-container"
@@ -296,15 +315,12 @@ export default function BranchesPage() {
                     }
                     className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                   />
-                  <SmartSelect
-                    value={editing.priceListId}
-                    onChange={(value) =>
-                      setEditing({ ...editing, priceListId: value })
-                    }
-                    options={priceLists.map((list) => ({
-                      value: list.id,
-                      label: list.name,
-                    }))}
+                  <AsyncSmartSelect
+                    instanceId={`branch-${branch.id}-price-list`}
+                    value={editing.priceListId ? { value: editing.priceListId, label: priceLists.find((l) => l.id === editing.priceListId)?.name ?? '' } : null}
+                    onChange={(opt) => setEditing({ ...editing, priceListId: opt?.value ?? '' })}
+                    loadOptions={loadPriceListOptions}
+                    defaultOptions={priceLists.map((list) => ({ value: list.id, label: list.name }))}
                     placeholder={t('defaultPriceList')}
                     isClearable
                     className="nvi-select-container"

@@ -1,15 +1,15 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useToastState } from '@/lib/app-notifications';
+import { confirmAction, useToastState } from '@/lib/app-notifications';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getOrCreateDeviceId, getStoredUser } from '@/lib/auth';
 import {
   clearOfflinePin,
   clearOfflineData,
+  getOfflineCache,
   getOfflineFlag,
   getPendingCount,
   getQueueStats,
@@ -50,6 +50,7 @@ type OfflineStatus = {
 export default function OfflinePage() {
   const t = useTranslations('offlinePage');
   const noAccess = useTranslations('noAccess');
+  const locale = useLocale();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('offline.write');
   const [isLoading, setIsLoading] = useState(true);
@@ -71,13 +72,12 @@ export default function OfflinePage() {
   } | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [syncBlocked, setSyncBlocked] = useState(false);
+  const [cacheTruncated, setCacheTruncated] = useState(false);
   const [message, setMessage] = useToastState();
   const [receiptHistory, setReceiptHistory] = useState<
     { localReceiptNumber?: string | null; receiptNumber?: string | null; syncedAt: string }[]
   >([]);
   const deviceId = getOrCreateDeviceId();
-  const pathname = usePathname();
-  const locale = pathname.split('/')[1] || 'en';
 
   useEffect(() => {
     const load = async () => {
@@ -110,6 +110,8 @@ export default function OfflinePage() {
       setPinRequired(await isOfflinePinRequired());
       setLastSyncAt(await getOfflineFlag('lastSyncAt'));
       setSyncBlocked((await getOfflineFlag('syncBlocked')) === 'true');
+      const snapshot = await getOfflineCache<{ meta?: { truncated?: boolean } }>('snapshot');
+      setCacheTruncated(snapshot?.meta?.truncated === true);
       const { getReceiptHistory } = await import('@/lib/offline-store');
       setReceiptHistory(
         (await getReceiptHistory()) as {
@@ -172,6 +174,12 @@ export default function OfflinePage() {
     if (!token || !user) {
       return;
     }
+    const ok = await confirmAction({
+      title: t('revokeDeviceConfirmTitle'),
+      message: t('revokeDeviceConfirmMessage'),
+      confirmText: t('revokeDeviceConfirmButton'),
+    });
+    if (!ok) return;
     setIsRevoking(true);
     try {
       await apiFetch('/offline/revoke-device', {
@@ -237,33 +245,33 @@ export default function OfflinePage() {
   return (
     <section className="space-y-4">
       <PremiumPageHeader
-        eyebrow="OFFLINE COMMAND"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">DEVICE STATE</span>
-            <span className="nvi-badge">SYNC WATCH</span>
+            <span className="nvi-badge">{t('badgeDeviceState')}</span>
+            <span className="nvi-badge">{t('badgeSyncWatch')}</span>
           </>
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">DEVICE</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiDevice')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">
             {status?.device?.status ?? t('notRegistered')}
           </p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">PENDING ACTIONS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiPendingActions')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{pendingCount}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">QUEUE LOAD</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiQueueLoad')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{queueUsagePercent}%</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">LAST SYNC</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiLastSync')}</p>
           <p className="mt-2 text-sm font-semibold text-gold-100">{lastSyncAt ?? t('never')}</p>
         </article>
       </div>
@@ -290,6 +298,9 @@ export default function OfflinePage() {
             ) : null}
             {syncBlocked ? (
               <p className="text-red-300">{t('syncBlocked')}</p>
+            ) : null}
+            {cacheTruncated ? (
+              <p className="text-amber-400">{t('cacheTruncated')}</p>
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">

@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { apiFetch } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -20,6 +22,8 @@ type RelatedNotesPanelProps = {
 export function RelatedNotesPanel({ resourceType, resourceId }: RelatedNotesPanelProps) {
   const t = useTranslations('notesPage');
   const actions = useTranslations('actions');
+  const pathname = usePathname();
+  const localeBase = '/' + pathname.split('/').slice(1, 2).join('/');
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -71,7 +75,11 @@ export function RelatedNotesPanel({ resourceType, resourceId }: RelatedNotesPane
         ) : notes.length ? (
           <div className="space-y-1 text-xs text-gold-200">
             {notes.map((note) => (
-              <div key={note.id}>{note.title}</div>
+              <div key={note.id}>
+                <Link href={`${localeBase}/notes/${note.id}`} className="hover:text-gold-100 underline underline-offset-2">
+                  {note.title}
+                </Link>
+              </div>
             ))}
           </div>
         ) : (

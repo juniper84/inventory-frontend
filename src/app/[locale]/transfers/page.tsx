@@ -1,18 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useLocale, useTranslations } from 'next-intl';
+import { confirmAction, useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
+import { useVariantSearch } from '@/lib/use-variant-search';
+import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import {
   buildCursorQuery,
   normalizePaginated,
@@ -22,9 +25,9 @@ import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Branch = { id: string; name: string };
-type Variant = { id: string; name: string; product?: { name?: string | null } };
 type Batch = { id: string; code: string; expiryDate?: string | null };
 
 type TransferItem = {
@@ -33,7 +36,7 @@ type TransferItem = {
   quantity: number | string;
   receivedQuantity: number | string;
   batchId?: string | null;
-  variant?: Variant | null;
+  variant?: { name?: string | null; product?: { name?: string | null } } | null;
   batch?: Batch | null;
 };
 
@@ -65,15 +68,24 @@ export default function TransfersPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
-  const params = useParams<{ locale: string }>();
-  const locale = params?.locale ?? 'en';
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
+
+  const transferStatusLabels = useMemo<Record<string, string>>(
+    () => ({
+      PENDING: common('statusPending'),
+      IN_TRANSIT: common('statusInTransit'),
+      COMPLETED: common('statusCompleted'),
+      CANCELLED: common('statusCancelled'),
+    }),
+    [common],
+  );
   const permissions = getPermissionSet();
   const canWrite = permissions.has('transfers.write');
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [actionBusy, setActionBusy] = useState<Record<string, string>>({});
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [variants, setVariants] = useState<Variant[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [message, setMessage] = useToastState();
   const [batchTrackingEnabled, setBatchTrackingEnabled] = useState(false);
@@ -84,10 +96,26 @@ export default function TransfersPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
+  const [filters, setFilters] = useState({ search: '', status: '', from: '', to: '' });
+  const debouncedSearch = useDebouncedValue(filters.search, 350);
+
+  const statusOptions = useMemo(
+    () => [
+      { value: '', label: common('allStatuses') },
+      { value: 'PENDING', label: common('statusPending') },
+      { value: 'IN_TRANSIT', label: common('statusInTransit') },
+      { value: 'COMPLETED', label: common('statusCompleted') },
+      { value: 'CANCELLED', label: common('statusCancelled') },
+    ],
+    [common],
+  );
+
   const [items, setItems] = useState<
-    { variantId: string; quantity: string; batchId: string }[]
-  >([{ variantId: '', quantity: '', batchId: '' }]);
+    { id: string; variantId: string; quantity: string; batchId: string }[]
+  >([{ id: crypto.randomUUID(), variantId: '', quantity: '', batchId: '' }]);
   const [form, setForm] = useState({
     sourceBranchId: '',
     destinationBranchId: '',
@@ -102,8 +130,31 @@ export default function TransfersPage() {
   >({});
   const { activeBranch, resolveBranchId } = useBranchScope();
   const effectiveSourceBranchId = resolveBranchId(form.sourceBranchId) || '';
+  const { loadOptions: loadVariantOptions, getVariantOption } = useVariantSearch();
 
-  const load = async (targetPage = 1, nextPageSize?: number) => {
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const [branchData, settings] = await Promise.all([
+        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', { token }),
+        apiFetch<SettingsResponse>('/settings', { token }),
+      ]);
+      setBranches(normalizePaginated(branchData).items);
+      setBatchTrackingEnabled(!!settings.stockPolicies?.batchTrackingEnabled);
+      if (settings.localeSettings?.currency) {
+        setForm((prev) => prev.feeCurrency ? prev : { ...prev, feeCurrency: settings.localeSettings?.currency ?? '' });
+      }
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     setIsLoading(true);
     const token = getAccessToken();
     if (!token) {
@@ -113,47 +164,35 @@ export default function TransfersPage() {
     try {
       const effectivePageSize = nextPageSize ?? pageSize;
       const cursor =
-        targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+        targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
       const query = buildCursorQuery({
         limit: effectivePageSize,
         cursor: cursor ?? undefined,
         includeTotal: targetPage === 1 ? '1' : undefined,
+        search: debouncedSearch || undefined,
+        status: filters.status || undefined,
+        from: filters.from || undefined,
+        to: filters.to || undefined,
       });
-      const [branchData, variantData, transferData, settings] =
-        await Promise.all([
-          apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
-            token,
-          }),
-          apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', {
-            token,
-          }),
-          apiFetch<PaginatedResponse<Transfer> | Transfer[]>(
-            `/transfers${query}`,
-            { token },
-          ),
-          apiFetch<SettingsResponse>('/settings', { token }),
-        ]);
-      setBranches(normalizePaginated(branchData).items);
-      setVariants(normalizePaginated(variantData).items);
+      const transferData = await apiFetch<PaginatedResponse<Transfer> | Transfer[]>(
+        `/transfers${query}`,
+        { token },
+      );
       const transferResult = normalizePaginated(transferData);
       setTransfers(transferResult.items);
       setNextCursor(transferResult.nextCursor);
       if (typeof transferResult.total === 'number') {
         setTotal(transferResult.total);
       }
-    setPage(targetPage);
-    setPageCursors((prev) => {
-      const nextState: Record<number, string | null> =
-        targetPage === 1 ? { 1: null } : { ...prev };
-      if (transferResult.nextCursor) {
-        nextState[targetPage + 1] = transferResult.nextCursor;
-      }
-      return nextState;
-    });
-      setBatchTrackingEnabled(!!settings.stockPolicies?.batchTrackingEnabled);
-      if (!form.feeCurrency && settings.localeSettings?.currency) {
-        setForm((prev) => ({ ...prev, feeCurrency: settings.localeSettings?.currency ?? '' }));
-      }
+      setPage(targetPage);
+      setPageCursors((prev) => {
+        const nextState: Record<number, string | null> =
+          targetPage === 1 ? { 1: null } : { ...prev };
+        if (transferResult.nextCursor) {
+          nextState[targetPage + 1] = transferResult.nextCursor;
+        }
+        return nextState;
+      });
     } catch (err) {
       setMessage({
         action: 'load',
@@ -163,14 +202,18 @@ export default function TransfersPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, t, debouncedSearch, filters.status, filters.from, filters.to]);
+
+  useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
     load(1);
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (activeBranch?.id && !form.sourceBranchId) {
@@ -184,11 +227,11 @@ export default function TransfersPage() {
       return;
     }
     const key = `${branchId}-${variantId}`;
-    const data = await apiFetch<Batch[]>(
+    const data = await apiFetch<Batch[] | PaginatedResponse<Batch>>(
       `/stock/batches?branchId=${branchId}&variantId=${variantId}`,
       { token },
     );
-    setBatchOptions((prev) => ({ ...prev, [key]: data }));
+    setBatchOptions((prev) => ({ ...prev, [key]: normalizePaginated(data).items }));
   };
 
   const updateItem = (
@@ -203,7 +246,7 @@ export default function TransfersPage() {
   };
 
   const addItem = () => {
-    setItems((prev) => [...prev, { variantId: '', quantity: '', batchId: '' }]);
+    setItems((prev) => [...prev, { id: crypto.randomUUID(), variantId: '', quantity: '', batchId: '' }]);
   };
 
   const submitTransfer = async () => {
@@ -246,7 +289,7 @@ export default function TransfersPage() {
         feeCarrier: '',
         feeNote: '',
       });
-      setItems([{ variantId: '', quantity: '', batchId: '' }]);
+      setItems([{ id: crypto.randomUUID(), variantId: '', quantity: '', batchId: '' }]);
       await load(1);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
     } catch (err) {
@@ -265,6 +308,12 @@ export default function TransfersPage() {
     if (!token) {
       return;
     }
+    const ok = await confirmAction({
+      title: t('approveConfirmTitle'),
+      message: t('approveConfirmMessage'),
+      confirmText: t('approveConfirmButton'),
+    });
+    if (!ok) return;
     setActionBusy((prev) => ({ ...prev, [transferId]: 'approve' }));
     try {
       const result = await apiFetch<{ approvalRequired?: boolean }>(
@@ -277,6 +326,8 @@ export default function TransfersPage() {
         setMessage({ action: 'approve', outcome: 'success', message: t('approved') });
       }
       await load(page);
+    } catch (err) {
+      setMessage({ action: 'approve', outcome: 'failure', message: getApiErrorMessage(err, t('approveFailed')) });
     } finally {
       setActionBusy((prev) => {
         const next = { ...prev };
@@ -291,6 +342,12 @@ export default function TransfersPage() {
     if (!token) {
       return;
     }
+    const ok = await confirmAction({
+      title: t('cancelConfirmTitle'),
+      message: t('cancelConfirmMessage'),
+      confirmText: t('cancelConfirmButton'),
+    });
+    if (!ok) return;
     setActionBusy((prev) => ({ ...prev, [transferId]: 'cancel' }));
     try {
       await apiFetch(`/transfers/${transferId}/cancel`, {
@@ -299,6 +356,8 @@ export default function TransfersPage() {
       });
       await load(page);
       setMessage({ action: 'update', outcome: 'success', message: t('cancelled') });
+    } catch (err) {
+      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('cancelFailed')) });
     } finally {
       setActionBusy((prev) => {
         const next = { ...prev };
@@ -331,6 +390,8 @@ export default function TransfersPage() {
       });
       await load(page);
       setMessage({ action: 'update', outcome: 'success', message: t('received') });
+    } catch (err) {
+      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('receiveFailed')) });
     } finally {
       setActionBusy((prev) => {
         const next = { ...prev };
@@ -347,7 +408,6 @@ export default function TransfersPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow={t('title')}
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
@@ -370,36 +430,65 @@ export default function TransfersPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Transfer rows
+            {t('kpiTransferRows')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{transfers.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Draft items
+            {t('kpiDraftItems')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{items.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Current page
+            {t('kpiCurrentPage')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{page}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Source branch
+            {t('kpiSourceBranch')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">
-            {effectiveSourceBranchId ? 'Selected' : 'Not selected'}
+            {effectiveSourceBranchId ? t('branchSelected') : t('branchNotSelected')}
           </p>
         </article>
+      </div>
+
+      {/* Filter panel */}
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4 mb-4">
+        <input
+          value={filters.search}
+          onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+          placeholder={common('search')}
+          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100 placeholder:text-gold-600"
+        />
+        <SmartSelect
+          instanceId="transfers-status-filter"
+          value={filters.status}
+          options={statusOptions}
+          onChange={(v) => setFilters({ ...filters, status: v })}
+        />
+        <DatePickerInput
+          value={filters.from}
+          onChange={(v) => setFilters({ ...filters, from: v })}
+          placeholder={common('fromDate')}
+          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
+        />
+        <DatePickerInput
+          value={filters.to}
+          onChange={(v) => setFilters({ ...filters, to: v })}
+          placeholder={common('toDate')}
+          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
+        />
       </div>
 
       <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('newTransfer')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
+            instanceId="form-source-branch"
             value={form.sourceBranchId}
             onChange={(value) =>
               setForm({ ...form, sourceBranchId: value })
@@ -413,6 +502,7 @@ export default function TransfersPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="form-destination-branch"
             value={form.destinationBranchId}
             onChange={(value) =>
               setForm({ ...form, destinationBranchId: value })
@@ -430,25 +520,21 @@ export default function TransfersPage() {
         <div className="space-y-2 nvi-stagger">
           {items.map((item, index) => (
             <div
-              key={`item-${index}`}
+              key={item.id}
               className="grid gap-3 md:grid-cols-3"
             >
-              <SmartSelect
-                value={item.variantId}
-                onChange={(value) => {
-                  updateItem(index, { variantId: value, batchId: '' });
-                  if (effectiveSourceBranchId && value && batchTrackingEnabled) {
-                    loadBatches(effectiveSourceBranchId, value).catch(() => null);
+              <AsyncSmartSelect
+                instanceId={`transfer-item-${item.id}-variant`}
+                value={getVariantOption(item.variantId)}
+                loadOptions={loadVariantOptions}
+                defaultOptions={true}
+                onChange={(opt) => {
+                  const variantId = opt?.value ?? '';
+                  updateItem(index, { variantId, batchId: '' });
+                  if (effectiveSourceBranchId && variantId && batchTrackingEnabled) {
+                    loadBatches(effectiveSourceBranchId, variantId).catch(() => null);
                   }
                 }}
-                options={variants.map((variant) => ({
-                  value: variant.id,
-                  label: formatVariantLabel({
-                    id: variant.id,
-                    name: variant.name,
-                    productName: variant.product?.name ?? null,
-                  }),
-                }))}
                 placeholder={t('variant')}
                 isClearable
                 className="nvi-select-container"
@@ -462,6 +548,7 @@ export default function TransfersPage() {
                 className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
               />
               <SmartSelect
+                instanceId={`transfer-item-${item.id}-batch`}
                 value={item.batchId ?? ''}
                 onChange={(value) => updateItem(index, { batchId: value })}
                 options={(
@@ -523,6 +610,7 @@ export default function TransfersPage() {
 
         <div className="flex flex-wrap gap-2">
           <button
+            type="button"
             onClick={addItem}
             className="rounded border border-gold-700/50 px-3 py-2 text-sm text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canWrite}
@@ -531,6 +619,7 @@ export default function TransfersPage() {
             {t('addItem')}
           </button>
           <button
+            type="button"
             onClick={submitTransfer}
             className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={!canWrite || isCreating}
@@ -568,9 +657,9 @@ export default function TransfersPage() {
                       <td className="px-3 py-2">
                         {transfer.destinationBranch?.name || common('unknown')}
                       </td>
-                      <td className="px-3 py-2">{transfer.status}</td>
+                      <td className="px-3 py-2">{transferStatusLabels[transfer.status] ?? transfer.status}</td>
                       <td className="px-3 py-2">
-                        {new Date(transfer.createdAt).toLocaleString()}
+                        {formatDateTime(transfer.createdAt)}
                       </td>
                       <td className="px-3 py-2">{transfer.items.length}</td>
                       <td className="px-3 py-2">
@@ -602,8 +691,8 @@ export default function TransfersPage() {
                   {transfer.destinationBranch?.name || common('unknown')}
                 </p>
                 <p className="text-xs text-gold-400">
-                  {transfer.status} ·{' '}
-                  {new Date(transfer.createdAt).toLocaleString()}
+                  {transferStatusLabels[transfer.status] ?? transfer.status} ·{' '}
+                  {formatDateTime(transfer.createdAt)}
                 </p>
                 {transfer.feeAmount ? (
                   <p className="text-xs text-gold-300">
@@ -616,6 +705,7 @@ export default function TransfersPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
+                  type="button"
                   onClick={() => approveTransfer(transfer.id)}
                   className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
                   disabled={!canWrite || actionBusy[transfer.id] === 'approve'}
@@ -629,6 +719,7 @@ export default function TransfersPage() {
                     : actions('approve')}
                 </button>
                 <button
+                  type="button"
                   onClick={() => receiveTransfer(transfer.id)}
                   className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
                   disabled={!canWrite || actionBusy[transfer.id] === 'receive'}
@@ -642,6 +733,7 @@ export default function TransfersPage() {
                     : t('receive')}
                 </button>
                 <button
+                  type="button"
                   onClick={() => cancelTransfer(transfer.id)}
                   className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
                   disabled={!canWrite || actionBusy[transfer.id] === 'cancel'}

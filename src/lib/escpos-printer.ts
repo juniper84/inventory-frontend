@@ -33,6 +33,7 @@ const encoder = new TextEncoder();
 const ESC = '\x1b';
 const GS = '\x1d';
 const INIT = `${ESC}@`;
+// GS V 65 0 — partial/full paper cut (ESC/POS); not supported by all printers
 const CUT = `${GS}V\x41\x00`;
 const BOLD_ON = `${ESC}E\x01`;
 const BOLD_OFF = `${ESC}E\x00`;
@@ -68,12 +69,12 @@ export function buildEscPosPayload(lines: EscPosLine[] | string) {
       parts.push(BOLD_OFF);
       bold = false;
     }
-    parts.push(`${line.text}\n`);
+    parts.push(`${line.text.replace(/\n+$/, '')}\n`);
   });
   if (bold) {
     parts.push(BOLD_OFF);
   }
-  parts.push('\n', CUT);
+  parts.push('\n\n\n\n', CUT);
   return encoder.encode(parts.join(''));
 }
 
@@ -87,40 +88,49 @@ export async function connectEscPosPrinter(): Promise<EscPosConnection> {
       filters: [{ classCode: 7 }],
     });
     await device.open();
-    if (!device.configuration) {
-      await device.selectConfiguration(1);
-    }
-    const configuration = device.configuration;
-    if (!configuration) {
-      throw new Error('No USB configuration available.');
-    }
-    const printerInterface = configuration.interfaces.find((iface: UsbInterface) =>
-      iface.alternates.some((alt: UsbAlternate) => alt.interfaceClass === 7),
-    );
-    if (!printerInterface) {
-      throw new Error('No USB printer interface found.');
-    }
-    const alternate = printerInterface.alternates.find(
-      (alt: UsbAlternate) => alt.interfaceClass === 7,
-    );
-    if (!alternate) {
-      throw new Error('No USB printer interface available.');
-    }
-    await device.claimInterface(printerInterface.interfaceNumber);
-    const endpoint = alternate.endpoints.find(
-      (entry: UsbEndpoint) => entry.direction === 'out',
-    );
-    if (!endpoint) {
-      throw new Error('No USB OUT endpoint available.');
+    let interfaceNumber: number;
+    let endpointNumber: number;
+    try {
+      if (!device.configuration) {
+        await device.selectConfiguration(1);
+      }
+      const configuration = device.configuration;
+      if (!configuration) {
+        throw new Error('No USB configuration available.');
+      }
+      const printerInterface = configuration.interfaces.find((iface: UsbInterface) =>
+        iface.alternates.some((alt: UsbAlternate) => alt.interfaceClass === 7),
+      );
+      if (!printerInterface) {
+        throw new Error('No USB printer interface found.');
+      }
+      const alternate = printerInterface.alternates.find(
+        (alt: UsbAlternate) => alt.interfaceClass === 7,
+      );
+      if (!alternate) {
+        throw new Error('No USB printer interface available.');
+      }
+      await device.claimInterface(printerInterface.interfaceNumber);
+      const endpoint = alternate.endpoints.find(
+        (entry: UsbEndpoint) => entry.direction === 'out',
+      );
+      if (!endpoint) {
+        throw new Error('No USB OUT endpoint available.');
+      }
+      interfaceNumber = printerInterface.interfaceNumber;
+      endpointNumber = endpoint.endpointNumber;
+    } catch (err) {
+      await device.close();
+      throw err;
     }
     return {
       type: 'usb',
       write: async (data) => {
-        await device.transferOut(endpoint.endpointNumber, data);
+        await device.transferOut(endpointNumber, data);
       },
       close: async () => {
         try {
-          await device.releaseInterface(printerInterface.interfaceNumber);
+          await device.releaseInterface(interfaceNumber);
         } finally {
           await device.close();
         }
@@ -130,9 +140,10 @@ export async function connectEscPosPrinter(): Promise<EscPosConnection> {
   if ('serial' in navigator) {
     const nav = navigator as Navigator & { serial: Serial };
     const port = await nav.serial.requestPort();
-    await port.open({ baudRate: 9600 });
+    await port.open({ baudRate: 115200 });
     const writer = port.writable?.getWriter();
     if (!writer) {
+      await port.close();
       throw new Error('Serial writer not available.');
     }
     return {

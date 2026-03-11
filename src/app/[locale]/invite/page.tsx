@@ -1,20 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { StatusBanner } from '@/components/StatusBanner';
 
 export default function AcceptInvitePage() {
   const auth = useTranslations('auth');
   const t = useTranslations('invitePage');
   const router = useRouter();
-  const params = useParams<{ locale: string }>();
+  const locale = useLocale();
   const searchParams = useSearchParams();
   const [token, setToken] = useState('');
+  const [tokenFromUrl, setTokenFromUrl] = useState(false);
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -22,11 +24,22 @@ export default function AcceptInvitePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    const tokenFromUrl = searchParams.get('token');
-    if (tokenFromUrl) {
-      setToken(tokenFromUrl);
+    const urlToken = searchParams.get('token');
+    if (urlToken) {
+      setToken(urlToken);
+      setTokenFromUrl(true);
     }
   }, [searchParams]);
+
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current);
+      }
+    };
+  }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -38,8 +51,8 @@ export default function AcceptInvitePage() {
         body: JSON.stringify({ token, name, password }),
       });
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
-      setTimeout(() => {
-        router.replace(`/${params.locale}/login`);
+      redirectTimerRef.current = setTimeout(() => {
+        router.replace(`/${locale}/login`);
       }, 700);
     } catch (err) {
       setMessage({
@@ -55,29 +68,29 @@ export default function AcceptInvitePage() {
   return (
     <div className="space-y-6 nvi-reveal">
       <PremiumPageHeader
-        eyebrow="INVITE ACCEPTANCE"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">TOKEN FLOW</span>
-            <span className="nvi-badge">{token.trim() ? 'TOKEN SET' : 'TOKEN MISSING'}</span>
+            <span className="nvi-badge">{t('badgeTokenFlow')}</span>
+            <span className="nvi-badge">{token.trim() ? t('badgeTokenSet') : t('badgeTokenMissing')}</span>
           </>
         }
       />
 
       <div className="grid gap-3 sm:grid-cols-3 nvi-stagger">
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">TOKEN</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{token.trim() ? 'PROVIDED' : 'REQUIRED'}</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiToken')}</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{token.trim() ? t('kpiTokenProvided') : t('kpiTokenRequired')}</p>
         </article>
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">NAME</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{name.trim() ? 'SET' : 'PENDING'}</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiName')}</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{name.trim() ? t('kpiNameSet') : t('kpiNamePending')}</p>
         </article>
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">STATUS</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('submitting') : 'READY'}</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiStatus')}</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('submitting') : t('kpiStatusReady')}</p>
         </article>
       </div>
 
@@ -85,8 +98,9 @@ export default function AcceptInvitePage() {
         <input
           value={token}
           onChange={(event) => setToken(event.target.value)}
+          readOnly={tokenFromUrl}
           placeholder={t('tokenPlaceholder')}
-          className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 read-only:opacity-60"
         />
         <input
           value={name}
@@ -123,7 +137,7 @@ export default function AcceptInvitePage() {
             {isSubmitting ? t('submitting') : t('submit')}
           </span>
         </button>
-        {message ? <p className="text-sm text-gold-300">{message}</p> : null}
+        {message ? <StatusBanner message={message} /> : null}
       </form>
     </div>
   );

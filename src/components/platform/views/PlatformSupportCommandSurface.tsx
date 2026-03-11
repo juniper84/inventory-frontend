@@ -2,6 +2,7 @@ import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { DateTimePickerInput } from '@/components/DateTimePickerInput';
 import { SmartSelect } from '@/components/SmartSelect';
 import { Spinner } from '@/components/Spinner';
+import { formatEnum } from '@/lib/format-enum';
 
 type SelectOption = { value: string; label: string };
 
@@ -134,6 +135,26 @@ export function PlatformSupportCommandSurface({
   ) => Promise<void>;
   actionLoading: Record<string, boolean>;
 }) {
+  const supportStatusLabels: Record<string, string> = {
+    PENDING: t('statusPending'),
+    APPROVED: t('statusApproved'),
+    REJECTED: t('statusRejected'),
+    ACTIVE: t('statusActive'),
+    EXPIRED: t('statusExpired'),
+  };
+  const severityLabels: Record<string, string> = {
+    LOW: t('severityLow'),
+    MEDIUM: t('severityMedium'),
+    HIGH: t('severityHigh'),
+    CRITICAL: t('severityCritical'),
+  };
+  const priorityLabels: Record<string, string> = {
+    LOW: t('priorityLow'),
+    MEDIUM: t('priorityMedium'),
+    HIGH: t('priorityHigh'),
+    URGENT: t('priorityUrgent'),
+  };
+
   if (!show) {
     return null;
   }
@@ -146,6 +167,7 @@ export function PlatformSupportCommandSurface({
         <form className="space-y-3" onSubmit={requestSupport}>
           <div className="grid gap-3 md:grid-cols-5">
             <SmartSelect
+              instanceId="platform-support-form-business"
               value={supportForm.businessId}
               onChange={(value) =>
                 setSupportForm((prev) => ({ ...prev, businessId: value }))
@@ -173,6 +195,7 @@ export function PlatformSupportCommandSurface({
               className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
             />
             <SmartSelect
+              instanceId="platform-support-form-severity"
               value={supportForm.severity}
               onChange={(value) =>
                 setSupportForm((prev) => ({
@@ -183,6 +206,7 @@ export function PlatformSupportCommandSurface({
               options={supportSeverityOptions.filter((option) => option.value)}
             />
             <SmartSelect
+              instanceId="platform-support-form-priority"
               value={supportForm.priority}
               onChange={(value) =>
                 setSupportForm((prev) => ({
@@ -226,6 +250,7 @@ export function PlatformSupportCommandSurface({
 
         <div className="grid gap-3 md:grid-cols-4">
           <SmartSelect
+            instanceId="platform-support-filter-status"
             value={supportFilters.status}
             onChange={(value) =>
               setSupportFilters((prev) => ({ ...prev, status: value }))
@@ -233,6 +258,7 @@ export function PlatformSupportCommandSurface({
             options={supportStatusOptions}
           />
           <SmartSelect
+            instanceId="platform-support-filter-business"
             value={supportFilters.businessId}
             onChange={(value) =>
               setSupportFilters((prev) => ({ ...prev, businessId: value }))
@@ -240,6 +266,7 @@ export function PlatformSupportCommandSurface({
             options={[{ value: '', label: t('allBusinesses') }, ...businessSelectOptions]}
           />
           <SmartSelect
+            instanceId="platform-support-filter-severity"
             value={supportFilters.severity}
             onChange={(value) =>
               setSupportFilters((prev) => ({ ...prev, severity: value }))
@@ -247,6 +274,7 @@ export function PlatformSupportCommandSurface({
             options={supportSeverityOptions}
           />
           <SmartSelect
+            instanceId="platform-support-filter-priority"
             value={supportFilters.priority}
             onChange={(value) =>
               setSupportFilters((prev) => ({ ...prev, priority: value }))
@@ -279,6 +307,7 @@ export function PlatformSupportCommandSurface({
             placeholder={t('supportRequestedTo')}
           />
           <SmartSelect
+            instanceId="platform-support-filter-active-only"
             value={supportFilters.activeOnly}
             onChange={(value) =>
               setSupportFilters((prev) => ({ ...prev, activeOnly: value }))
@@ -307,8 +336,9 @@ export function PlatformSupportCommandSurface({
               className="rounded border border-gold-700/40 bg-black/40 p-3 text-xs text-gold-300"
             >
               <p className="text-gold-100">
-                {request.businessId} • {request.status} • {request.severity} •{' '}
-                {request.priority}
+                {request.businessId} • {formatEnum(supportStatusLabels, request.status)} •{' '}
+                {formatEnum(severityLabels, request.severity)} •{' '}
+                {formatEnum(priorityLabels, request.priority)}
               </p>
               <p>{request.reason}</p>
               <p className="text-[11px] text-gold-500">

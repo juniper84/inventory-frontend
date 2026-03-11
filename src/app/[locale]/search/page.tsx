@@ -150,31 +150,31 @@ export default function SearchPage() {
   return (
     <section className="space-y-4">
       <PremiumPageHeader
-        eyebrow="DISCOVERY HUB"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">GLOBAL LOOKUP</span>
-            <span className="nvi-badge">LIVE INDEX</span>
+            <span className="nvi-badge">{t('badgeGlobalLookup')}</span>
+            <span className="nvi-badge">{t('badgeLiveIndex')}</span>
           </>
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">TOTAL MATCHES</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiTotalMatches')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{totalMatches}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">PRODUCT SIGNAL</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiProductSignal')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{results?.products.length ?? 0}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">CUSTOMERS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiCustomers')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{results?.customers.length ?? 0}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">TRANSFERS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiTransfers')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{results?.transfers.length ?? 0}</p>
         </article>
       </div>

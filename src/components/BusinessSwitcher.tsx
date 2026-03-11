@@ -53,7 +53,7 @@ export function BusinessSwitcher() {
           setBusinessId(match?.businessId ?? filtered[0]?.businessId ?? '');
         }
       } catch (error) {
-        setMessage(getApiErrorMessage(error, 'Failed to load businesses.'));
+        setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(error, 'Failed to load businesses.') });
       }
     };
     loadBusinesses();
@@ -66,13 +66,13 @@ export function BusinessSwitcher() {
       const response = await apiFetch<SwitchResponse>('/auth/switch-business', {
         method: 'POST',
         token: token ?? undefined,
-        body: JSON.stringify({ businessId, deviceId: getOrCreateDeviceId() }),
+        body: JSON.stringify({ businessId, deviceId: getOrCreateDeviceId(), refreshToken: getRefreshToken() }),
       });
       setTokens(response.accessToken, response.refreshToken);
       setLastBusinessId(businessId);
-      setMessage('Switched business.');
+      window.location.reload();
     } catch (error) {
-      setMessage(getApiErrorMessage(error, 'Switch failed. Please try again.'));
+      setMessage({ action: 'auth', outcome: 'failure', message: getApiErrorMessage(error, 'Switch failed. Please try again.') });
     }
   };
 

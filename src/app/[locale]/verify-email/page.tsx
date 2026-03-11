@@ -1,19 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 import { getOrCreateDeviceId, setSession } from '@/lib/auth';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { StatusBanner } from '@/components/StatusBanner';
 
 export default function VerifyEmailPage() {
   const t = useTranslations('auth');
   const searchParams = useSearchParams();
   const router = useRouter();
-  const params = useParams<{ locale: string }>();
+  const locale = useLocale();
   const initialToken = searchParams.get('token') ?? '';
   const businessId = searchParams.get('businessId') ?? '';
   const email = searchParams.get('email') ?? '';
@@ -21,6 +22,15 @@ export default function VerifyEmailPage() {
   const [message, setMessage] = useToastState();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current);
+      }
+    };
+  }, []);
 
   const verify = async () => {
     setMessage(null);
@@ -44,8 +54,8 @@ export default function VerifyEmailPage() {
       if (response.accessToken && response.refreshToken && response.user) {
         setSession(response.accessToken, response.refreshToken, response.user);
         setMessage({ action: 'auth', outcome: 'success', message: t('verifyEmailLoggedIn') });
-        setTimeout(() => {
-          router.replace(`/${params.locale}`);
+        redirectTimerRef.current = setTimeout(() => {
+          router.replace(`/${locale}`);
         }, 500);
         return;
       }
@@ -62,9 +72,9 @@ export default function VerifyEmailPage() {
         query.set('selectBusiness', '1');
       }
       const queryString = query.toString();
-      setTimeout(() => {
+      redirectTimerRef.current = setTimeout(() => {
         router.replace(
-          `/${params.locale}/login${queryString ? `?${queryString}` : ''}`,
+          `/${locale}/login${queryString ? `?${queryString}` : ''}`,
         );
       }, 800);
     } catch (err) {
@@ -117,30 +127,30 @@ export default function VerifyEmailPage() {
   return (
     <div className="space-y-6 nvi-reveal">
       <PremiumPageHeader
-        eyebrow="EMAIL VERIFICATION"
+        eyebrow={t('eyebrowVerify')}
         title={t('verifyEmailTitle')}
         subtitle={t('verifyEmailHint')}
         badges={
           <>
-            <span className="nvi-badge">TOKEN CHECK</span>
-            <span className="nvi-badge">{businessId ? 'BUSINESS LOCKED' : 'GLOBAL'}</span>
+            <span className="nvi-badge">{t('badgeTokenCheck')}</span>
+            <span className="nvi-badge">{businessId ? t('badgeBusinessLocked') : t('badgeGlobal')}</span>
           </>
         }
       />
 
       <div className="grid gap-3 sm:grid-cols-3 nvi-stagger">
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">TOKEN</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{token.trim() ? 'SET' : 'REQUIRED'}</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiToken')}</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{token.trim() ? t('set') : t('required')}</p>
         </article>
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">BUSINESS ID</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{businessId ? 'PRESENT' : 'NONE'}</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiBusinessId')}</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{businessId ? t('present') : t('none')}</p>
         </article>
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">STATUS</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiStatus')}</p>
           <p className="mt-1 text-sm font-semibold text-gold-100">
-            {isSubmitting ? t('verifyEmailProcessing') : isResending ? t('verifyEmailResendProcessing') : 'READY'}
+            {isSubmitting ? t('verifyEmailProcessing') : isResending ? t('verifyEmailResendProcessing') : t('ready')}
           </p>
         </article>
       </div>
@@ -179,7 +189,7 @@ export default function VerifyEmailPage() {
             {isResending ? t('verifyEmailResendProcessing') : t('verifyEmailResendButton')}
           </span>
         </button>
-        {message ? <p className="text-sm text-gold-300">{message}</p> : null}
+        {message ? <StatusBanner message={message} /> : null}
       </form>
     </div>
   );

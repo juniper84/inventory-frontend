@@ -1,6 +1,7 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { buildCursorQuery, normalizePaginated, type PaginatedResponse } from '@/lib/pagination';
+import type { ToastInput } from '@/lib/app-notifications';
 
 type Translate = (key: string, values?: Record<string, string | number | Date>) => string;
 
@@ -79,7 +80,7 @@ export function usePlatformConsoleLoaders<
 }: {
   token: string | null;
   t: Translate;
-  setMessage: (value: string | null) => void;
+  setMessage: (value: ToastInput | null) => void;
   metricsRange: string;
   metricsFrom: string;
   metricsTo: string;
@@ -220,6 +221,8 @@ export function usePlatformConsoleLoaders<
           });
           return next;
         });
+      } catch (err) {
+        setMessage(getApiErrorMessage(err, t('loadBusinessesFailed')));
       } finally {
         if (append) {
           setIsLoadingMoreBusinesses(false);
@@ -228,6 +231,8 @@ export function usePlatformConsoleLoaders<
     },
     [
       token,
+      t,
+      setMessage,
       setIsLoadingMoreBusinesses,
       setBusinesses,
       setNextBusinessCursor,
@@ -243,16 +248,20 @@ export function usePlatformConsoleLoaders<
     if (!token) {
       return;
     }
-    const metricsResponse = await apiFetch<TMetrics>(
-      `/platform/metrics?range=${metricsRange}${
-        metricsRange === 'custom'
-          ? `&from=${encodeURIComponent(metricsFrom)}&to=${encodeURIComponent(metricsTo)}`
-          : ''
-      }`,
-      { token },
-    );
-    setMetrics(metricsResponse);
-  }, [token, metricsRange, metricsFrom, metricsTo, setMetrics]);
+    try {
+      const metricsResponse = await apiFetch<TMetrics>(
+        `/platform/metrics?range=${metricsRange}${
+          metricsRange === 'custom'
+            ? `&from=${encodeURIComponent(metricsFrom)}&to=${encodeURIComponent(metricsTo)}`
+            : ''
+        }`,
+        { token },
+      );
+      setMetrics(metricsResponse);
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('loadMetricsFailed')));
+    }
+  }, [token, metricsRange, metricsFrom, metricsTo, setMetrics, setMessage, t]);
 
   const loadOverviewSnapshot = useCallback(async () => {
     if (!token) {
@@ -300,22 +309,30 @@ export function usePlatformConsoleLoaders<
     if (!token) {
       return;
     }
-    const matrix = await apiFetch<THealthMatrix>('/platform/health/matrix', { token });
-    setHealthMatrix(matrix);
-  }, [token, setHealthMatrix]);
+    try {
+      const matrix = await apiFetch<THealthMatrix>('/platform/health/matrix', { token });
+      setHealthMatrix(matrix);
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('loadHealthMatrixFailed')));
+    }
+  }, [token, setHealthMatrix, setMessage, t]);
 
   const loadActivityFeed = useCallback(async () => {
     if (!token) {
       return;
     }
-    const query = buildCursorQuery({ limit: 24 });
-    const logs = await apiFetch<PaginatedResponse<PlatformAuditLog> | PlatformAuditLog[]>(
-      `/platform/platform-audit-logs${query}`,
-      { token },
-    );
-    const result = normalizePaginated(logs);
-    setActivityFeed(result.items);
-  }, [token, setActivityFeed]);
+    try {
+      const query = buildCursorQuery({ limit: 24 });
+      const logs = await apiFetch<PaginatedResponse<PlatformAuditLog> | PlatformAuditLog[]>(
+        `/platform/platform-audit-logs${query}`,
+        { token },
+      );
+      const result = normalizePaginated(logs);
+      setActivityFeed(result.items);
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('loadActivityFeedFailed')));
+    }
+  }, [token, setActivityFeed, setMessage, t]);
 
   const loadData = useCallback(async () => {
     if (!token) {

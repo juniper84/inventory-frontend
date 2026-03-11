@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useBranchScope } from '@/lib/use-branch-scope';
@@ -11,13 +10,16 @@ import { useToastState } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { StatusBanner } from '@/components/StatusBanner';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
+import { useVariantSearch } from '@/lib/use-variant-search';
 import { getPermissionSet } from '@/lib/permissions';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Branch = { id: string; name: string };
 type Supplier = { id: string; name: string; leadTimeDays?: number | null };
@@ -64,8 +66,8 @@ export default function PurchaseOrderWizardPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
-  const params = useParams<{ locale: string }>();
-  const locale = params?.locale ?? 'en';
+  const locale = useLocale();
+  const { formatDate } = useFormatDate();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('purchases.write');
   const [message, setMessage] = useToastState();
@@ -91,6 +93,7 @@ export default function PurchaseOrderWizardPage() {
   const [receivingLines, setReceivingLines] = useState<ReceiveLine[]>([]);
   const { activeBranch, resolveBranchId } = useBranchScope();
   const effectiveBranchId = resolveBranchId(form.branchId) || '';
+  const { loadOptions: loadVariantOptions, seedCache: seedVariantCache, getVariantOption, getVariantData } = useVariantSearch();
 
   const selectedSupplier = suppliers.find((supplier) => supplier.id === form.supplierId);
   const supplierEta =
@@ -155,7 +158,9 @@ export default function PurchaseOrderWizardPage() {
           ]);
         setBranches(normalizePaginated(branchData).items);
         setSuppliers(normalizePaginated(supplierData).items);
-        setVariants(normalizePaginated(variantData).items);
+        const variantList = normalizePaginated(variantData).items;
+        setVariants(variantList);
+        seedVariantCache(variantList);
         setUnits(unitList);
         setBatchTrackingEnabled(!!settings.stockPolicies?.batchTrackingEnabled);
       } catch (err) {
@@ -330,8 +335,8 @@ export default function PurchaseOrderWizardPage() {
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Guided</span>
-            <span className="status-chip">{step}</span>
+            <span className="status-chip">{t('badgeGuided')}</span>
+            <span className="status-chip">{t(`${step}Step`)}</span>
           </>
         }
         actions={
@@ -350,22 +355,22 @@ export default function PurchaseOrderWizardPage() {
       <div className="grid gap-3 md:grid-cols-3 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Current step
+            {t('kpiCurrentStep')}
           </p>
           <p className="mt-2 text-lg font-semibold text-gold-100">{t(`${step}Step`)}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Valid lines
+            {t('kpiValidLines')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{validLines.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Created order
+            {t('kpiCreatedOrder')}
           </p>
           <p className="mt-2 text-lg font-semibold text-gold-100">
-            {createdOrder?.status ?? 'Not created'}
+            {createdOrder?.status ?? t('notCreated')}
           </p>
         </article>
       </div>
@@ -390,6 +395,7 @@ export default function PurchaseOrderWizardPage() {
           <h3 className="text-lg font-semibold text-gold-100">{t('detailsTitle')}</h3>
           <div className="grid gap-3 md:grid-cols-2">
             <SmartSelect
+              instanceId="wizard-branch"
               value={form.branchId}
               onChange={(value) => setForm((prev) => ({ ...prev, branchId: value }))}
               options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
@@ -397,6 +403,7 @@ export default function PurchaseOrderWizardPage() {
               className="nvi-select-container"
             />
             <SmartSelect
+              instanceId="wizard-supplier"
               value={form.supplierId}
               onChange={(value) => setForm((prev) => ({ ...prev, supplierId: value }))}
               options={suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))}
@@ -410,7 +417,7 @@ export default function PurchaseOrderWizardPage() {
             />
             <div className="text-xs text-gold-400">
               {supplierEta
-                ? t('etaHint', { date: supplierEta.toLocaleDateString() })
+                ? t('etaHint', { date: formatDate(supplierEta) })
                 : t('etaFallback')}
             </div>
           </div>
@@ -430,17 +437,11 @@ export default function PurchaseOrderWizardPage() {
           <h3 className="text-lg font-semibold text-gold-100">{t('linesTitle')}</h3>
           {lines.map((line) => (
             <div key={line.id} className="grid gap-2 md:grid-cols-[2fr_1fr_1fr_1fr_auto]">
-              <SmartSelect
-                value={line.variantId}
-                onChange={(value) => {
-                  const variant = variants.find((item) => item.id === value);
-                  updateLine(line.id, {
-                    variantId: value,
-                    unitId: variant?.sellUnitId || variant?.baseUnitId || '',
-                    unitCost: String(variant?.defaultCost ?? line.unitCost ?? ''),
-                  });
-                }}
-                options={variants.map((variant) => ({
+              <AsyncSmartSelect
+                instanceId={`wizard-line-${line.id}-variant`}
+                value={getVariantOption(line.variantId)}
+                loadOptions={loadVariantOptions}
+                defaultOptions={variants.map((variant) => ({
                   value: variant.id,
                   label: formatVariantLabel({
                     id: variant.id,
@@ -448,7 +449,17 @@ export default function PurchaseOrderWizardPage() {
                     productName: variant.product?.name ?? null,
                   }),
                 }))}
+                onChange={(opt) => {
+                  const variantId = opt?.value ?? '';
+                  const variant = getVariantData(variantId);
+                  updateLine(line.id, {
+                    variantId,
+                    unitId: variant?.sellUnitId || variant?.baseUnitId || '',
+                    unitCost: String(variant?.defaultCost ?? line.unitCost ?? ''),
+                  });
+                }}
                 placeholder={t('selectVariant')}
+                isClearable
                 className="nvi-select-container"
               />
               <input
@@ -464,6 +475,7 @@ export default function PurchaseOrderWizardPage() {
                 className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
               />
               <SmartSelect
+                instanceId={`wizard-line-${line.id}-unit`}
                 value={line.unitId}
                 onChange={(value) => updateLine(line.id, { unitId: value })}
                 options={units.map((unit) => ({
@@ -521,7 +533,7 @@ export default function PurchaseOrderWizardPage() {
             <p>{t('summarySupplier', { name: suppliers.find((s) => s.id === form.supplierId)?.name ?? '—' })}</p>
             <p>
               {t('summaryExpected', {
-                date: form.expectedAt ? new Date(form.expectedAt).toLocaleDateString() : '—',
+                date: form.expectedAt ? formatDate(form.expectedAt) : '—',
               })}
             </p>
           </div>
@@ -590,68 +602,73 @@ export default function PurchaseOrderWizardPage() {
               </Link>
             </div>
           ) : null}
-          {receivingLines.length ? (
-            <div className="space-y-2">
-              {receivingLines.map((line) => (
-                <div key={line.id} className="grid gap-2 md:grid-cols-3">
-                  <div className="md:col-span-3 text-sm text-gold-200">
-                    {resolveVariantLabel(line.variantId)}
-                  </div>
-                  <input
-                    value={line.quantity}
-                    onChange={(event) => updateReceivingLine(line.id, { quantity: event.target.value })}
-                    placeholder={t('quantity')}
-                    className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-                  />
-                  <input
-                    value={line.unitCost}
-                    onChange={(event) => updateReceivingLine(line.id, { unitCost: event.target.value })}
-                    placeholder={t('unitCost')}
-                    className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-                  />
-                  <SmartSelect
-                    value={line.unitId}
-                    onChange={(value) => updateReceivingLine(line.id, { unitId: value })}
-                    options={units.map((unit) => ({
-                      value: unit.id,
-                      label: buildUnitLabel(unit),
-                    }))}
-                    placeholder={t('unit')}
-                    className="nvi-select-container"
-                  />
-                  {batchTrackingEnabled ? (
-                    <>
+          {!approvalNotice ? (
+            <>
+              {receivingLines.length ? (
+                <div className="space-y-2">
+                  {receivingLines.map((line) => (
+                    <div key={line.id} className="grid gap-2 md:grid-cols-3">
+                      <div className="md:col-span-3 text-sm text-gold-200">
+                        {resolveVariantLabel(line.variantId)}
+                      </div>
                       <input
-                        value={line.batchCode}
-                        onChange={(event) =>
-                          updateReceivingLine(line.id, { batchCode: event.target.value })
-                        }
-                        placeholder={t('batchCode')}
+                        value={line.quantity}
+                        onChange={(event) => updateReceivingLine(line.id, { quantity: event.target.value })}
+                        placeholder={t('quantity')}
                         className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
                       />
-                      <DatePickerInput
-                        value={line.expiryDate}
-                        onChange={(value) => updateReceivingLine(line.id, { expiryDate: value })}
-                        placeholder={t('expiryDate')}
+                      <input
+                        value={line.unitCost}
+                        onChange={(event) => updateReceivingLine(line.id, { unitCost: event.target.value })}
+                        placeholder={t('unitCost')}
+                        className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
                       />
-                    </>
-                  ) : null}
+                      <SmartSelect
+                        instanceId={`wizard-receive-line-${line.id}-unit`}
+                        value={line.unitId}
+                        onChange={(value) => updateReceivingLine(line.id, { unitId: value })}
+                        options={units.map((unit) => ({
+                          value: unit.id,
+                          label: buildUnitLabel(unit),
+                        }))}
+                        placeholder={t('unit')}
+                        className="nvi-select-container"
+                      />
+                      {batchTrackingEnabled ? (
+                        <>
+                          <input
+                            value={line.batchCode}
+                            onChange={(event) =>
+                              updateReceivingLine(line.id, { batchCode: event.target.value })
+                            }
+                            placeholder={t('batchCode')}
+                            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
+                          />
+                          <DatePickerInput
+                            value={line.expiryDate}
+                            onChange={(value) => updateReceivingLine(line.id, { expiryDate: value })}
+                            placeholder={t('expiryDate')}
+                          />
+                        </>
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <StatusBanner message={t('noLines')} />
-          )}
-          <button
-            type="button"
-            onClick={receiveStock}
-            disabled={!canWrite || isReceiving || !createdOrder}
-            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
-            title={!canWrite ? noAccess('title') : undefined}
-          >
-            {isReceiving ? <Spinner size="xs" variant="orbit" /> : null}
-            {isReceiving ? t('receiving') : t('receiveStock')}
-          </button>
+              ) : (
+                <StatusBanner message={t('noLines')} />
+              )}
+              <button
+                type="button"
+                onClick={receiveStock}
+                disabled={!canWrite || isReceiving || !createdOrder}
+                className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+                title={!canWrite ? noAccess('title') : undefined}
+              >
+                {isReceiving ? <Spinner size="xs" variant="orbit" /> : null}
+                {isReceiving ? t('receiving') : t('receiveStock')}
+              </button>
+            </>
+          ) : null}
         </div>
       ) : null}
     </section>

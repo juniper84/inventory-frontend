@@ -34,6 +34,7 @@ export function PlatformSubscriptionIntelligenceSurface({
   loadingHistory,
   subscriptionHistory,
   subscriptionHistoryStats,
+  locale,
 }: {
   show: boolean;
   t: (key: string, values?: Record<string, string | number | Date>) => string;
@@ -45,6 +46,7 @@ export function PlatformSubscriptionIntelligenceSurface({
   loadingHistory: boolean;
   subscriptionHistory: SubscriptionHistoryEntry[];
   subscriptionHistoryStats: SubscriptionHistoryStats;
+  locale: string;
 }) {
   if (!show) {
     return null;
@@ -62,6 +64,7 @@ export function PlatformSubscriptionIntelligenceSurface({
         <div className="space-y-3">
           <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
             <SmartSelect
+              instanceId="platform-subscription-history-business"
               value={historyBusinessId}
               onChange={setHistoryBusinessId}
               options={businessSelectOptions}
@@ -94,7 +97,7 @@ export function PlatformSubscriptionIntelligenceSurface({
                   {entry.previousStatus ?? t('notAvailable')} → {entry.newStatus ?? t('notAvailable')} •{' '}
                   {entry.previousTier ?? t('notAvailable')} → {entry.newTier ?? t('notAvailable')}
                 </p>
-                <p>{new Date(entry.createdAt).toLocaleString()}</p>
+                <p>{new Date(entry.createdAt).toLocaleString(locale)}</p>
                 {entry.changedByPlatformAdminId ? (
                   <p>{t('adminLabel', { admin: entry.changedByPlatformAdminId })}</p>
                 ) : null}

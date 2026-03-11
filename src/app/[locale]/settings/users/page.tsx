@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { confirmAction, useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
@@ -79,6 +79,7 @@ export default function UsersPage() {
   const [isInviting, setIsInviting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [isLoadingRoles, setIsLoadingRoles] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -93,6 +94,16 @@ export default function UsersPage() {
   });
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchDraft, 350);
+
+  const userStatusLabels = useMemo<Record<string, string>>(
+    () => ({
+      ACTIVE: common('statusActive'),
+      INACTIVE: common('statusInactive'),
+      SUSPENDED: common('statusSuspended'),
+      DEACTIVATED: common('statusDeactivated'),
+    }),
+    [common],
+  );
 
   const statusOptions = useMemo(
     () => [
@@ -125,7 +136,32 @@ export default function UsersPage() {
 
   const assignableRoles = roles.filter((role) => role.name !== 'System Owner');
 
-  const load = async (cursor?: string, append = false) => {
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const [roleData, branchData] = await Promise.all([
+        apiFetch<PaginatedResponse<Role> | Role[]>(`/roles?limit=200`, { token }),
+        apiFetch<PaginatedResponse<Branch> | Branch[]>(`/branches?limit=200`, { token }),
+      ]);
+      const rolesResult = normalizePaginated(roleData);
+      const filteredRoles = rolesResult.items.filter(
+        (role) => role.name !== 'System Owner',
+      );
+      setRoles(rolesResult.items);
+      setBranches(normalizePaginated(branchData).items);
+      setRoleId(filteredRoles[0]?.id ?? '');
+      setAssignRoleId(filteredRoles[0]?.id ?? '');
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const load = useCallback(async (cursor?: string, append = false) => {
     const token = getAccessToken();
     if (!token) {
       return;
@@ -135,40 +171,39 @@ export default function UsersPage() {
     } else {
       setIsLoading(true);
     }
-    const usersQuery = buildCursorQuery({
-      limit: 25,
-      cursor,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-      roleId: filters.roleId || undefined,
-    });
-    const [roleData, userData, branchData] = await Promise.all([
-      apiFetch<PaginatedResponse<Role> | Role[]>(`/roles?limit=200`, { token }),
-      apiFetch<PaginatedResponse<User> | User[]>(`/users${usersQuery}`, { token }),
-      apiFetch<PaginatedResponse<Branch> | Branch[]>(`/branches?limit=200`, { token }),
-    ]);
-    const rolesResult = normalizePaginated(roleData);
-    const usersResult = normalizePaginated(userData);
-    const branchesResult = normalizePaginated(branchData);
-    const filteredRoles = rolesResult.items.filter(
-      (role) => role.name !== 'System Owner',
-    );
-    setRoles(rolesResult.items);
-    setBranches(branchesResult.items);
-    setUsers((prev) => (append ? [...prev, ...usersResult.items] : usersResult.items));
-    setNextCursor(usersResult.nextCursor);
-    setRoleId(filteredRoles[0]?.id ?? '');
-    setAssignRoleId(filteredRoles[0]?.id ?? '');
-    if (append) {
-      setIsLoadingMore(false);
-    } else {
-      setIsLoading(false);
+    try {
+      const usersQuery = buildCursorQuery({
+        limit: 25,
+        cursor,
+        search: filters.search || undefined,
+        status: filters.status || undefined,
+        roleId: filters.roleId || undefined,
+      });
+      const userData = await apiFetch<PaginatedResponse<User> | User[]>(
+        `/users${usersQuery}`,
+        { token },
+      );
+      const usersResult = normalizePaginated(userData);
+      setUsers((prev) => (append ? [...prev, ...usersResult.items] : usersResult.items));
+      setNextCursor(usersResult.nextCursor);
+    } catch (err) {
+      setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('loadFailed')) });
+    } finally {
+      if (append) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [filters.search, filters.status, filters.roleId, t]);
 
   useEffect(() => {
-    load().catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
-  }, [filters.search, filters.status, filters.roleId]);
+    loadReferenceData();
+  }, [loadReferenceData]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const invite = async () => {
     const token = getAccessToken();
@@ -186,7 +221,7 @@ export default function UsersPage() {
       setMessage({
         action: 'create',
         outcome: 'success',
-        message: t('inviteSent', { token: response.token }),
+        message: t('inviteSent'),
       });
       setEmail('');
     } catch (err) {
@@ -228,7 +263,7 @@ export default function UsersPage() {
   ): NotificationLocale =>
     preferences?.locale === 'sw' ? 'sw' : 'en';
 
-  const startEdit = (user: User) => {
+  const startEdit = async (user: User) => {
     setEditingUserId(user.id);
     setEditingUser({
       name: user.name,
@@ -242,6 +277,19 @@ export default function UsersPage() {
         events: buildEventPreferences(user.notificationPreferences ?? null),
       },
     });
+    const token = getAccessToken();
+    if (!token) return;
+    setRoleTargetUserId(user.id);
+    setRoleAssignments([]);
+    setIsLoadingRoles(true);
+    try {
+      const data = await apiFetch<UserRole[]>(`/users/${user.id}/roles`, { token });
+      setRoleAssignments(data);
+    } catch {
+      // silent — roles section will show empty
+    } finally {
+      setIsLoadingRoles(false);
+    }
   };
 
   const saveEdit = async () => {
@@ -258,6 +306,8 @@ export default function UsersPage() {
         body: JSON.stringify(editingUser),
       });
       setEditingUserId(null);
+      setRoleTargetUserId(null);
+      setRoleAssignments([]);
       setMessage({ action: 'update', outcome: 'success', message: t('updated') });
       await load();
     } catch (err) {
@@ -276,6 +326,12 @@ export default function UsersPage() {
     if (!token) {
       return;
     }
+    const ok = await confirmAction({
+      title: t('deactivateConfirmTitle'),
+      message: t('deactivateConfirmMessage'),
+      confirmText: t('deactivateConfirmButton'),
+    });
+    if (!ok) return;
     setMessage(null);
     try {
       await apiFetch(`/users/${userId}/deactivate`, { method: 'POST', token });
@@ -367,33 +423,33 @@ export default function UsersPage() {
   return (
     <section className="space-y-6">
       <PremiumPageHeader
-        eyebrow="ACCESS CONTROL"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">TEAM OPS</span>
-            <span className="nvi-badge">ROLE SCOPED</span>
+            <span className="nvi-badge">{t('badgeTeamOps')}</span>
+            <span className="nvi-badge">{t('badgeRoleScoped')}</span>
           </>
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">VISIBLE USERS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiVisibleUsers')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{users.length}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ACTIVE</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActive')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">
             {users.filter((user) => user.status === 'ACTIVE').length}
           </p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ROLES</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiRoles')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{roles.length}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">BRANCHES</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiBranches')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
         </article>
       </div>
@@ -408,6 +464,7 @@ export default function UsersPage() {
         onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
       >
         <SmartSelect
+          instanceId="filter-status"
           value={filters.status}
           onChange={(value) => pushFilters({ status: value })}
           options={statusOptions}
@@ -415,6 +472,7 @@ export default function UsersPage() {
           className="nvi-select-container"
         />
         <SmartSelect
+          instanceId="filter-role"
           value={filters.roleId}
           onChange={(value) => pushFilters({ roleId: value })}
           options={roleOptions}
@@ -433,6 +491,7 @@ export default function UsersPage() {
             className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
           <SmartSelect
+            instanceId="invite-role"
             value={roleId}
             onChange={setRoleId}
             options={assignableRoles.map((role) => ({
@@ -491,6 +550,7 @@ export default function UsersPage() {
                       className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                     />
                     <SmartSelect
+                      instanceId={`user-${user.id}-status`}
                       value={editingUser.status}
                       onChange={(value) =>
                         setEditingUser({
@@ -509,6 +569,7 @@ export default function UsersPage() {
                     <span className="text-gold-400">{t('notificationPrefs')}</span>
                     <div className="max-w-xs">
                       <SmartSelect
+                        instanceId={`user-${user.id}-notification-locale`}
                         value={notificationLocale}
                         onChange={(value) =>
                           setEditingUser({
@@ -569,7 +630,7 @@ export default function UsersPage() {
                         {t('phoneLabel', { value: user.phone })}
                       </p>
                     ) : null}
-                    <p className="text-xs text-gold-400">{user.status}</p>
+                    <p className="text-xs text-gold-400">{userStatusLabels[user.status] ?? user.status}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -590,20 +651,91 @@ export default function UsersPage() {
                     >
                       {t('deactivate')}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => openRoleManager(user)}
-                      disabled={!canEdit}
-                      title={!canEdit ? noAccess('title') : undefined}
-                      className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
-                    >
-                      {t('roles')}
-                    </button>
                   </div>
                 </div>
               )}
               {editingUserId === user.id ? (
-                <div className="flex gap-2">
+                <div className="space-y-3 border-t border-gold-700/30 pt-3">
+                  <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">
+                    {t('roleAssignments')}
+                  </p>
+                  {isLoadingRoles ? (
+                    <div className="flex items-center gap-2 text-xs text-gold-400">
+                      <Spinner variant="dots" size="xs" />
+                      <span>{actions('loading')}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        <SmartSelect
+                          instanceId={`assign-role-${user.id}`}
+                          value={assignRoleId}
+                          onChange={setAssignRoleId}
+                          options={assignableRoles.map((role) => ({
+                            value: role.id,
+                            label: role.name,
+                          }))}
+                          className="nvi-select-container"
+                        />
+                        <SmartSelect
+                          instanceId={`assign-branch-${user.id}`}
+                          value={assignBranchId}
+                          onChange={setAssignBranchId}
+                          options={branches.map((branch) => ({
+                            value: branch.id,
+                            label: branch.name,
+                          }))}
+                          placeholder={t('allBranches')}
+                          isClearable
+                          className="nvi-select-container"
+                        />
+                        <button
+                          type="button"
+                          onClick={assignRole}
+                          disabled={isAssigning || !canEdit || !assignRoleId}
+                          title={!canEdit ? noAccess('title') : undefined}
+                          className="nvi-cta rounded px-4 py-2 text-xs font-semibold text-black disabled:opacity-70"
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            {isAssigning ? <Spinner variant="pulse" size="xs" /> : null}
+                            {isAssigning ? t('assigning') : t('assignRole')}
+                          </span>
+                        </button>
+                      </div>
+                      <div className="space-y-1">
+                        {roleAssignments.length === 0 ? (
+                          <p className="text-xs text-gold-500">{t('rolesEmpty')}</p>
+                        ) : (
+                          roleAssignments.map((assignment) => (
+                            <div
+                              key={assignment.id}
+                              className="flex items-center justify-between rounded border border-gold-700/30 px-3 py-2 text-sm text-gold-200"
+                            >
+                              <div>
+                                <p>{assignment.role.name}</p>
+                                <p className="text-xs text-gold-400">
+                                  {assignment.branch?.name || t('allBranches')}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeRole(assignment.roleId, assignment.branchId)}
+                                disabled={!canEdit || isAssigning}
+                                title={!canEdit ? noAccess('title') : undefined}
+                                className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-60"
+                              >
+                                {actions('remove')}
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : null}
+              {editingUserId === user.id ? (
+                <div className="flex gap-2 border-t border-gold-700/30 pt-3">
                   <button
                     type="button"
                     onClick={saveEdit}
@@ -618,7 +750,11 @@ export default function UsersPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setEditingUserId(null)}
+                    onClick={() => {
+                      setEditingUserId(null);
+                      setRoleTargetUserId(null);
+                      setRoleAssignments([]);
+                    }}
                     className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
                   >
                     {common('cancel')}
@@ -643,88 +779,6 @@ export default function UsersPage() {
         ) : null}
       </div>
 
-      {roleTargetUserId ? (
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gold-100">
-              {t('roleAssignments')}
-            </h3>
-            <button
-              type="button"
-              onClick={() => setRoleTargetUserId(null)}
-              className="text-xs text-gold-400"
-            >
-              {common('close')}
-            </button>
-          </div>
-
-          <div className="grid gap-2 md:grid-cols-3">
-            <SmartSelect
-              value={assignRoleId}
-              onChange={setAssignRoleId}
-              options={assignableRoles.map((role) => ({
-                value: role.id,
-                label: role.name,
-              }))}
-              className="nvi-select-container"
-            />
-            <SmartSelect
-              value={assignBranchId}
-              onChange={setAssignBranchId}
-              options={branches.map((branch) => ({
-                value: branch.id,
-                label: branch.name,
-              }))}
-              placeholder={t('allBranches')}
-              isClearable
-              className="nvi-select-container"
-            />
-            <button
-              type="button"
-              onClick={assignRole}
-              disabled={isAssigning || !canEdit}
-              title={!canEdit ? noAccess('title') : undefined}
-              className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
-            >
-              <span className="inline-flex items-center gap-2">
-                {isAssigning ? <Spinner variant="pulse" size="xs" /> : null}
-                {isAssigning ? t('assigning') : t('assignRole')}
-              </span>
-            </button>
-          </div>
-
-          <div className="space-y-2 text-sm text-gold-200 nvi-stagger">
-            {roleAssignments.length === 0 ? (
-              <p className="text-gold-400">{t('rolesEmpty')}</p>
-            ) : (
-              roleAssignments.map((assignment) => (
-                <div
-                  key={assignment.id}
-                  className="flex items-center justify-between rounded border border-gold-700/30 px-3 py-2"
-                >
-                  <div>
-                    <p>{assignment.role.name}</p>
-                    <p className="text-xs text-gold-400">
-                      {assignment.branch?.name || t('allBranches')}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      removeRole(assignment.roleId, assignment.branchId)
-                    }
-                    disabled={!canEdit}
-                    title={!canEdit ? noAccess('title') : undefined}
-                    className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
-                  >
-                    {actions('remove')}
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }

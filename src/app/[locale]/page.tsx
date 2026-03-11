@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useToastState } from '@/lib/app-notifications';
 import Link from 'next/link';
-import { useParams, usePathname } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { usePathname } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useActiveBranch } from '@/lib/branch-context';
@@ -18,31 +18,34 @@ import {
   getBranchModeForPathname,
   resolveBranchIdForMode,
 } from '@/lib/branch-policy';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useCurrency, useFormatDate } from '@/lib/business-context';
+import { ZERO_DECIMAL_CURRENCIES } from '@/lib/currencies';
 
 type Branch = { id: string; name: string };
-type Sale = { total: number | string };
+type SaleRow = {
+  id?: string;
+  total: number | string;
+  createdAt?: string;
+  completedAt?: string;
+};
 type PnlTotals = {
   revenue: number;
-  cost: number;
   grossProfit: number;
-  losses: number;
   expenses: number;
-  transferFees: number;
-  netProfit: number;
 };
 type PnlReport = { totals: PnlTotals };
-type LowStock = { id: string; branch?: { id: string; name: string } | null };
-type Approval = { id: string; actionType: string; status: string; createdAt: string };
-type AuditLog = {
+type LowStock = {
   id: string;
-  action: string;
-  outcome: string;
-  resourceType?: string | null;
-  createdAt: string;
-  metadata?: Record<string, unknown> | null;
+  quantity?: number | string;
+  variant?: {
+    id: string;
+    name?: string | null;
+    sku?: string | null;
+    product?: { name?: string | null } | null;
+  } | null;
+  branch?: { id: string; name: string } | null;
 };
-type ExportJob = { id: string };
+type Approval = { id: string };
 type Shift = { id: string; status: string };
 type NotificationPreview = {
   id: string;
@@ -51,45 +54,14 @@ type NotificationPreview = {
   status?: string | null;
   createdAt: string;
 };
-type SearchResults = {
-  products: {
-    id: string;
-    name: string;
-    variants: { id: string; name: string; sku?: string | null }[];
-  }[];
-  variants: { id: string; name: string; sku?: string | null; product?: { name?: string | null } }[];
-  receipts: { id: string; receiptNumber: string }[];
-  customers: { id: string; name: string }[];
-  transfers: {
-    id: string;
-    sourceBranch?: { name?: string | null } | null;
-    destinationBranch?: { name?: string | null } | null;
-  }[];
-};
-type ReminderItem = {
+type ReceiptRow = {
   id: string;
-  scheduledAt: string;
-  note?: { id: string; title: string } | null;
-  branch?: { id: string; name: string } | null;
-};
-type ReminderOverview = {
-  upcoming: { count: number; items: ReminderItem[] };
-  overdue: { count: number; items: ReminderItem[] };
-};
-type PendingTransfer = {
-  id: string;
-  status: string;
-  createdAt: string;
-  sourceBranch?: { id: string; name: string } | null;
-  destinationBranch?: { id: string; name: string } | null;
-  _count?: { items: number };
-};
-type OfflineRisk = {
-  offlineEnabled: boolean;
-  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
-  staleThresholdHours: number;
-  devices: { active: number; stale: number; expired: number };
-  actions: { pending: number; failed: number; conflicts: number };
+  receiptNumber: string;
+  issuedAt: string;
+  sale?: {
+    id?: string;
+    total?: number | string;
+  } | null;
 };
 type TopLosses = {
   days: number;
@@ -98,281 +70,264 @@ type TopLosses = {
     variantName: string | null;
     productName: string | null;
     sku: string | null;
-    lossCount: number;
     totalCost: number;
     quantity: number;
   }[];
+};
+type TopProduct = {
+  variantId: string;
+  variantName: string | null;
+  productName: string | null;
+  sku: string | null;
+  totalRevenue: number;
+  quantity: number;
+  saleLineCount: number;
+};
+type SalesByBranch = {
+  total: number;
+  items: { branchId: string; branchName: string | null; totalSales: number; saleCount: number }[];
+};
+type ExpenseBreakdown = {
+  total: number;
+  items: { category: string; amount: number; count: number; percent: number }[];
+};
+type RecentActivity = {
+  items: {
+    id: string;
+    type: 'sale' | 'transfer' | 'alert';
+    createdAt: string;
+    title: string;
+    detail: string | null;
+  }[];
+};
+type StockValueSummary = {
+  stockValue: number;
+  trackedVariants: number;
+};
+type SearchResults = {
+  products: {
+    id: string;
+    name: string;
+    variants: { id: string; name: string; sku?: string | null }[];
+  }[];
+  variants: {
+    id: string;
+    name: string;
+    sku?: string | null;
+    product?: { name?: string | null };
+  }[];
+  receipts: { id: string; receiptNumber: string }[];
+  customers: { id: string; name: string }[];
+  transfers: {
+    id: string;
+    sourceBranch?: { name?: string | null } | null;
+    destinationBranch?: { name?: string | null } | null;
+  }[];
+};
+
+const toLocalDateIso = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 };
 
 function Sparkline({
   points,
   className = 'text-gold-300',
+  filled = false,
 }: {
   points: number[];
   className?: string;
+  filled?: boolean;
 }) {
   const safePoints = points.length ? points : [0, 0, 0, 0, 0];
   const max = Math.max(...safePoints, 1);
   const min = Math.min(...safePoints, 0);
   const span = Math.max(max - min, 1);
-  const chartPoints = safePoints
-    .map((point, index) => {
-      const x = (index / Math.max(safePoints.length - 1, 1)) * 100;
-      const y = 100 - ((point - min) / span) * 100;
-      return `${x},${y}`;
-    })
-    .join(' ');
+  const coords = safePoints.map((point, index) => ({
+    x: (index / Math.max(safePoints.length - 1, 1)) * 100,
+    y: 100 - ((point - min) / span) * 100,
+  }));
+  const polylinePoints = coords.map((p) => `${p.x},${p.y}`).join(' ');
+
+  if (filled) {
+    const first = coords[0];
+    const last = coords[coords.length - 1];
+    const linePath = coords.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y}`).join(' ');
+    const areaPath = `${linePath} L ${last.x},100 L ${first.x},100 Z`;
+    return (
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className={className}>
+        <defs>
+          <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.32" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill="url(#sparkFill)" stroke="none" />
+        <polyline
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={polylinePoints}
+        />
+      </svg>
+    );
+  }
+
   return (
-    <svg
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-      className={`h-10 w-full ${className}`}
-    >
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className={className}>
       <polyline
         fill="none"
         stroke="currentColor"
-        strokeWidth="4"
+        strokeWidth="2.4"
         strokeLinecap="round"
         strokeLinejoin="round"
-        points={chartPoints}
+        points={polylinePoints}
       />
     </svg>
   );
 }
 
-function RadialRing({
-  label,
+function CountUpValue({
   value,
-  hint,
+  formatter,
+  duration = 900,
 }: {
-  label: string;
   value: number;
-  hint: string;
+  formatter: Intl.NumberFormat;
+  duration?: number;
 }) {
-  const clamped = Math.max(0, Math.min(100, Math.round(value)));
-  const radius = 30;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (clamped / 100) * circumference;
-  return (
-    <div className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-3">
-      <p className="text-[10px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
-        {label}
-      </p>
-      <div className="mt-2 flex items-center gap-3">
-        <svg viewBox="0 0 80 80" className="h-16 w-16">
-          <circle
-            cx="40"
-            cy="40"
-            r={radius}
-            fill="none"
-            stroke="rgba(245, 158, 11, 0.18)"
-            strokeWidth="8"
-          />
-          <circle
-            cx="40"
-            cy="40"
-            r={radius}
-            fill="none"
-            stroke="rgba(245, 158, 11, 0.95)"
-            strokeWidth="8"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            transform="rotate(-90 40 40)"
-          />
-          <text
-            x="40"
-            y="44"
-            textAnchor="middle"
-            className="fill-[color:var(--foreground)] text-[14px] font-semibold"
-          >
-            {clamped}%
-          </text>
-        </svg>
-        <p className="text-xs text-[color:var(--muted)]">{hint}</p>
-      </div>
-    </div>
-  );
+  const [displayed, setDisplayed] = useState(0);
+  useEffect(() => {
+    const start = Date.now();
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayed(Math.round(value * eased));
+      if (progress < 1) {
+        requestAnimationFrame(tick);
+      }
+    };
+    requestAnimationFrame(tick);
+  }, [value, duration]);
+  return <>{formatter.format(displayed)}</>;
 }
 
 export default function DashboardPage() {
   const t = useTranslations('dashboard');
-  const actions = useTranslations('actions');
   const common = useTranslations('common');
-  const params = useParams<{ locale: string }>();
   const pathname = usePathname();
-  const locale = params?.locale ?? 'en';
+  const locale = useLocale();
+  const numberLocale = locale === 'sw' ? 'sw-TZ' : 'en-TZ';
+  const currency = useCurrency();
+  const { formatTime, formatDateTime } = useFormatDate();
   const activeBranch = useActiveBranch();
-  const branchMode = useMemo(
-    () => getBranchModeForPathname(pathname),
-    [pathname],
-  );
+  const branchMode = useMemo(() => getBranchModeForPathname(pathname), [pathname]);
+
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [message, setMessage] = useToastState();
+
+  const [selectedBranchId, setSelectedBranchId] = useState('');
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [sales, setSales] = useState<Sale[]>([]);
+
+  const [salesToday, setSalesToday] = useState<SaleRow[]>([]);
+  const [salesTrendRows, setSalesTrendRows] = useState<SaleRow[]>([]);
   const [pnl, setPnl] = useState<PnlReport | null>(null);
+  const [pnlMtd, setPnlMtd] = useState<PnlReport | null>(null);
+  const [stockValueSummary, setStockValueSummary] = useState<StockValueSummary | null>(null);
   const [lowStock, setLowStock] = useState<LowStock[]>([]);
-  const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [openShifts, setOpenShifts] = useState<Shift[]>([]);
-  const [pendingSync, setPendingSync] = useState(0);
-  const [failedSyncs, setFailedSyncs] = useState(0);
-  const [exportBacklog, setExportBacklog] = useState(0);
+  const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
+  const [salesByBranch, setSalesByBranch] = useState<SalesByBranch | null>(null);
+  const [expenseBreakdown, setExpenseBreakdown] = useState<ExpenseBreakdown | null>(null);
+  const [recentActivity, setRecentActivity] = useState<RecentActivity['items']>([]);
+  const [recentReceipts, setRecentReceipts] = useState<ReceiptRow[]>([]);
+
+  const [approvalsCount, setApprovalsCount] = useState(0);
   const [alertsCount, setAlertsCount] = useState(0);
-  const [reminderOverview, setReminderOverview] =
-    useState<ReminderOverview | null>(null);
-  const [pendingTransfers, setPendingTransfers] = useState<PendingTransfer[]>([]);
-  const [pendingTransfersTotal, setPendingTransfersTotal] = useState(0);
-  const [offlineRisk, setOfflineRisk] = useState<OfflineRisk | null>(null);
-  const [topLosses, setTopLosses] = useState<TopLosses | null>(null);
-  const [notificationPreview, setNotificationPreview] = useState<
-    NotificationPreview[]
-  >([]);
+  const [openShiftCount, setOpenShiftCount] = useState(0);
+  const [pendingSync, setPendingSync] = useState(0);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
   const [searchSuggestions, setSearchSuggestions] = useState<
     { id: string; label: string }[]
   >([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [message, setMessage] = useToastState();
 
-  const salesTotal = sales.reduce((sum, sale) => sum + Number(sale.total ?? 0), 0);
-  const openShiftCount = openShifts.length;
-  const cashDrawerStatus =
-    openShiftCount > 0 ? t('cashDrawerOpen') : t('cashDrawerClosed');
+  const effectiveBranchId = useMemo(
+    () =>
+      resolveBranchIdForMode({
+        mode: branchMode,
+        selectedBranchId,
+        activeBranchId: activeBranch?.id ?? '',
+      }),
+    [activeBranch?.id, branchMode, selectedBranchId],
+  );
+
+  const salesTotal = useMemo(
+    () => salesToday.reduce((sum, sale) => sum + Number(sale.total ?? 0), 0),
+    [salesToday],
+  );
+
   const marginPct = useMemo(() => {
     if (!pnl || pnl.totals.revenue === 0) {
       return 0;
     }
     return Math.round((pnl.totals.grossProfit / pnl.totals.revenue) * 100);
   }, [pnl]);
-  const expensesTotal = pnl?.totals.expenses ?? null;
-  const transferFeesTotal = pnl?.totals.transferFees ?? null;
-  const branchPulse = useMemo(() => {
-    const counts = new Map<string, number>();
-    lowStock.forEach((item) => {
-      if (item.branch?.id) {
-        counts.set(item.branch.id, (counts.get(item.branch.id) ?? 0) + 1);
+
+  const trendPoints = useMemo(() => {
+    if (!salesTrendRows.length) {
+      return [0, 0, 0, 0, 0, 0, 0];
+    }
+    const perDay = new Map<string, number>();
+    for (const row of salesTrendRows) {
+      const rawDate = row.createdAt ?? row.completedAt;
+      if (!rawDate) {
+        continue;
       }
-    });
-    return branches.slice(0, 3).map((branch) => ({
-      branch,
-      lowStockCount: counts.get(branch.id) ?? 0,
-    }));
-  }, [branches, lowStock]);
-  const atRiskBranches = branchPulse.filter((row) => row.lowStockCount > 0);
-  const highRiskLogs = useMemo(() => {
-    return auditLogs.filter((log) => {
-      const risk = typeof log.metadata?.risk === 'string' ? log.metadata.risk : '';
-      const action = log.action ?? '';
-      return (
-        risk.toUpperCase() === 'HIGH' ||
-        action.includes('DELETE') ||
-        action.includes('VOID') ||
-        action.includes('REFUND') ||
-        action.includes('ADJUST')
-      );
-    });
-  }, [auditLogs]);
-  const attentionItems = useMemo(() => {
-    const items: { label: string; tone?: 'alert' | 'warn' | 'info' }[] = [];
-    if (lowStock.length > 0) {
-      items.push({
-        label: t('attentionLowStock', { count: lowStock.length }),
-        tone: 'alert',
-      });
+      const day = new Date(rawDate).toISOString().slice(0, 10);
+      perDay.set(day, (perDay.get(day) ?? 0) + Number(row.total ?? 0));
     }
-    if (approvals.length > 0) {
-      items.push({
-        label: t('attentionApprovals', { count: approvals.length }),
-        tone: 'warn',
-      });
-    }
-    if (pendingSync > 0) {
-      items.push({
-        label: t('attentionPendingSync', { count: pendingSync }),
-        tone: 'info',
-      });
-    }
-    if (exportBacklog > 0) {
-      items.push({
-        label: t('attentionExports', { count: exportBacklog }),
-        tone: 'warn',
-      });
-    }
-    if (alertsCount > 0) {
-      items.push({
-        label: t('attentionAlerts', { count: alertsCount }),
-        tone: 'alert',
-      });
-    }
-    return items.slice(0, 4);
-  }, [alertsCount, approvals.length, exportBacklog, lowStock.length, pendingSync, t]);
-  const upcomingReminders = reminderOverview?.upcoming.items ?? [];
-  const overdueReminders = reminderOverview?.overdue.items ?? [];
-  const reminderUpcomingCount = reminderOverview?.upcoming.count ?? 0;
-  const reminderOverdueCount = reminderOverview?.overdue.count ?? 0;
-  const riskLevel = offlineRisk?.riskLevel ?? 'LOW';
-  const riskLabel =
-    riskLevel === 'HIGH'
-      ? t('riskHigh')
-      : riskLevel === 'MEDIUM'
-      ? t('riskMedium')
-      : t('riskLow');
-  const riskTone =
-    riskLevel === 'HIGH'
-      ? 'text-rose-300'
-      : riskLevel === 'MEDIUM'
-      ? 'text-amber-300'
-      : 'text-emerald-200';
-  const branchHealthAverage = useMemo(() => {
-    if (!branchPulse.length) {
-      return 100;
-    }
-    const sum = branchPulse.reduce((acc, row) => {
-      const health = Math.max(62, 100 - row.lowStockCount * 6);
-      return acc + health;
-    }, 0);
-    return sum / branchPulse.length;
-  }, [branchPulse]);
-  const approvalPressure = Math.min(
-    100,
-    approvals.length * 12 + pendingTransfersTotal * 3 + alertsCount,
-  );
-  const syncHealth = useMemo(() => {
-    if (!offlineRisk) {
-      return 100;
-    }
-    const penalty =
-      offlineRisk.actions.pending * 2 +
-      offlineRisk.actions.failed * 8 +
-      offlineRisk.actions.conflicts * 10 +
-      offlineRisk.devices.stale * 4 +
-      offlineRisk.devices.expired * 8;
-    return Math.max(5, 100 - penalty);
-  }, [offlineRisk]);
-  const marginHealth = Math.max(5, Math.min(100, marginPct + 50));
-  const commandTrend = useMemo(
+    const days = Array.from(perDay.keys()).sort();
+    const tail = days.slice(-30);
+    return tail.map((day) => perDay.get(day) ?? 0);
+  }, [salesTrendRows]);
+
+  const branchOptions = useMemo(
     () => [
-      Math.max(0, salesTotal * 0.42),
-      Math.max(0, salesTotal * 0.55),
-      Math.max(0, salesTotal * 0.48),
-      Math.max(0, salesTotal * 0.72),
-      Math.max(0, salesTotal * 0.6),
-      Math.max(0, salesTotal),
+      { id: '', name: common('globalBranch') },
+      ...branches,
     ],
-    [salesTotal],
+    [branches, common],
   );
-  const priorityRadar = useMemo(
+
+  const tzsFormatter = useMemo(() => {
+    const fractionDigits = ZERO_DECIMAL_CURRENCIES.has(currency) ? 0 : 2;
+    return new Intl.NumberFormat(numberLocale, {
+      style: 'currency',
+      currency,
+      currencyDisplay: 'code',
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
+  }, [numberLocale, currency]);
+
+  const integerFormatter = useMemo(
     () =>
-      [
-        { label: 'Low stock pressure', value: Math.min(100, lowStock.length * 10) },
-        { label: 'Approvals pressure', value: Math.min(100, approvals.length * 16) },
-        { label: 'Offline risk', value: Math.max(0, 100 - syncHealth) },
-        { label: 'Open transfers', value: Math.min(100, pendingTransfersTotal * 7) },
-      ].sort((left, right) => right.value - left.value),
-    [approvals.length, lowStock.length, pendingTransfersTotal, syncHealth],
+      new Intl.NumberFormat(numberLocale, {
+        maximumFractionDigits: 0,
+      }),
+    [numberLocale],
+  );
+  const nowLabel = useMemo(
+    () => formatDateTime(new Date()),
+    [formatDateTime],
   );
 
   const load = async (refresh = false) => {
@@ -381,152 +336,174 @@ export default function DashboardPage() {
     } else {
       setIsLoading(true);
     }
+
     const token = getAccessToken();
     if (!token) {
       setIsLoading(false);
       setIsRefreshing(false);
       return;
     }
-    const today = new Date().toISOString().slice(0, 10);
-    const params = new URLSearchParams();
-    params.set('startDate', today);
-    params.set('endDate', today);
-    const effectiveBranchId = resolveBranchIdForMode({
-      mode: branchMode,
-      selectedBranchId: '',
-      activeBranchId: activeBranch?.id ?? '',
+
+    const today = new Date();
+    const todayIso = toLocalDateIso(today);
+    const trendStart = new Date(today);
+    trendStart.setDate(trendStart.getDate() - 29);
+    const trendStartIso = toLocalDateIso(trendStart);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const monthStartIso = toLocalDateIso(monthStart);
+    const weekStart = new Date(today);
+    weekStart.setDate(weekStart.getDate() - 6);
+    const weekStartIso = toLocalDateIso(weekStart);
+
+    const dayParams = new URLSearchParams({
+      startDate: todayIso,
+      endDate: todayIso,
+    });
+    const trendParams = new URLSearchParams({
+      startDate: trendStartIso,
+      endDate: todayIso,
+    });
+    const mtdParams = new URLSearchParams({
+      startDate: monthStartIso,
+      endDate: todayIso,
+    });
+    const weekParams = new URLSearchParams({
+      startDate: weekStartIso,
+      endDate: todayIso,
+      limit: '5',
     });
     if (effectiveBranchId) {
-      params.set('branchId', effectiveBranchId);
+      dayParams.set('branchId', effectiveBranchId);
+      trendParams.set('branchId', effectiveBranchId);
+      mtdParams.set('branchId', effectiveBranchId);
+      weekParams.set('branchId', effectiveBranchId);
     }
+
     try {
       const auditOriginHeaders = { 'x-audit-origin': 'dashboard' };
-      const [branchData, salesData, pnlData, lowStockData] = await Promise.all([
-        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=5', { token }),
-        apiFetch<Sale[]>(`/reports/sales?${params.toString()}`, {
-          token,
-          headers: auditOriginHeaders,
-        }),
-        apiFetch<PnlReport>(`/reports/pnl?${params.toString()}`, {
-          token,
-          headers: auditOriginHeaders,
-        }),
-        apiFetch<LowStock[]>('/reports/low-stock?threshold=5', {
-          token,
-          headers: auditOriginHeaders,
-        }),
-      ]);
-      setBranches(normalizePaginated(branchData).items);
-      setSales(salesData);
-      setPnl(pnlData);
-      setLowStock(lowStockData);
 
-      const pendingCount = await getPendingCount();
-      setPendingSync(pendingCount);
-
-      const [approvalsData, auditData, exportData, shiftData, notificationsData] =
-        await Promise.allSettled([
-          apiFetch<PaginatedResponse<Approval> | Approval[]>(
-            '/approvals?status=PENDING&limit=5',
-            { token },
-          ),
-          apiFetch<PaginatedResponse<AuditLog> | AuditLog[]>(
-            '/audit-logs?limit=12',
-            { token },
-          ),
-          apiFetch<PaginatedResponse<ExportJob> | ExportJob[]>(
-            '/exports/jobs?status=PENDING&limit=20',
-            { token },
-          ),
-          apiFetch<PaginatedResponse<Shift> | Shift[]>(
-            '/shifts?status=OPEN&limit=50',
-            { token },
-          ),
-          apiFetch<PaginatedResponse<NotificationPreview> | NotificationPreview[]>(
-            '/notifications?limit=10',
-            { token },
-          ),
-        ]);
-
-      const [remindersData, transfersData, offlineData, lossesData] =
-        await Promise.allSettled([
-          apiFetch<ReminderOverview>('/notes/reminders/overview?limit=3&windowDays=7', {
+      const [
+        branchData,
+        daySalesData,
+        trendSalesData,
+        pnlData,
+        pnlMtdData,
+        lowStockData,
+        stockValueData,
+        topProductsData,
+        salesByBranchData,
+        expenseBreakdownData,
+        recentActivityData,
+      ] =
+        await Promise.all([
+          apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
             token,
-          }),
-          apiFetch<PaginatedResponse<PendingTransfer> | PendingTransfer[]>(
-            '/transfers/pending?limit=5&includeTotal=1',
-            { token },
-          ),
-          apiFetch<OfflineRisk>('/offline/risk', { token }),
-          apiFetch<TopLosses>(
-            `/reports/losses/top?limit=5&days=30${
+          }).catch(() => [] as Branch[]),
+          apiFetch<SaleRow[]>(`/reports/sales?${dayParams.toString()}`, {
+            token,
+            headers: auditOriginHeaders,
+          }).catch(() => [] as SaleRow[]),
+          apiFetch<SaleRow[]>(`/reports/sales?${trendParams.toString()}`, {
+            token,
+            headers: auditOriginHeaders,
+          }).catch(() => [] as SaleRow[]),
+          apiFetch<PnlReport | null>(`/reports/pnl?${dayParams.toString()}`, {
+            token,
+            headers: auditOriginHeaders,
+          }).catch(() => null),
+          apiFetch<PnlReport | null>(`/reports/pnl?${mtdParams.toString()}`, {
+            token,
+            headers: auditOriginHeaders,
+          }).catch(() => null),
+          apiFetch<LowStock[]>(
+            `/reports/low-stock?threshold=5${
               effectiveBranchId ? `&branchId=${effectiveBranchId}` : ''
             }`,
+            {
+              token,
+              headers: auditOriginHeaders,
+            },
+          ).catch(() => [] as LowStock[]),
+          apiFetch<StockValueSummary | null>(
+            `/reports/stock-value${
+              effectiveBranchId ? `?branchId=${encodeURIComponent(effectiveBranchId)}` : ''
+            }`,
             { token, headers: auditOriginHeaders },
-          ),
+          ).catch(() => null),
+          apiFetch<{ items: TopProduct[] }>(
+            `/reports/top-products?${weekParams.toString()}`,
+            { token, headers: auditOriginHeaders },
+          ).catch(() => ({ items: [] as TopProduct[] })),
+          apiFetch<SalesByBranch | null>(`/reports/sales-by-branch?${mtdParams.toString()}`, {
+            token,
+            headers: auditOriginHeaders,
+          }).catch(() => null),
+          apiFetch<ExpenseBreakdown | null>(
+            `/reports/expenses/breakdown?${mtdParams.toString()}&limit=6`,
+            {
+              token,
+              headers: auditOriginHeaders,
+            },
+          ).catch(() => null),
+          apiFetch<RecentActivity>(
+            `/reports/recent-activity?limit=8${
+              effectiveBranchId ? `&branchId=${encodeURIComponent(effectiveBranchId)}` : ''
+            }`,
+            { token, headers: auditOriginHeaders },
+          ).catch(() => ({ items: [] })),
         ]);
 
-      if (approvalsData.status === 'fulfilled') {
-        setApprovals(normalizePaginated(approvalsData.value).items);
-      } else {
-        setApprovals([]);
-      }
-      if (auditData.status === 'fulfilled') {
-        setAuditLogs(normalizePaginated(auditData.value).items);
-      } else {
-        setAuditLogs([]);
-      }
-      if (exportData.status === 'fulfilled') {
-        setExportBacklog(normalizePaginated(exportData.value).items.length);
-      } else {
-        setExportBacklog(0);
-      }
-      if (shiftData.status === 'fulfilled') {
-        setOpenShifts(normalizePaginated(shiftData.value).items);
-      } else {
-        setOpenShifts([]);
-      }
-      if (notificationsData.status === 'fulfilled') {
-        const notifItems = normalizePaginated(notificationsData.value).items;
-        setAlertsCount(
-          notifItems.filter((item) => item.status && item.status !== 'READ').length,
-        );
-        setNotificationPreview(notifItems.slice(0, 5));
-      } else {
-        setAlertsCount(0);
-        setNotificationPreview([]);
-      }
-      if (remindersData.status === 'fulfilled') {
-        setReminderOverview(remindersData.value);
-      } else {
-        setReminderOverview(null);
-      }
-      if (transfersData.status === 'fulfilled') {
-        const transferPayload = normalizePaginated(transfersData.value);
-        setPendingTransfers(transferPayload.items);
-        setPendingTransfersTotal(
-          transferPayload.total ?? transferPayload.items.length,
-        );
-      } else {
-        setPendingTransfers([]);
-        setPendingTransfersTotal(0);
-      }
-      if (offlineData.status === 'fulfilled') {
-        setOfflineRisk(offlineData.value);
-      } else {
-        setOfflineRisk(null);
-      }
-      if (lossesData.status === 'fulfilled') {
-        setTopLosses(lossesData.value);
-      } else {
-        setTopLosses(null);
-      }
-      setFailedSyncs(0);
-    } catch (err) {
+      setBranches(normalizePaginated(branchData).items);
+      setSalesToday(daySalesData);
+      setSalesTrendRows(trendSalesData);
+      setPnl(pnlData);
+      setPnlMtd(pnlMtdData);
+      setLowStock(lowStockData);
+      setStockValueSummary(stockValueData);
+      setTopProducts(topProductsData.items ?? []);
+      setSalesByBranch(salesByBranchData);
+      setExpenseBreakdown(expenseBreakdownData);
+      setRecentActivity(recentActivityData.items ?? []);
+
+      const [pendingCount, approvalsData, notificationsData, shiftsData, receiptsData] =
+        await Promise.all([
+          getPendingCount().catch(() => 0),
+          apiFetch<PaginatedResponse<Approval> | Approval[]>(
+            '/approvals?status=PENDING&limit=1&includeTotal=1',
+            { token },
+          ).catch(() => [] as Approval[] | PaginatedResponse<Approval>),
+          apiFetch<PaginatedResponse<NotificationPreview> | NotificationPreview[]>(
+            '/notifications?limit=25',
+            { token },
+          ).catch(() => [] as NotificationPreview[] | PaginatedResponse<NotificationPreview>),
+          apiFetch<PaginatedResponse<Shift> | Shift[]>('/shifts?status=OPEN&limit=20', {
+            token,
+          }).catch(() => [] as Shift[] | PaginatedResponse<Shift>),
+          apiFetch<PaginatedResponse<ReceiptRow> | ReceiptRow[]>(
+            `/sales/receipts?limit=6${effectiveBranchId ? `&branchId=${effectiveBranchId}` : ''}`,
+            { token },
+          ).catch(() => [] as ReceiptRow[] | PaginatedResponse<ReceiptRow>),
+        ]);
+
+      setPendingSync(pendingCount);
+
+      const approvalsPayload = normalizePaginated(approvalsData).items;
+      const approvalsTotal =
+        normalizePaginated(approvalsData).total ?? approvalsPayload.length;
+      setApprovalsCount(approvalsTotal);
+
+      const notificationsPayload = normalizePaginated(notificationsData).items;
+      setAlertsCount(
+        notificationsPayload.filter((item) => item.status && item.status !== 'READ').length,
+      );
+
+      setOpenShiftCount(normalizePaginated(shiftsData).items.length);
+      setRecentReceipts(normalizePaginated(receiptsData).items.slice(0, 6));
+    } catch (error) {
       setMessage({
         action: 'load',
         outcome: 'failure',
-        message: getApiErrorMessage(err, t('loadFailed')),
+        message: getApiErrorMessage(error, t('loadFailed')),
       });
     } finally {
       setIsLoading(false);
@@ -536,7 +513,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     load();
-  }, [activeBranch?.id, branchMode]);
+  }, [effectiveBranchId]);
 
   const runSearch = async (queryText = searchQuery) => {
     const token = getAccessToken();
@@ -550,8 +527,7 @@ export default function DashboardPage() {
         { token },
       );
       setSearchResults(data);
-    } catch (err) {
-      console.warn('Dashboard search failed', err);
+    } catch {
       setSearchResults(null);
     } finally {
       setIsSearching(false);
@@ -564,6 +540,7 @@ export default function DashboardPage() {
       setSearchSuggestions([]);
       return;
     }
+
     const timer = window.setTimeout(async () => {
       try {
         const data = await apiFetch<SearchResults>(
@@ -586,17 +563,6 @@ export default function DashboardPage() {
                 }))
               : [{ id: `product:${item.id}`, label: item.name }],
           ),
-          ...data.variants.map((item) => ({
-            id: `variant:${item.id}`,
-            label: `${formatVariantLabel(
-              {
-                id: item.id,
-                name: item.name,
-                productName: item.product?.name ?? null,
-              },
-              common('unknown'),
-            )}${item.sku ? ` (${item.sku})` : ''}`,
-          })),
           ...data.receipts.map((item) => ({
             id: `receipt:${item.id}`,
             label: item.receiptNumber,
@@ -605,680 +571,479 @@ export default function DashboardPage() {
             id: `customer:${item.id}`,
             label: item.name,
           })),
-          ...data.transfers.map((item) => ({
-            id: `transfer:${item.id}`,
-            label: `${item.sourceBranch?.name ?? common('unknown')} → ${
-              item.destinationBranch?.name ?? common('unknown')
-            }`,
-          })),
         ];
-        setSearchSuggestions(next);
-      } catch (err) {
-        console.warn('Dashboard search suggestions failed', err);
+        setSearchSuggestions(next.slice(0, 12));
+      } catch {
         setSearchSuggestions([]);
       }
     }, 250);
+
     return () => window.clearTimeout(timer);
-  }, [searchQuery]);
+  }, [common, searchQuery]);
+
+  const salesDayTrendPct = useMemo(() => {
+    const len = trendPoints.length;
+    if (len < 2) return 0;
+    const yesterday = trendPoints[len - 2];
+    if (!yesterday) return 0;
+    return Math.round(((trendPoints[len - 1] - yesterday) / yesterday) * 100);
+  }, [trendPoints]);
 
   if (isLoading) {
     return <PageSkeleton />;
   }
 
+  const activityIconFor = (type: string): { icon: string; cls: string } => {
+    if (type === 'sale') return { icon: '✓', cls: 'text-emerald-400' };
+    if (type === 'transfer') return { icon: '↔', cls: 'text-blue-400' };
+    return { icon: '!', cls: 'text-amber-400' };
+  };
+
+  const lowStockPreview = lowStock.slice(0, 5);
+  const topProductsPreview = topProducts.slice(0, 5);
+  const salesByBranchPreview = salesByBranch?.items?.slice(0, 6) ?? [];
+  const expenseBreakdownPreview = expenseBreakdown?.items?.slice(0, 6) ?? [];
+  const maxBranchSales = Math.max(
+    1,
+    ...salesByBranchPreview.map((item) => item.totalSales),
+  );
+  const maxTopProductRevenue = Math.max(
+    1,
+    ...topProductsPreview.map((item) => item.totalRevenue),
+  );
+  const criticalLowStockCount = lowStock.filter(
+    (item) => Number(item.quantity ?? 0) <= 2,
+  ).length;
+  const activeBranchesCount = salesByBranchPreview.filter(
+    (item) => item.totalSales > 0,
+  ).length;
+  const todayTransfers = recentActivity.filter((item) => {
+    if (item.type !== 'transfer') {
+      return false;
+    }
+    const dt = new Date(item.createdAt);
+    return toLocalDateIso(new Date(dt)) === toLocalDateIso(new Date());
+  }).length;
+
   return (
-    <section className="nvi-page">
-      <PremiumPageHeader
-        eyebrow={t('commandLayer')}
-        title={t('inventoryIntelligenceTitle')}
-        subtitle={t('inventoryIntelligenceSubtitle')}
-        badges={
-          <>
-            <span className="status-chip">{t('statusLive')}</span>
-            <span className="status-chip">{t('statusMultiBranch')}</span>
-            <span className="status-chip">{t('statusSyncOk')}</span>
-          </>
-        }
-        actions={
+    <section className="nvi-page dashboard-lux">
+      <div className="command-card nvi-panel p-5 nvi-reveal dashboard-main-panel">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-3xl font-semibold text-[color:var(--foreground)]">
+              {t('executiveOverviewTitle')}
+            </h2>
+            <p className="mt-1 text-sm text-[color:var(--muted)]">
+              {t('executiveOverviewSubtitle')}
+            </p>
+          </div>
+          <span className="status-chip">{nowLabel}</span>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="status-chip">{t('statusLive')}</span>
+          <span className="status-chip">{t('statusMultiBranch')}</span>
+          <span className="status-chip">
+            {t('attentionApprovals', { count: approvalsCount })}
+          </span>
+          <span className="status-chip">
+            {t('attentionAlerts', { count: alertsCount })}
+          </span>
           <button
             type="button"
             onClick={() => load(true)}
-            className="rounded border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--foreground)]"
+            className="ml-auto rounded border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--foreground)]"
             disabled={isRefreshing}
           >
             {isRefreshing ? <Spinner size="xs" variant="dots" /> : t('refresh')}
           </button>
-        }
-      />
-
-      {message ? <p className="text-sm text-red-400">{message}</p> : null}
-
-      <div className="command-card nvi-panel p-6 nvi-reveal">
-        <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
-          {t('heroEyebrow')}
-        </p>
-        <h3 className="mt-2 text-2xl font-semibold text-[color:var(--foreground)]">
-          {t('heroTitle')}
-        </h3>
-        <p className="text-sm text-[color:var(--muted)]">
-          {t('heroSubtitle')}
-        </p>
-        <div className="mt-4 rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-3">
-          <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.24em] text-[color:var(--muted)]">
-            <span>Command momentum</span>
-            <span>Last 6 pulses</span>
-          </div>
-          <Sparkline points={commandTrend} />
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 nvi-stagger">
-        <div className="kpi-card nvi-tile p-5">
-          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
-            {t('salesToday')}
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            {salesTotal.toLocaleString()}
-          </p>
-          <p className="text-xs text-[color:var(--muted)]">
-            {t('grossSalesTzs')}
-          </p>
-        </div>
-        <div className="kpi-card nvi-tile p-5">
-          <div className="flex items-center justify-between text-xs text-[color:var(--muted)]">
-            <span className="uppercase tracking-[0.3em]">{t('lowStock')}</span>
-            {lowStock.length > 0 ? (
-              <span className="text-amber-300">{t('needsAction')}</span>
-            ) : null}
-          </div>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            {lowStock.length}
-          </p>
-          <p className="text-xs text-[color:var(--muted)]">
-            {t('itemsBelowThreshold')}
-          </p>
-        </div>
-        <div className="kpi-card nvi-tile p-5">
-          <div className="flex items-center justify-between text-xs text-[color:var(--muted)]">
-            <span className="uppercase tracking-[0.3em]">{t('grossMargin')}</span>
-            <span className="text-emerald-200">+{marginPct}%</span>
-          </div>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            {marginPct}%
-          </p>
-          <p className="text-xs text-[color:var(--muted)]">
-            {t('fromTodaysSales')}
-          </p>
-        </div>
-        <div className="kpi-card nvi-tile p-5">
-          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
-            {t('expensesToday')}
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            {expensesTotal !== null ? expensesTotal.toLocaleString() : '—'}
-          </p>
-          <p className="text-xs text-[color:var(--muted)]">
-            {transferFeesTotal && transferFeesTotal > 0
-              ? t('transferFeesHint', { value: transferFeesTotal.toLocaleString() })
-              : t('expensesHint')}
-          </p>
-        </div>
-        <div className="kpi-card nvi-tile p-5">
-          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
-            {t('openShifts')}
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            {openShiftCount}
-          </p>
-          <p className="text-xs text-[color:var(--muted)]">
-            {cashDrawerStatus}
-          </p>
-        </div>
-      </div>
+      {message ? <p role="alert" className="text-sm text-red-400">{message}</p> : null}
 
-      <div className="grid gap-4 lg:grid-cols-3 nvi-stagger">
-        <div className="command-card nvi-panel p-5 lg:col-span-2 nvi-reveal">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Executive radar</h3>
-            <span className="status-chip">PULSE</span>
-          </div>
-          <p className="text-sm text-[color:var(--muted)]">
-            Visual signal on health, pressure, and execution quality.
-          </p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <RadialRing
-              label="Stock health"
-              value={branchHealthAverage}
-              hint="Average health across active branch pulse."
-            />
-            <RadialRing
-              label="Approval load"
-              value={approvalPressure}
-              hint="Combined decision queue pressure."
-            />
-            <RadialRing
-              label="Sync health"
-              value={syncHealth}
-              hint="Offline queue and device freshness."
-            />
-            <RadialRing
-              label="Margin quality"
-              value={marginHealth}
-              hint="Relative gross margin quality signal."
-            />
-          </div>
-        </div>
-        <div className="command-card nvi-panel p-5 nvi-reveal">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Priority radar</h3>
-            <span className="status-chip">HOTSPOTS</span>
-          </div>
-          <p className="text-sm text-[color:var(--muted)]">
-            Fast intensity map of where intervention is needed most.
-          </p>
-          <div className="mt-4 space-y-3">
-            {priorityRadar.map((item) => (
-              <div key={item.label}>
-                <div className="flex items-center justify-between text-xs text-[color:var(--muted)]">
-                  <span>{item.label}</span>
-                  <span>{item.value}%</span>
-                </div>
-                <div className="mt-1 h-2 overflow-hidden rounded bg-black/40">
-                  <div
-                    className="h-full rounded bg-gradient-to-r from-amber-500/70 to-cyan-400/70"
-                    style={{ width: `${Math.max(4, item.value)}%` }}
-                  />
-                </div>
-              </div>
+      <div className="command-card nvi-panel p-4 nvi-reveal dashboard-toolbar">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-xs uppercase tracking-[0.22em] text-[color:var(--muted)] dashboard-toolbar__label">
+            {common('branch')}
+          </label>
+          <select
+            value={selectedBranchId}
+            onChange={(event) => setSelectedBranchId(event.target.value)}
+            className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2 text-sm text-[color:var(--foreground)] dashboard-toolbar__select"
+          >
+            {branchOptions.map((branch) => (
+              <option key={branch.id || 'all'} value={branch.id}>
+                {branch.name}
+              </option>
             ))}
+          </select>
+          <span className="ml-auto text-xs text-[color:var(--muted)] dashboard-toolbar__meta">
+            {t('pendingSync')}: {pendingSync} • {t('openShifts')}: {openShiftCount}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 nvi-stagger dashboard-kpi-grid">
+        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
+          <span className="lux-shine" />
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('salesToday')}</p>
+            {salesDayTrendPct !== 0 && (
+              <span className={`lux-trend-chip ${salesDayTrendPct > 0 ? 'lux-trend-chip--up' : 'lux-trend-chip--down'}`}>
+                {salesDayTrendPct > 0 ? '▲' : '▼'} {Math.abs(salesDayTrendPct)}%
+              </span>
+            )}
+          </div>
+          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
+            <CountUpValue value={salesTotal} formatter={tzsFormatter} />
+          </p>
+          <p className="text-xs text-[color:var(--muted)]">{t('grossSalesTzs')}</p>
+          <Sparkline points={trendPoints.slice(-8)} className="mt-3 h-8 w-full text-gold-300" filled />
+        </div>
+
+        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
+          <span className="lux-shine" />
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('revenueMtd')}</p>
+            {marginPct !== 0 && (
+              <span className="lux-trend-chip lux-trend-chip--neutral">{marginPct}% margin</span>
+            )}
+          </div>
+          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
+            <CountUpValue value={pnlMtd?.totals.revenue ?? 0} formatter={tzsFormatter} />
+          </p>
+          <p className="text-xs text-[color:var(--muted)]">{t('revenueMtdHint')}</p>
+        </div>
+
+        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
+          <span className="lux-shine" />
+          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('expensesMtd')}</p>
+          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
+            <CountUpValue value={pnlMtd?.totals.expenses ?? 0} formatter={tzsFormatter} />
+          </p>
+          <p className="text-xs text-[color:var(--muted)]">{t('expensesMtdHint')}</p>
+        </div>
+
+        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
+          <span className="lux-shine" />
+          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('stockValue')}</p>
+          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
+            <CountUpValue value={stockValueSummary?.stockValue ?? 0} formatter={tzsFormatter} />
+          </p>
+          <p className="text-xs text-[color:var(--muted)]">
+            {t('trackedSkuCount', {
+              count: integerFormatter.format(stockValueSummary?.trackedVariants ?? 0),
+            })}
+          </p>
+        </div>
+
+        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
+          <span className="lux-shine" />
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('lowStock')}</p>
+            {criticalLowStockCount > 0 && (
+              <span className="lux-trend-chip lux-trend-chip--down">{criticalLowStockCount} critical</span>
+            )}
+          </div>
+          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">{lowStock.length}</p>
+          <p className="text-xs text-[color:var(--muted)]">
+            {t('criticalLowStockCount', { count: integerFormatter.format(criticalLowStockCount) })}
+          </p>
+        </div>
+
+        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
+          <span className="lux-shine" />
+          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('activeBranches')}</p>
+          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">{activeBranchesCount}</p>
+          <p className="text-xs text-[color:var(--muted)]">
+            {t('transfersTodayCount', { count: integerFormatter.format(todayTransfers) })}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 2xl:grid-cols-3 nvi-stagger dashboard-main-grid">
+        <div className="command-card nvi-panel p-5 lg:col-span-2 nvi-reveal dashboard-main-panel">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">{t('revenueSalesTrendTitle')}</h3>
+            <span className="status-chip">{t('last30Days')}</span>
+          </div>
+          <p className="text-sm text-[color:var(--muted)]">{t('revenueSalesTrendSubtitle')}</p>
+          <div className="mt-4 rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-4">
+            <Sparkline points={trendPoints} className="h-40 w-full text-gold-300" filled />
+          </div>
+        </div>
+
+        <div className="grid gap-4">
+          <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">{t('topProductsTitle')}</h3>
+              <span className="status-chip">{t('thisWeek')}</span>
+            </div>
+            <p className="text-sm text-[color:var(--muted)]">{t('topProductsSubtitle')}</p>
+            <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
+              {topProductsPreview.length ? (
+                topProductsPreview.map((item, index) => {
+                  const pct = Math.max(
+                    8,
+                    Math.round((item.totalRevenue / maxTopProductRevenue) * 100),
+                  );
+                  return (
+                    <div key={item.variantId} className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--border)] text-xs">
+                          {index + 1}
+                        </span>
+                        <p className="text-xs font-medium text-[color:var(--foreground)]">
+                          {item.productName ?? item.variantName ?? common('unknown')}
+                        </p>
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="h-2 flex-1 rounded-full bg-white/10">
+                          <div
+                            className="h-2 rounded-full bg-gold-300"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-[color:var(--foreground)]">
+                          {tzsFormatter.format(item.totalRevenue)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-[color:var(--muted)]">{t('noTopProducts')}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">{t('lowStockAlertsTitle')}</h3>
+              <span className="status-chip">{t('critical')}</span>
+            </div>
+            <p className="text-sm text-[color:var(--muted)]">{t('lowStockAlertsSubtitle')}</p>
+            <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
+              {lowStockPreview.length ? (
+                lowStockPreview.map((row) => {
+                  const isCritical = Number(row.quantity ?? 0) <= 2;
+                  const label = row.variant
+                    ? formatVariantLabel(
+                        {
+                          id: row.variant.id,
+                          name: row.variant.name ?? null,
+                          productName: row.variant.product?.name ?? null,
+                        },
+                        common('unknown'),
+                      )
+                    : `${common('unknown')} • ${row.id.slice(0, 8)}`;
+                  return (
+                    <div key={row.id} className="rounded border border-red-400/30 bg-red-500/5 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-[color:var(--foreground)]">{label}</p>
+                        {isCritical && <span className="lux-pulse" />}
+                      </div>
+                      <p className="text-xs text-[color:var(--muted)]">
+                        {(row.branch?.name ?? common('unknown')) +
+                          ` • ${t('qtyShort', {
+                            count: integerFormatter.format(Number(row.quantity ?? 0)),
+                          })}`}
+                      </p>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-[color:var(--muted)]">{t('stableStock')}</p>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3 nvi-stagger">
-        <div className="command-card nvi-panel p-5 xl:col-span-2 nvi-reveal">
+      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3 nvi-stagger dashboard-secondary-grid">
+        <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
-                {t('inventoryRadar')}
-              </p>
-              <h3 className="text-lg font-semibold">{t('branchPerformance')}</h3>
-            </div>
-            <span className="status-chip">{t('statusLive')}</span>
+            <h3 className="text-lg font-semibold">{t('salesByBranchTitle')}</h3>
+            <span className="status-chip">{t('revenueMtd')}</span>
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            {branchPulse.length ? (
-              branchPulse.map(({ branch, lowStockCount }) => {
-                const health = Math.max(62, 100 - lowStockCount * 6);
+          <p className="text-sm text-[color:var(--muted)]">{t('salesByBranchSubtitle')}</p>
+          <div className="mt-4 space-y-3">
+            {salesByBranchPreview.length ? (
+              salesByBranchPreview.map((item) => {
+                const pct = Math.max(
+                  6,
+                  Math.round((item.totalSales / maxBranchSales) * 100),
+                );
                 return (
-                  <div
-                    key={branch.id}
-                    className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-4"
-                  >
-                    <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                      {branch.name}
-                    </p>
-                    <p className="mt-2 text-2xl font-semibold text-[color:var(--foreground)]">
-                      {health}%
-                    </p>
-                    <p className="text-xs text-[color:var(--muted)]">
-                      {t('stockHealth')}
-                    </p>
+                  <div key={item.branchId}>
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span>{item.branchName ?? common('unknown')}</span>
+                      <span>{tzsFormatter.format(item.totalSales)}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-white/10">
+                      <div className="h-2 rounded-full bg-cyan-300" style={{ width: `${pct}%` }} />
+                    </div>
                   </div>
                 );
               })
             ) : (
-              <p className="text-sm text-[color:var(--muted)]">
-                {t('noBranches')}
-              </p>
+              <p className="text-sm text-[color:var(--muted)]">{t('noBranches')}</p>
             )}
           </div>
-          {atRiskBranches.length ? (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {atRiskBranches.map(({ branch, lowStockCount }) => (
-                <span key={branch.id} className="status-chip">
-                  {branch.name} • {lowStockCount} {t('lowLabel')}
-                </span>
-              ))}
-            </div>
-          ) : null}
         </div>
-        <div className="command-card nvi-panel p-5 nvi-reveal">
+
+        <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{t('systemAttention')}</h3>
+            <h3 className="text-lg font-semibold">{t('expenseBreakdownTitle')}</h3>
+            <span className="status-chip">{t('revenueMtd')}</span>
+          </div>
+          <p className="text-sm text-[color:var(--muted)]">{t('expenseBreakdownSubtitle')}</p>
+          <div className="mt-4 space-y-2 text-sm">
+            {expenseBreakdownPreview.length ? (
+              expenseBreakdownPreview.map((item) => (
+                <div key={item.category} className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs">{item.category}</p>
+                    <p className="text-xs">{tzsFormatter.format(item.amount)}</p>
+                  </div>
+                  <p className="text-xs text-[color:var(--muted)]">
+                    {item.percent.toFixed(1)}%
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-[color:var(--muted)]">{t('expensesHint')}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">{t('recentActivityTitle')}</h3>
             <span className="status-chip">{t('statusLive')}</span>
           </div>
-          <div className="mt-4 space-y-3 text-sm">
-            {attentionItems.length ? (
-              attentionItems.map((item, index) => (
-                <div
-                  key={`${item.label}-${index}`}
-                  className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2"
-                >
-                  <span
-                    className={
-                      item.tone === 'alert'
-                        ? 'text-amber-200'
-                        : item.tone === 'warn'
-                        ? 'text-gold-300'
-                        : 'text-[color:var(--foreground)]'
-                    }
-                  >
-                    {item.label}
-                  </span>
-                </div>
-              ))
+          <p className="text-sm text-[color:var(--muted)]">{t('recentActivitySubtitle')}</p>
+          <div className="mt-4 space-y-2 text-sm">
+            {recentActivity.length ? (
+              recentActivity.map((item) => {
+                const { icon, cls } = activityIconFor(item.type);
+                return (
+                  <div key={item.id} className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2">
+                    <div className="flex items-start gap-2">
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-current bg-current/10 text-xs font-bold ${cls}`}>{icon}</span>
+                      <div className="min-w-0">
+                        <p className="text-xs text-[color:var(--foreground)]">{item.title}</p>
+                        <p className="text-xs text-[color:var(--muted)]">
+                          {(item.detail ?? common('unknown'))} •{' '}
+                          {formatTime(item.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
             ) : (
-              <p className="text-sm text-[color:var(--muted)]">
-                {t('noAlerts')}
-              </p>
+              <p className="text-sm text-[color:var(--muted)]">{t('noRecentActivity')}</p>
             )}
           </div>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3 nvi-stagger">
-        <div className="command-card nvi-panel p-5 nvi-reveal">
+      <div className="grid gap-4 xl:grid-cols-3 nvi-stagger dashboard-footer-grid">
+        {/* Recent Sales Table */}
+        <div className="command-card nvi-panel p-5 xl:col-span-2 nvi-reveal dashboard-main-panel">
+          <span className="lux-shine" />
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{t('remindersTitle')}</h3>
-            {isRefreshing ? <Spinner size="xs" variant="dots" /> : null}
+            <h3 className="text-lg font-semibold">{t('recentSalesTitle')}</h3>
+            <Link
+              href={`/${locale}/sales`}
+              className="text-xs text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+            >
+              {t('viewAll')}
+            </Link>
           </div>
-          <p className="text-sm text-[color:var(--muted)]">
-            {t('remindersSubtitle')}
-          </p>
-          <div className="mt-4 space-y-3 text-sm">
-            <div className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-3">
-              <div className="flex items-center justify-between text-xs text-[color:var(--muted)]">
-                <span className="uppercase tracking-[0.2em]">
-                  {t('upcomingReminders')}
-                </span>
-                <span>{reminderUpcomingCount}</span>
-              </div>
-              <div className="mt-2 space-y-2">
-                {upcomingReminders.length ? (
-                  upcomingReminders.map((reminder) => (
-                    <div
-                      key={reminder.id}
-                      className="flex items-start justify-between gap-3 text-xs text-[color:var(--foreground)]"
-                    >
-                      <div>
-                        <p className="font-medium">
-                          {reminder.note?.title ?? t('reminderUntitled')}
-                        </p>
-                        {reminder.branch?.name ? (
-                          <p className="text-[color:var(--muted)]">
-                            {reminder.branch.name}
-                          </p>
-                        ) : null}
-                      </div>
-                      <span className="text-[color:var(--muted)]">
-                        {new Date(reminder.scheduledAt).toLocaleString()}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-[color:var(--muted)]">
-                    {t('noUpcomingReminders')}
-                  </p>
-                )}
-              </div>
+          <div className="mt-4">
+            <div className="lux-table-row mb-1 border-transparent bg-transparent">
+              <span className="text-[10px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
+                {t('colOrder')}
+              </span>
+              <span className="text-[10px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
+                {t('colTime')}
+              </span>
+              <span className="text-[10px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
+                {t('colTotal')}
+              </span>
             </div>
-            <div className="rounded border border-rose-900/40 bg-[color:var(--surface-soft)] p-3">
-              <div className="flex items-center justify-between text-xs text-rose-200">
-                <span className="uppercase tracking-[0.2em]">
-                  {t('overdueReminders')}
-                </span>
-                <span>{reminderOverdueCount}</span>
-              </div>
-              <div className="mt-2 space-y-2">
-                {overdueReminders.length ? (
-                  overdueReminders.map((reminder) => (
-                    <div
-                      key={reminder.id}
-                      className="flex items-start justify-between gap-3 text-xs text-[color:var(--foreground)]"
-                    >
-                      <div>
-                        <p className="font-medium">
-                          {reminder.note?.title ?? t('reminderUntitled')}
-                        </p>
-                        {reminder.branch?.name ? (
-                          <p className="text-[color:var(--muted)]">
-                            {reminder.branch.name}
-                          </p>
-                        ) : null}
-                      </div>
-                      <span className="text-[color:var(--muted)]">
-                        {new Date(reminder.scheduledAt).toLocaleString()}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-[color:var(--muted)]">
-                    {t('noOverdueReminders')}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-          <Link
-            href={`/${locale}/notes`}
-            className="mt-4 inline-flex text-xs text-[color:var(--accent)]"
-          >
-            {t('openNotes')}
-          </Link>
-        </div>
-        <div className="command-card nvi-panel p-5 nvi-reveal">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{t('pendingTransfersTitle')}</h3>
-            <span className="status-chip">
-              {t('pendingTransfersCount', { count: pendingTransfersTotal })}
-            </span>
-          </div>
-          <p className="text-sm text-[color:var(--muted)]">
-            {t('pendingTransfersSubtitle')}
-          </p>
-          <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
-            {pendingTransfers.length ? (
-              pendingTransfers.map((transfer) => (
-                <div
-                  key={transfer.id}
-                  className="flex items-start justify-between gap-3 rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2"
-                >
-                  <div className="text-xs text-[color:var(--foreground)]">
-                    <p className="font-medium">
-                      {transfer.sourceBranch?.name ?? common('unknown')} to{' '}
-                      {transfer.destinationBranch?.name ?? common('unknown')}
-                    </p>
-                    <p className="text-[color:var(--muted)]">
-                      {transfer._count?.items ?? 0} {t('transferItems')}
-                    </p>
-                  </div>
-                  <span className="text-xs text-[color:var(--muted)]">
-                    {new Date(transfer.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-[color:var(--muted)]">
-                {t('noPendingTransfers')}
-              </p>
-            )}
-          </div>
-          <Link
-            href={`/${locale}/transfers`}
-            className="mt-4 inline-flex text-xs text-[color:var(--accent)]"
-          >
-            {t('openTransfers')}
-          </Link>
-        </div>
-        <div className="command-card nvi-panel p-5 nvi-reveal">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{t('offlineRiskTitle')}</h3>
-            <span className={`status-chip ${riskTone}`}>{riskLabel}</span>
-          </div>
-          <p className="text-sm text-[color:var(--muted)]">
-            {t('offlineRiskSubtitle')}
-          </p>
-          {offlineRisk ? (
-            <div className="mt-4 grid gap-3 text-sm text-[color:var(--muted)]">
-              <div className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2">
-                <p className="text-xs uppercase tracking-[0.2em]">
-                  {t('offlineDevices')}
-                </p>
-                <p className="mt-1 text-sm text-[color:var(--foreground)]">
-                  {t('offlineDevicesCount', {
-                    active: offlineRisk.devices.active,
-                    stale: offlineRisk.devices.stale,
-                    expired: offlineRisk.devices.expired,
-                  })}
-                </p>
-              </div>
-              <div className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2">
-                <p className="text-xs uppercase tracking-[0.2em]">
-                  {t('offlineActions')}
-                </p>
-                <p className="mt-1 text-sm text-[color:var(--foreground)]">
-                  {t('offlineActionsCount', {
-                    pending: offlineRisk.actions.pending,
-                    failed: offlineRisk.actions.failed,
-                    conflicts: offlineRisk.actions.conflicts,
-                  })}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <p className="mt-4 text-sm text-[color:var(--muted)]">
-              {t('offlineRiskUnavailable')}
-            </p>
-          )}
-          <Link
-            href={`/${locale}/offline`}
-            className="mt-4 inline-flex text-xs text-[color:var(--accent)]"
-          >
-            {t('openOffline')}
-          </Link>
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        <div className="command-card nvi-panel p-5 xl:col-span-2 nvi-reveal">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{t('topLossesTitle')}</h3>
-            <span className="status-chip">
-              {t('topLossesRange', { days: topLosses?.days ?? 30 })}
-            </span>
-          </div>
-          <p className="text-sm text-[color:var(--muted)]">
-            {t('topLossesSubtitle')}
-          </p>
-          <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
-            {topLosses?.items?.length ? (
-              topLosses.items.map((loss) => (
-                <div
-                  key={loss.variantId}
-                  className="flex items-start justify-between gap-3 rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2"
-                >
-                  <div className="text-xs text-[color:var(--foreground)]">
-                    <p className="font-medium">
-                      {loss.variantName ?? common('unknown')}
-                    </p>
-                    <p className="text-[color:var(--muted)]">
-                      {loss.productName ?? common('unknown')}
-                      {loss.sku ? ` • ${loss.sku}` : ''}
-                    </p>
-                  </div>
-                  <div className="text-right text-xs text-[color:var(--muted)]">
-                    <p className="text-[color:var(--foreground)]">
-                      {loss.totalCost.toLocaleString()}
-                    </p>
-                    <p>
-                      {t('lossUnits', { count: loss.quantity.toLocaleString() })}
-                    </p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-[color:var(--muted)]">{t('noLosses')}</p>
-            )}
-          </div>
-          <Link
-            href={`/${locale}/reports`}
-            className="mt-4 inline-flex text-xs text-[color:var(--accent)]"
-          >
-            {t('openReports')}
-          </Link>
-        </div>
-        <div className="command-card nvi-panel p-5 nvi-reveal">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">
-              {t('notificationsInboxTitle')}
-            </h3>
-            <span className="status-chip">{alertsCount}</span>
-          </div>
-          <p className="text-sm text-[color:var(--muted)]">
-            {t('notificationsInboxSubtitle')}
-          </p>
-          <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
-            {notificationPreview.length ? (
-              notificationPreview.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2"
-                >
-                  <div className="flex items-center justify-between text-xs">
-                    <span
-                      className={
-                        item.status && item.status !== 'READ'
-                          ? 'text-amber-200'
-                          : 'text-[color:var(--muted)]'
-                      }
-                    >
-                      {item.title}
+            <div className="space-y-1">
+              {recentReceipts.length ? (
+                recentReceipts.map((receipt) => (
+                  <div key={receipt.id} className="lux-table-row">
+                    <span className="text-xs text-[color:var(--foreground)] truncate">
+                      {receipt.receiptNumber}
                     </span>
-                    <span className="text-[color:var(--muted)]">
-                      {new Date(item.createdAt).toLocaleDateString()}
+                    <span className="text-xs text-[color:var(--muted)]">
+                      {formatTime(receipt.issuedAt)}
+                    </span>
+                    <span className="text-xs font-semibold text-[color:var(--foreground)]">
+                      {tzsFormatter.format(Number(receipt.sale?.total ?? 0))}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-[color:var(--muted)]">
-                    {item.message}
-                  </p>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-[color:var(--muted)]">
-                {t('noNotifications')}
-              </p>
-            )}
-          </div>
-          <Link
-            href={`/${locale}/notifications`}
-            className="mt-4 inline-flex text-xs text-[color:var(--accent)]"
-          >
-            {t('viewInbox')}
-          </Link>
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        <div className="command-card nvi-panel p-5 xl:col-span-2 nvi-reveal">
-          <h3 className="text-lg font-semibold">{t('recentActions')}</h3>
-          <p className="text-sm text-[color:var(--muted)]">
-            {t('recentActionsSubtitle')}
-          </p>
-          <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
-            {approvals.length === 0 && highRiskLogs.length === 0 ? (
-              <p>{t('noPendingApprovals')}</p>
-            ) : null}
-            {approvals.slice(0, 3).map((approval) => (
-              <div
-                key={approval.id}
-                className="flex items-center justify-between rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2"
-              >
-                <span>{approval.actionType}</span>
-                <span>{t('pendingApproval')}</span>
-              </div>
-            ))}
-            {highRiskLogs.slice(0, 3).map((log) => (
-              <div
-                key={log.id}
-                className="flex items-center justify-between rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2"
-              >
-                <span>{log.action.replaceAll('_', ' ')}</span>
-                <span>{log.outcome}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="command-card nvi-panel p-5 nvi-reveal">
-          <h3 className="text-lg font-semibold">{t('quickActions')}</h3>
-          <p className="text-sm text-[color:var(--muted)]">
-            {t('quickActionsSubtitle')}
-          </p>
-          <div className="mt-4 grid gap-2 text-sm">
-            <Link
-              href={`/${locale}/catalog/products`}
-              className="rounded border border-[color:var(--border)] px-3 py-2 text-[color:var(--foreground)]"
-            >
-              {t('createProduct')}
-            </Link>
-            <Link
-              href={`/${locale}/receiving`}
-              className="rounded border border-[color:var(--border)] px-3 py-2 text-[color:var(--foreground)]"
-            >
-              {t('receiveStock')}
-            </Link>
-            <Link
-              href={`/${locale}/pos`}
-              className="rounded border border-[color:var(--border)] px-3 py-2 text-[color:var(--foreground)]"
-            >
-              {t('startSale')}
-            </Link>
-            <Link
-              href={`/${locale}/transfers`}
-              className="rounded border border-[color:var(--border)] px-3 py-2 text-[color:var(--foreground)]"
-            >
-              {t('newTransfer')}
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      <div className="command-card nvi-panel p-5 nvi-reveal">
-        <h3 className="text-lg font-semibold">{t('globalSearch')}</h3>
-        <p className="text-sm text-[color:var(--muted)]">
-          {t('globalSearchSubtitle')}
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <TypeaheadInput
-            value={searchQuery}
-            onChange={setSearchQuery}
-            onSelect={(option) => {
-              setSearchQuery(option.label);
-              runSearch(option.label);
-            }}
-            onEnter={() => runSearch()}
-            options={searchSuggestions}
-            className="min-w-[240px] flex-1 rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2 text-sm text-[color:var(--foreground)]"
-          />
-          <button
-            type="button"
-            onClick={() => runSearch()}
-            className="inline-flex items-center gap-2 rounded border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--foreground)]"
-            disabled={isSearching}
-          >
-            {isSearching ? <Spinner size="xs" variant="orbit" /> : null}
-            {isSearching ? t('searching') : t('search')}
-          </button>
-          <Link
-            href={`/${locale}/search`}
-            className="inline-flex items-center gap-2 rounded border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--foreground)]"
-          >
-            {t('openFullSearch')}
-          </Link>
-        </div>
-        {searchResults ? (
-          <div className="mt-4 grid gap-3 text-xs text-[color:var(--muted)] md:grid-cols-2">
-            <div className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-3">
-              <p className="text-[color:var(--foreground)]">{t('products')}</p>
-              {searchResults.products.length === 0 ? (
-                <p className="mt-2">{t('noProductMatches')}</p>
-              ) : (
-                searchResults.products.slice(0, 3).map((item) => (
-                  <p key={item.id} className="mt-2">
-                    {item.name} • {item.variants.length} {t('variants')}
-                  </p>
                 ))
+              ) : (
+                <p className="text-sm text-[color:var(--muted)]">{t('noSalesToday')}</p>
               )}
             </div>
-            <div className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-3">
-              <p className="text-[color:var(--foreground)]">{t('otherMatches')}</p>
-              <p className="mt-2">
-                {t('receipts')}: {searchResults.receipts.length} • {t('customers')}:{' '}
-                {searchResults.customers.length} • {t('transfers')}:{' '}
-                {searchResults.transfers.length}
-              </p>
-            </div>
           </div>
-        ) : null}
+        </div>
+
+        {/* Quick Actions + Mini Search */}
+        <div className="flex flex-col gap-4">
+          <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
+            <span className="lux-shine" />
+            <h3 className="text-base font-semibold text-[color:var(--foreground)]">{t('globalSearch')}</h3>
+            <div className="mt-3 flex gap-2">
+              <TypeaheadInput
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onSelect={(option) => {
+                  setSearchQuery(option.label);
+                  runSearch(option.label);
+                }}
+                onEnter={() => runSearch()}
+                options={searchSuggestions}
+                className="min-w-0 flex-1 rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2 text-sm text-[color:var(--foreground)]"
+              />
+              <button
+                type="button"
+                onClick={() => runSearch()}
+                className="inline-flex items-center gap-1 rounded border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--foreground)]"
+                disabled={isSearching}
+              >
+                {isSearching ? <Spinner size="xs" variant="orbit" /> : '↵'}
+              </button>
+            </div>
+            {searchResults ? (
+              <div className="mt-3 space-y-1 text-xs text-[color:var(--muted)]">
+                <p>
+                  {t('products')}: {searchResults.products.length} •{' '}
+                  {t('receipts')}: {searchResults.receipts.length} •{' '}
+                  {t('customers')}: {searchResults.customers.length}
+                </p>
+                {searchResults.products.slice(0, 3).map((item) => (
+                  <p key={item.id} className="text-[color:var(--foreground)]">
+                    {item.name}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            <Link
+              href={`/${locale}/search`}
+              className="mt-2 block text-xs text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+            >
+              {t('openFullSearch')}
+            </Link>
+          </div>
+        </div>
       </div>
     </section>
   );

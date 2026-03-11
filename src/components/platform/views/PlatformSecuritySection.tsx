@@ -53,6 +53,7 @@ export function PlatformSecuritySection({
       <div className="grid gap-3 md:grid-cols-2">
         <div className="relative">
           <input
+            id="platform-current-password"
             value={adminPasswordForm.current}
             onChange={(event) =>
               setAdminPasswordForm((prev) => ({
@@ -62,6 +63,8 @@ export function PlatformSecuritySection({
             }
             type={adminPasswordVisible.current ? 'text' : 'password'}
             placeholder={translate('currentPassword')}
+            autoComplete="current-password"
+            required
             className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 pr-12 text-gold-100"
           />
           <button
@@ -81,6 +84,7 @@ export function PlatformSecuritySection({
         </div>
         <div className="relative">
           <input
+            id="platform-new-password"
             value={adminPasswordForm.next}
             onChange={(event) =>
               setAdminPasswordForm((prev) => ({
@@ -90,6 +94,8 @@ export function PlatformSecuritySection({
             }
             type={adminPasswordVisible.next ? 'text' : 'password'}
             placeholder={translate('newPassword')}
+            autoComplete="new-password"
+            required
             className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 pr-12 text-gold-100"
           />
           <button
@@ -109,6 +115,7 @@ export function PlatformSecuritySection({
         </div>
         <div className="relative">
           <input
+            id="platform-confirm-password"
             value={adminPasswordForm.confirm}
             onChange={(event) =>
               setAdminPasswordForm((prev) => ({
@@ -118,6 +125,8 @@ export function PlatformSecuritySection({
             }
             type={adminPasswordVisible.confirm ? 'text' : 'password'}
             placeholder={translate('confirmPassword')}
+            autoComplete="new-password"
+            required
             className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 pr-12 text-gold-100"
           />
           <button

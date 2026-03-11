@@ -3,6 +3,7 @@ import { DateTimePickerInput } from '@/components/DateTimePickerInput';
 import { SmartSelect } from '@/components/SmartSelect';
 import { Spinner } from '@/components/Spinner';
 import { TypeaheadInput } from '@/components/TypeaheadInput';
+import { formatDateTimeWithTz } from '@/lib/date-format';
 
 type BusinessOption = { id: string; label: string };
 
@@ -106,9 +107,11 @@ export function PlatformAnnouncementsCommandSurface({
               }))
             }
             placeholder={t('titlePlaceholder')}
+            required
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 md:col-span-2"
           />
           <SmartSelect
+            instanceId="platform-announcements-severity"
             value={announcementForm.severity}
             onChange={(value) =>
               setAnnouncementForm((prev) => ({ ...prev, severity: value }))
@@ -153,6 +156,7 @@ export function PlatformAnnouncementsCommandSurface({
               setAnnouncementForm((prev) => ({ ...prev, message: event.target.value }))
             }
             placeholder={t('messagePlaceholder')}
+            required
             className="min-h-[120px] rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 md:col-span-2"
           />
           <div className="space-y-3 rounded border border-gold-700/40 bg-black/40 p-3 md:col-span-2">
@@ -367,9 +371,9 @@ export function PlatformAnnouncementsCommandSurface({
                         {announcement.title} • {announcement.severity}
                       </p>
                       <p className="text-[11px] text-gold-500">
-                        {new Date(announcement.startsAt).toLocaleString()} →{' '}
+                        {formatDateTimeWithTz(announcement.startsAt)} →{' '}
                         {announcement.endsAt
-                          ? new Date(announcement.endsAt).toLocaleString()
+                          ? formatDateTimeWithTz(announcement.endsAt)
                           : t('openEnded')}
                       </p>
                       <p className="text-[11px] text-gold-400">

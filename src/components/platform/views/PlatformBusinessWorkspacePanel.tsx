@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { SmartSelect } from '@/components/SmartSelect';
 import { Spinner } from '@/components/Spinner';
 import { Doughnut, Line } from 'react-chartjs-2';
+import { formatEnum } from '@/lib/format-enum';
 
 type WorkspaceTab =
   | 'SUMMARY'
@@ -195,6 +196,15 @@ export function PlatformBusinessWorkspacePanel({
   loadingDevices: Record<string, boolean>;
   revokeDevice: (deviceId: string, businessId: string, reason?: string) => Promise<void>;
 }) {
+  const businessStatusLabels: Record<string, string> = {
+    ACTIVE: t('statusActive'),
+    GRACE: t('statusGrace'),
+    EXPIRED: t('statusExpired'),
+    SUSPENDED: t('statusSuspended'),
+    ARCHIVED: t('statusArchived'),
+    DELETED: t('statusDeleted'),
+  };
+
   if (!show) {
     return null;
   }
@@ -285,7 +295,7 @@ export function PlatformBusinessWorkspacePanel({
                     {t('tableStatus')}
                   </p>
                   <p className="mt-1 text-sm text-gold-100">
-                    {openedBusinessWorkspace?.business.status ?? openedBusiness.status}
+                    {formatEnum(businessStatusLabels, openedBusinessWorkspace?.business.status ?? openedBusiness.status)}
                   </p>
                 </div>
                 <div className="nvi-tile p-3">
@@ -571,6 +581,7 @@ export function PlatformBusinessWorkspacePanel({
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
                   <SmartSelect
+                    instanceId="platform-workspace-subscription-purchase-tier"
                     value={subscriptionEdits[openedBusiness.id]?.tier ?? 'BUSINESS'}
                     onChange={(value) =>
                       setSubscriptionEdits((prev) => ({
@@ -653,6 +664,7 @@ export function PlatformBusinessWorkspacePanel({
                 </summary>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
                   <SmartSelect
+                    instanceId="platform-workspace-subscription-advanced-status"
                     value={subscriptionEdits[openedBusiness.id]?.status ?? 'TRIAL'}
                     onChange={(value) =>
                       setSubscriptionEdits((prev) => ({
@@ -718,6 +730,7 @@ export function PlatformBusinessWorkspacePanel({
             <div className="space-y-3">
               <div className="grid gap-2 md:grid-cols-2">
                 <SmartSelect
+                  instanceId="platform-workspace-business-status"
                   value={statusEdits[openedBusiness.id]?.status ?? openedBusiness.status}
                   onChange={(value) =>
                     setStatusEdits((prev) => ({
@@ -768,6 +781,7 @@ export function PlatformBusinessWorkspacePanel({
                   {t('underReview')}
                 </div>
                 <SmartSelect
+                  instanceId="platform-workspace-review-severity"
                   value={reviewEdits[openedBusiness.id]?.severity ?? 'MEDIUM'}
                   onChange={(value) =>
                     setReviewEdits((prev) => ({

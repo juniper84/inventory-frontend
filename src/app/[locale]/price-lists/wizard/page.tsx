@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useToastState } from '@/lib/app-notifications';
@@ -15,6 +14,7 @@ import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useCurrency, formatCurrency } from '@/lib/business-context';
 
 type PriceListItem = {
   id: string;
@@ -45,8 +45,8 @@ export default function PriceListWizardPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
-  const params = useParams<{ locale: string }>();
-  const locale = params?.locale ?? 'en';
+  const locale = useLocale();
+  const currency = useCurrency();
   const permissions = getPermissionSet();
   const canManage = permissions.has('price-lists.manage');
   const [message, setMessage] = useToastState();
@@ -151,19 +151,28 @@ export default function PriceListWizardPage() {
     setIsApplying(true);
     setMessage(null);
     try {
-      for (const variant of targetVariants) {
+      // Filter valid variants upfront, then dispatch in parallel batches of 20
+      // to avoid the serial N+1 pattern while not overwhelming the server.
+      const validVariants = targetVariants.filter((variant) => {
         const price = computePrice(variant);
-        if (!Number.isFinite(price) || price <= 0) {
-          continue;
-        }
-        await apiFetch(`/price-lists/${selectedList.id}/items`, {
-          token,
-          method: 'POST',
-          body: JSON.stringify({
-            variantId: variant.id,
-            price,
-          }),
-        });
+        return Number.isFinite(price) && price > 0;
+      });
+
+      const BATCH_SIZE = 20;
+      for (let i = 0; i < validVariants.length; i += BATCH_SIZE) {
+        const batch = validVariants.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map((variant) =>
+            apiFetch(`/price-lists/${selectedList.id}/items`, {
+              token,
+              method: 'POST',
+              body: JSON.stringify({
+                variantId: variant.id,
+                price: computePrice(variant),
+              }),
+            }),
+          ),
+        );
       }
       setMessage({ action: 'save', outcome: 'success', message: t('applied') });
     } catch (err) {
@@ -189,8 +198,8 @@ export default function PriceListWizardPage() {
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Bulk update</span>
-            <span className="status-chip">{step}</span>
+            <span className="status-chip">{t('badgeBulkUpdate')}</span>
+            <span className="status-chip">{t(`${step}Step`)}</span>
           </>
         }
         actions={
@@ -206,19 +215,19 @@ export default function PriceListWizardPage() {
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Current step</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiCurrentStep')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">{t(`${step}Step`)}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Target variants</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiTargetVariants')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{targetVariants.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Preview rows</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiPreviewRows')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{previewRows.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Selected list</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiSelectedList')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">
             {selectedList?.name ?? common('unknown')}
           </p>
@@ -244,6 +253,7 @@ export default function PriceListWizardPage() {
         <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('scopeTitle')}</h3>
           <SmartSelect
+            instanceId="wizard-scope-list"
             value={form.listId}
             onChange={(value) => setForm((prev) => ({ ...prev, listId: value }))}
             options={lists.map((list) => ({ value: list.id, label: list.name }))}
@@ -251,6 +261,7 @@ export default function PriceListWizardPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="wizard-scope-scope"
             value={form.scope}
             onChange={(value) =>
               setForm((prev) => ({ ...prev, scope: (value as 'ALL' | 'EXISTING') || 'ALL' }))
@@ -278,6 +289,7 @@ export default function PriceListWizardPage() {
           <h3 className="text-lg font-semibold text-gold-100">{t('adjustTitle')}</h3>
           <div className="grid gap-3 md:grid-cols-2">
             <SmartSelect
+              instanceId="wizard-adjust-mode"
               value={form.mode}
               onChange={(value) =>
                 setForm((prev) => ({ ...prev, mode: (value as AdjustmentMode) || 'PERCENT' }))
@@ -326,7 +338,7 @@ export default function PriceListWizardPage() {
                 <div key={row.id} className="rounded border border-gold-700/40 bg-black/40 p-3">
                   <p className="text-gold-100">{row.label}</p>
                   <p className="text-xs text-gold-400">
-                    {t('previewRow', { current: row.current, next: row.next.toFixed(2) })}
+                    {t('previewRow', { current: row.current, next: formatCurrency(row.next, currency) })}
                   </p>
                 </div>
               ))}

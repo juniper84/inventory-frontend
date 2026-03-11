@@ -138,7 +138,12 @@ export function LocalToastSurface() {
       ) : null}
 
       {confirm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          onKeyDown={(e) => { if (e.key === 'Escape') { confirm.resolver?.(false); setConfirm(null); } }}
+        >
           <div className="w-full max-w-lg rounded-2xl border border-gold-700/40 bg-black p-6 text-gold-100 shadow-2xl">
             <p className="text-[10px] uppercase tracking-[0.35em] text-gold-400">
               {dialogs('confirmation')}
@@ -174,7 +179,12 @@ export function LocalToastSurface() {
       ) : null}
 
       {prompt ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          onKeyDown={(e) => { if (e.key === 'Escape') { prompt.resolver?.(null); setPrompt(null); } }}
+        >
           <div className="w-full max-w-lg rounded-2xl border border-gold-700/40 bg-black p-6 text-gold-100 shadow-2xl">
             <p className="text-[10px] uppercase tracking-[0.35em] text-gold-400">
               {dialogs('inputRequired')}

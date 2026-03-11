@@ -88,6 +88,7 @@ export function PlatformBusinessProvisionSurface({
             setCreateForm((prev) => ({ ...prev, businessName: event.target.value }))
           }
           placeholder={t('businessNamePlaceholder')}
+          required
           className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
         />
         <input
@@ -96,6 +97,7 @@ export function PlatformBusinessProvisionSurface({
             setCreateForm((prev) => ({ ...prev, ownerName: event.target.value }))
           }
           placeholder={t('ownerNamePlaceholder')}
+          required
           className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
         />
         <input
@@ -104,6 +106,9 @@ export function PlatformBusinessProvisionSurface({
             setCreateForm((prev) => ({ ...prev, ownerEmail: event.target.value }))
           }
           placeholder={t('ownerEmailPlaceholder')}
+          type="email"
+          autoComplete="email"
+          required
           className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
         />
         <input
@@ -112,9 +117,13 @@ export function PlatformBusinessProvisionSurface({
             setCreateForm((prev) => ({ ...prev, ownerTempPassword: event.target.value }))
           }
           placeholder={t('tempPasswordPlaceholder')}
+          type="password"
+          autoComplete="new-password"
+          required
           className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
         />
         <SmartSelect
+          instanceId="platform-provision-tier"
           value={createForm.tier}
           onChange={(value) => setCreateForm((prev) => ({ ...prev, tier: value }))}
           options={[

@@ -49,8 +49,18 @@ const EVENT_NAME = 'nvi-offline-queue-updated';
 const MAX_QUEUE_ITEMS = 5000;
 const MAX_QUEUE_BYTES = 50 * 1024 * 1024;
 
+let dbOpenError: Error | null = null;
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      const err = new Error(
+        'IndexedDB is not available (private browsing or storage blocked).',
+      );
+      dbOpenError = err;
+      reject(err);
+      return;
+    }
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -64,9 +74,20 @@ function openDb(): Promise<IDBDatabase> {
         db.createObjectStore(META_STORE, { keyPath: 'key' });
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      dbOpenError = null;
+      resolve(request.result);
+    };
+    request.onerror = () => {
+      const err = request.error ?? new Error('IndexedDB failed to open.');
+      dbOpenError = err;
+      reject(err);
+    };
   });
+}
+
+export function getDbOpenError(): Error | null {
+  return dbOpenError;
 }
 
 function toBase64(buffer: ArrayBuffer) {
@@ -111,12 +132,13 @@ function stableStringify(value: unknown): string {
 
 async function getMeta(key: string) {
   const db = await openDb();
-  return new Promise<OfflineMetaRecord | undefined>((resolve) => {
+  return new Promise<OfflineMetaRecord | undefined>((resolve, reject) => {
     const tx = db.transaction(META_STORE, 'readonly');
     const store = tx.objectStore(META_STORE);
     const request = store.get(key);
     request.onsuccess = () => resolve(request.result as OfflineMetaRecord | undefined);
-    request.onerror = () => resolve(undefined);
+    request.onerror = () => reject(request.error ?? new Error(`Failed to read meta key: ${key}`));
+    tx.onerror = () => reject(tx.error ?? new Error(`Transaction failed reading meta key: ${key}`));
   });
 }
 
@@ -225,12 +247,12 @@ export async function enqueueOfflineAction(item: Omit<OfflineQueueItem, 'checksu
 
 export async function listOfflineQueue() {
   const db = await openDb();
-  const records = await new Promise<OfflineQueueRecord[]>((resolve) => {
+  const records = await new Promise<OfflineQueueRecord[]>((resolve, reject) => {
     const tx = db.transaction(QUEUE_STORE, 'readonly');
     const store = tx.objectStore(QUEUE_STORE);
     const request = store.getAll();
     request.onsuccess = () => resolve(request.result as OfflineQueueRecord[]);
-    request.onerror = () => resolve([]);
+    request.onerror = () => reject(request.error ?? new Error('Failed to read offline queue.'));
   });
   const items: OfflineQueueItem[] = [];
   for (const record of records) {
@@ -253,12 +275,12 @@ export async function listOfflineQueue() {
 
 export async function getQueueStats() {
   const db = await openDb();
-  const records = await new Promise<OfflineQueueRecord[]>((resolve) => {
+  const records = await new Promise<OfflineQueueRecord[]>((resolve, reject) => {
     const tx = db.transaction(QUEUE_STORE, 'readonly');
     const store = tx.objectStore(QUEUE_STORE);
     const request = store.getAll();
     request.onsuccess = () => resolve(request.result as OfflineQueueRecord[]);
-    request.onerror = () => resolve([]);
+    request.onerror = () => reject(request.error ?? new Error('Failed to read offline queue stats.'));
   });
   const bytes = records.reduce(
     (sum, record) => sum + (record.sizeBytes ?? JSON.stringify(record.encryptedPayload).length),
@@ -309,8 +331,14 @@ export async function removeQueueItems(ids: string[]) {
 }
 
 export async function getPendingCount() {
-  const items = await listOfflineQueue();
-  return items.filter((item) => item.status === 'PENDING' || !item.status).length;
+  const db = await openDb();
+  const records = await new Promise<OfflineQueueRecord[]>((resolve, reject) => {
+    const tx = db.transaction(QUEUE_STORE, 'readonly');
+    const request = tx.objectStore(QUEUE_STORE).getAll();
+    request.onsuccess = () => resolve(request.result as OfflineQueueRecord[]);
+    request.onerror = () => reject(request.error);
+  });
+  return records.filter((r) => r.status === 'PENDING' || !r.status).length;
 }
 
 export async function setOfflineCache(key: string, payload: Record<string, unknown>) {
@@ -389,19 +417,82 @@ export async function isOfflinePinRequired() {
   return required?.value === 'true';
 }
 
-export async function verifyOfflinePin(pin: string) {
-  const stored = await getMeta('pinHash');
-  if (!stored?.value) {
-    return false;
+export async function getPinLockStatus(): Promise<{
+  locked: boolean;
+  lockedUntil: string | null;
+  attempts: number;
+}> {
+  const [lockedUntilMeta, attemptsMeta] = await Promise.all([
+    getMeta('pinLockedUntil').catch(() => undefined),
+    getMeta('pinAttempts').catch(() => undefined),
+  ]);
+  const lockedUntil = lockedUntilMeta?.value ?? '';
+  const attempts = parseInt(attemptsMeta?.value ?? '0', 10);
+  if (lockedUntil) {
+    const locked = new Date(lockedUntil) > new Date();
+    return { locked, lockedUntil: locked ? lockedUntil : null, attempts };
   }
+  return { locked: false, lockedUntil: null, attempts };
+}
+
+export async function verifyOfflinePin(pin: string): Promise<{
+  success: boolean;
+  locked: boolean;
+  lockedUntil: string | null;
+  attempts: number;
+}> {
+  const lockStatus = await getPinLockStatus();
+  if (lockStatus.locked) {
+    return {
+      success: false,
+      locked: true,
+      lockedUntil: lockStatus.lockedUntil,
+      attempts: lockStatus.attempts,
+    };
+  }
+
+  const stored = await getMeta('pinHash').catch(() => undefined);
+  if (!stored?.value) {
+    return { success: false, locked: false, lockedUntil: null, attempts: 0 };
+  }
+
   const digest = await crypto.subtle.digest(
     'SHA-256',
     new TextEncoder().encode(pin),
   );
-  return bufferToHex(digest) === stored.value;
+  const match = bufferToHex(digest) === stored.value;
+
+  if (match) {
+    await Promise.all([
+      setMeta('pinAttempts', '0'),
+      setMeta('pinLockedUntil', ''),
+    ]);
+    return { success: true, locked: false, lockedUntil: null, attempts: 0 };
+  }
+
+  // Failed — increment counter and lock if threshold reached.
+  const newAttempts = lockStatus.attempts + 1;
+  await setMeta('pinAttempts', String(newAttempts));
+
+  let lockedUntil = '';
+  if (newAttempts >= 10) {
+    lockedUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    await setMeta('pinLockedUntil', lockedUntil);
+  } else if (newAttempts >= 5) {
+    lockedUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    await setMeta('pinLockedUntil', lockedUntil);
+  }
+
+  return {
+    success: false,
+    locked: !!lockedUntil,
+    lockedUntil: lockedUntil || null,
+    attempts: newAttempts,
+  };
 }
 
 export async function rotateOfflineKey() {
+  await clearOfflineData();
   await setMeta('cryptoKey', '');
 }
 

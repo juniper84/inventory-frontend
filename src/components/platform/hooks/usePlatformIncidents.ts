@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { buildCursorQuery, normalizePaginated, type PaginatedResponse } from '@/lib/pagination';
+import type { ToastInput } from '@/lib/app-notifications';
 
 type Translate = (key: string, values?: Record<string, string | number | Date>) => string;
 
@@ -36,7 +37,7 @@ export function usePlatformIncidents({
 }: {
   token: string | null;
   t: Translate;
-  setMessage: (value: string | null) => void;
+  setMessage: (value: ToastInput | null) => void;
 }) {
   const [incidents, setIncidents] = useState<PlatformIncident[]>([]);
   const [nextIncidentCursor, setNextIncidentCursor] = useState<string | null>(null);
@@ -57,7 +58,7 @@ export function usePlatformIncidents({
     Record<string, PlatformIncident['severity']>
   >({});
 
-  const loadIncidents = async (cursor?: string, append = false) => {
+  const loadIncidents = useCallback(async (cursor?: string, append = false) => {
     if (!token) {
       return;
     }
@@ -98,7 +99,14 @@ export function usePlatformIncidents({
         setIsLoadingIncidents(false);
       }
     }
-  };
+  }, [
+    token,
+    incidentFilters.businessId,
+    incidentFilters.status,
+    incidentFilters.severity,
+    setMessage,
+    t,
+  ]);
 
   const applyIncidentFilters = async () => {
     await loadIncidents();

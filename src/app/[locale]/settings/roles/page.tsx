@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -27,7 +27,7 @@ import {
   PermissionModuleKey,
 } from '@/lib/permission-catalog';
 
-type Role = { id: string; name: string; isSystem?: boolean };
+type Role = { id: string; name: string; isSystem?: boolean; approvalTier?: number };
 type Permission = { id: string; code: string; description?: string | null };
 type PermissionEntry = Permission & PermissionCatalogEntry;
 
@@ -48,6 +48,9 @@ export default function RolesPage() {
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [name, setName] = useState('');
+  const [createTier, setCreateTier] = useState(0);
+  const [editTier, setEditTier] = useState(0);
+  const [isSavingTier, setIsSavingTier] = useState(false);
   const [message, setMessage] = useToastState();
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -103,32 +106,11 @@ export default function RolesPage() {
     }
   }, [debouncedSearch, filters.search, pushFilters]);
 
-  const load = async (cursor?: string, append = false) => {
+  const loadReferenceData = useCallback(async () => {
     const token = getAccessToken();
-    if (!token) {
-      return;
-    }
-    if (append) {
-      setIsLoadingMore(true);
-    } else {
-      setIsLoading(true);
-    }
+    if (!token) return;
     try {
-      const roleQuery = buildCursorQuery({
-        limit: 50,
-        cursor,
-        search: filters.search || undefined,
-        scope: filters.scope || undefined,
-        permissionCount: filters.permissionCount || undefined,
-      });
-      const [roleData, permissionData] = await Promise.all([
-        apiFetch<PaginatedResponse<Role> | Role[]>(`/roles${roleQuery}`, { token }),
-        apiFetch<Permission[]>('/roles/permissions', { token }),
-      ]);
-      const rolesResult = normalizePaginated(roleData);
-      setRoles((prev) =>
-        append ? [...prev, ...rolesResult.items] : rolesResult.items,
-      );
+      const permissionData = await apiFetch<Permission[]>('/roles/permissions', { token });
       const catalogByCode = new Map(
         PERMISSION_CATALOG.map((entry) => [entry.code, entry]),
       );
@@ -147,6 +129,41 @@ export default function RolesPage() {
         } as PermissionEntry;
       });
       setPermissions(enriched);
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const load = useCallback(async (cursor?: string, append = false) => {
+    const token = getAccessToken();
+    if (!token) {
+      return;
+    }
+    if (append) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+    }
+    try {
+      const roleQuery = buildCursorQuery({
+        limit: 50,
+        cursor,
+        search: filters.search || undefined,
+        scope: filters.scope || undefined,
+        permissionCount: filters.permissionCount || undefined,
+      });
+      const roleData = await apiFetch<PaginatedResponse<Role> | Role[]>(
+        `/roles${roleQuery}`,
+        { token },
+      );
+      const rolesResult = normalizePaginated(roleData);
+      setRoles((prev) =>
+        append ? [...prev, ...rolesResult.items] : rolesResult.items,
+      );
       setNextCursor(rolesResult.nextCursor);
     } catch (err) {
       setMessage({
@@ -161,11 +178,15 @@ export default function RolesPage() {
         setIsLoading(false);
       }
     }
-  };
+  }, [filters.search, filters.scope, filters.permissionCount, t]);
 
   useEffect(() => {
-    load().catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
-  }, [filters.search, filters.scope, filters.permissionCount]);
+    loadReferenceData();
+  }, [loadReferenceData]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const selectedRole = useMemo(
     () => roles.find((role) => role.id === selectedRoleId) || null,
@@ -195,10 +216,11 @@ export default function RolesPage() {
       const role = await apiFetch<Role>('/roles', {
         method: 'POST',
         token,
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, approvalTier: createTier }),
       });
       setRoles((prev) => [...prev, role]);
       setName('');
+      setCreateTier(0);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
     } catch (err) {
       setMessage({
@@ -294,6 +316,33 @@ export default function RolesPage() {
     }
   };
 
+  const saveRoleTier = async () => {
+    const token = getAccessToken();
+    if (!token || !selectedRoleId) {
+      return;
+    }
+    setIsSavingTier(true);
+    try {
+      const updated = await apiFetch<Role>(`/roles/${selectedRoleId}`, {
+        method: 'PUT',
+        token,
+        body: JSON.stringify({ approvalTier: editTier }),
+      });
+      setRoles((prev) =>
+        prev.map((r) => (r.id === updated.id ? { ...r, approvalTier: updated.approvalTier } : r)),
+      );
+      setMessage({ action: 'update', outcome: 'success', message: t('tierUpdated') });
+    } catch (err) {
+      setMessage({
+        action: 'save',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('tierFailed')),
+      });
+    } finally {
+      setIsSavingTier(false);
+    }
+  };
+
   if (isLoading) {
     return <PageSkeleton title={t('title')} />;
   }
@@ -301,33 +350,33 @@ export default function RolesPage() {
   return (
     <section className="space-y-6">
       <PremiumPageHeader
-        eyebrow="PERMISSION MATRIX"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">RISK AWARE</span>
-            <span className="nvi-badge">MODULE PRESETS</span>
+            <span className="nvi-badge">{t('badgeRiskAware')}</span>
+            <span className="nvi-badge">{t('badgeModulePresets')}</span>
           </>
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">VISIBLE ROLES</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiVisibleRoles')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{roles.length}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">PERMISSIONS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiPermissions')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{permissions.length}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">SELECTED ROLE</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiSelectedRole')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">
             {selectedRole?.name ?? '—'}
           </p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ASSIGNED PERMS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiAssignedPerms')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{selectedPermissions.length}</p>
         </article>
       </div>
@@ -342,6 +391,7 @@ export default function RolesPage() {
         onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
       >
         <SmartSelect
+          instanceId="filter-scope"
           value={filters.scope}
           onChange={(value) => pushFilters({ scope: value })}
           options={scopeOptions}
@@ -349,6 +399,7 @@ export default function RolesPage() {
           className="nvi-select-container"
         />
         <SmartSelect
+          instanceId="filter-permission-count"
           value={filters.permissionCount}
           onChange={(value) => pushFilters({ permissionCount: value })}
           options={permissionCountOptions}
@@ -365,6 +416,16 @@ export default function RolesPage() {
             placeholder={t('roleName')}
             className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
+          <select
+            value={createTier}
+            onChange={(event) => setCreateTier(Number(event.target.value))}
+            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
+            disabled={!canCreate}
+          >
+            <option value={0}>{t('tierNone')}</option>
+            <option value={1}>{t('tierStaff')}</option>
+            <option value={2}>{t('tierManagement')}</option>
+          </select>
           <button
             type="button"
             onClick={createRole}
@@ -378,6 +439,7 @@ export default function RolesPage() {
             </span>
           </button>
         </div>
+        <p className="text-xs text-gold-400">{t('approvalAuthorityHint')}</p>
       </div>
 
       <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
@@ -400,6 +462,7 @@ export default function RolesPage() {
                     type="button"
                     onClick={() => {
                       setSelectedRoleId(role.id);
+                      setEditTier(role.approvalTier ?? 0);
                       loadRolePermissions(role.id).catch((err) =>
                         setMessage(
                           getApiErrorMessage(err, t('loadPermissionsFailed')),
@@ -446,6 +509,36 @@ export default function RolesPage() {
               {common('close')}
             </button>
           </div>
+          {!selectedRole.isSystem ? (
+            <div className="rounded border border-gold-700/40 bg-black/30 p-4 space-y-3">
+              <h4 className="text-sm font-semibold text-gold-100">{t('approvalAuthority')}</h4>
+              <div className="flex flex-wrap items-center gap-3">
+                <select
+                  value={editTier}
+                  onChange={(event) => setEditTier(Number(event.target.value))}
+                  disabled={!canUpdate}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
+                >
+                  <option value={0}>{t('tierNone')}</option>
+                  <option value={1}>{t('tierStaff')}</option>
+                  <option value={2}>{t('tierManagement')}</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={saveRoleTier}
+                  disabled={isSavingTier || !canUpdate}
+                  title={!canUpdate ? noAccess('title') : undefined}
+                  className="rounded border border-gold-500/60 px-3 py-2 text-sm text-gold-100 disabled:opacity-60"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    {isSavingTier ? <Spinner variant="orbit" size="xs" /> : null}
+                    {isSavingTier ? t('saving') : common('save')}
+                  </span>
+                </button>
+              </div>
+              <p className="text-xs text-gold-400">{t('approvalAuthorityHint')}</p>
+            </div>
+          ) : null}
           <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2">
@@ -456,6 +549,7 @@ export default function RolesPage() {
                   className="min-w-[200px] flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
                 />
                 <SmartSelect
+                  instanceId="role-permission-module-filter"
                   value={moduleFilter}
                   onChange={(value) => setModuleFilter(value as PermissionModuleKey | '')}
                   options={moduleOptions}

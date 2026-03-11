@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { SmartSelect } from '@/components/SmartSelect';
+import { formatEnum } from '@/lib/format-enum';
 import { Spinner } from '@/components/Spinner';
 import { TypeaheadInput } from '@/components/TypeaheadInput';
 
@@ -20,7 +21,7 @@ type Business = {
 
 type Option = { id: string; label: string };
 
-type StatusFilter = 'ACTIVE' | 'UNDER_REVIEW' | 'ARCHIVED' | 'DELETED';
+type StatusFilter = 'ACTIVE' | 'UNDER_REVIEW' | 'SUSPENDED' | 'ARCHIVED' | 'DELETED';
 
 export function PlatformBusinessRegistryPanel({
   show,
@@ -74,6 +75,21 @@ export function PlatformBusinessRegistryPanel({
   loadBusinesses: (cursor?: string, append?: boolean) => Promise<void>;
   isLoadingMoreBusinesses: boolean;
 }) {
+  const businessStatusLabels: Record<string, string> = {
+    ACTIVE: t('statusActive'),
+    GRACE: t('statusGrace'),
+    EXPIRED: t('statusExpired'),
+    SUSPENDED: t('statusSuspended'),
+    ARCHIVED: t('statusArchived'),
+    DELETED: t('statusDeleted'),
+  };
+
+  const tierLabels: Record<string, string> = {
+    STARTER: t('tierStarter'),
+    BUSINESS: t('tierBusiness'),
+    ENTERPRISE: t('tierEnterprise'),
+  };
+
   if (!show) {
     return null;
   }
@@ -93,6 +109,7 @@ export function PlatformBusinessRegistryPanel({
           className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
         />
         <SmartSelect
+          instanceId="platform-registry-select-business"
           value={selectedBusinessId}
           onChange={setSelectedBusinessId}
           options={businessSelectOptions}
@@ -115,6 +132,7 @@ export function PlatformBusinessRegistryPanel({
           {[
             { value: 'ACTIVE', label: t('statusActive') },
             { value: 'UNDER_REVIEW', label: t('underReview') },
+            { value: 'SUSPENDED', label: t('statusSuspended') },
             { value: 'ARCHIVED', label: t('statusArchived') },
             { value: 'DELETED', label: t('statusDeletedReady') },
           ].map((option) => (
@@ -166,14 +184,14 @@ export function PlatformBusinessRegistryPanel({
                   </td>
                   <td className="px-3 py-2">
                     <span className="rounded-full border border-gold-700/50 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-gold-200">
-                      {business.status}
+                      {formatEnum(businessStatusLabels, business.status)}
                     </span>
                   </td>
-                  <td className="px-3 py-2">{business.subscription?.tier ?? t('notAvailable')}</td>
+                  <td className="px-3 py-2">{formatEnum(tierLabels, business.subscription?.tier) || t('notAvailable')}</td>
                   <td className="px-3 py-2">{riskScore}</td>
                   <td className="px-3 py-2">
                     {business.lastActivityAt
-                      ? new Date(business.lastActivityAt).toLocaleDateString()
+                      ? new Date(business.lastActivityAt).toLocaleDateString(locale)
                       : t('notAvailable')}
                   </td>
                   <td className="px-3 py-2">

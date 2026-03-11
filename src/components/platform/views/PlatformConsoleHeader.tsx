@@ -13,7 +13,7 @@ export function PlatformConsoleHeader({
       </h2>
       <p className="text-sm text-[color:var(--muted)]">{translate('subtitle')}</p>
       {message ? (
-        <p className="text-sm text-[color:var(--muted)]">{message}</p>
+        <p role="alert" className="text-sm text-[color:var(--muted)]">{message}</p>
       ) : null}
     </section>
   );

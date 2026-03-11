@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -8,6 +8,8 @@ import { getAccessToken } from '@/lib/auth';
 import { useBranchScope } from '@/lib/use-branch-scope';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
+import { useVariantSearch } from '@/lib/use-variant-search';
 import { Spinner } from '@/components/Spinner';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
@@ -16,7 +18,6 @@ import {
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
-import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { formatVariantLabel } from '@/lib/display';
@@ -39,6 +40,13 @@ type Snapshot = {
   variantId: string;
   quantity: number | string;
   inTransitQuantity?: number | string;
+  branch?: { name?: string | null } | null;
+  variant?: {
+    name?: string | null;
+    imageUrl?: string | null;
+    product?: { name?: string | null } | null;
+    baseUnit?: { id: string; code: string; label: string; unitType: string } | null;
+  } | null;
 };
 type ReorderPoint = {
   id: string;
@@ -73,7 +81,6 @@ export default function StockOnHandPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [variants, setVariants] = useState<Variant[]>([]);
-  const [units, setUnits] = useState<Unit[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [message, setMessage] = useToastState();
   const { filters, pushFilters, resetFilters } = useListFilters({
@@ -93,6 +100,8 @@ export default function StockOnHandPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
   const [reorderPoints, setReorderPoints] = useState<ReorderPoint[]>([]);
   const [reorderSuggestions, setReorderSuggestions] = useState<ReorderSuggestion[]>([]);
@@ -105,6 +114,7 @@ export default function StockOnHandPage() {
   const [isSavingReorder, setIsSavingReorder] = useState(false);
   const [isLoadingReorder, setIsLoadingReorder] = useState(false);
   const { activeBranch, resolveBranchId } = useBranchScope();
+  const { loadOptions: loadVariantOptions, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
   const effectiveFilterBranchId = resolveBranchId(filters.branchId) || '';
   const effectiveReorderBranchId = resolveBranchId(reorderForm.branchId) || '';
 
@@ -113,25 +123,24 @@ export default function StockOnHandPage() {
     if (!token) {
       return;
     }
-    const [branchData, categoryData, variantData, unitList] = await Promise.all([
+    const [branchData, categoryData, variantData] = await Promise.all([
       apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
         token,
       }),
-      apiFetch<PaginatedResponse<Category> | Category[]>('/categories?limit=200', {
+      apiFetch<PaginatedResponse<Category> | Category[]>('/categories?limit=50', {
         token,
       }),
       apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', {
         token,
       }),
-      loadUnits(token),
     ]);
     setBranches(normalizePaginated(branchData).items);
     setCategories(normalizePaginated(categoryData).items);
     setVariants(normalizePaginated(variantData).items);
-    setUnits(unitList);
+    seedVariantCache(normalizePaginated(variantData).items);
   };
 
-  const load = async (targetPage = 1, nextPageSize?: number) => {
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     const token = getAccessToken();
     if (!token) {
       return;
@@ -140,7 +149,7 @@ export default function StockOnHandPage() {
     try {
       const effectivePageSize = nextPageSize ?? pageSize;
       const cursor =
-        targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+        targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
       const query = buildCursorQuery({
         limit: effectivePageSize,
         cursor: cursor ?? undefined,
@@ -179,11 +188,11 @@ export default function StockOnHandPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, effectiveFilterBranchId, filters.variantId, filters.search, filters.status, filters.categoryId, t, setMessage]);
 
   useEffect(() => {
     loadLookups().catch((err) =>
-      setMessage(getApiErrorMessage(err, t('filtersFailed'))),
+      setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('filtersFailed')) }),
     );
   }, []);
 
@@ -207,13 +216,14 @@ export default function StockOnHandPage() {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
-    load(1).catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
+    load(1);
   }, [
     filters.branchId,
     filters.variantId,
     filters.search,
     filters.status,
     filters.categoryId,
+    load,
   ]);
 
   useEffect(() => {
@@ -246,7 +256,7 @@ export default function StockOnHandPage() {
         setReorderPoints(normalizePaginated(pointsData).items);
         setReorderSuggestions(suggestionData);
       })
-      .catch((err) => setMessage(getApiErrorMessage(err, t('reorderLoadFailed'))))
+      .catch((err) => setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('reorderLoadFailed')) }))
       .finally(() => setIsLoadingReorder(false));
   }, [filters.branchId, reorderForm.branchId]);
 
@@ -265,17 +275,6 @@ export default function StockOnHandPage() {
         )
       : common('unknown');
   };
-  const getVariantUnitLabel = (variantId: string) => {
-    const variant = variants.find((item) => item.id === variantId);
-    if (!variant?.baseUnitId) {
-      return '';
-    }
-    const unit = units.find((item) => item.id === variant.baseUnitId);
-    return unit ? buildUnitLabel(unit) : '';
-  };
-  const getVariantImageUrl = (variantId: string) =>
-    variants.find((item) => item.id === variantId)?.imageUrl ?? null;
-
   const branchOptions = useMemo(
     () => [
       { value: '', label: common('globalBranch') },
@@ -284,16 +283,19 @@ export default function StockOnHandPage() {
     [branches, common],
   );
 
-  const categoryOptions = useMemo(
-    () => [
-      { value: '', label: common('allCategories') },
-      ...categories.map((category) => ({
-        value: category.id,
-        label: category.name,
-      })),
-    ],
-    [categories, common],
-  );
+  const loadCategoryOptions = useCallback(async (inputValue: string) => {
+    const token = getAccessToken();
+    if (!token) return [];
+    try {
+      const data = await apiFetch<PaginatedResponse<Category> | Category[]>(
+        `/categories?search=${encodeURIComponent(inputValue)}&limit=25`,
+        { token },
+      );
+      return normalizePaginated(data).items.map((c) => ({ value: c.id, label: c.name }));
+    } catch {
+      return [];
+    }
+  }, []);
 
   const variantOptions = useMemo(
     () => [
@@ -386,7 +388,6 @@ export default function StockOnHandPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow={t('title')}
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
@@ -401,25 +402,25 @@ export default function StockOnHandPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Snapshot rows
+            {t('kpiSnapshots')}
           </p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{snapshots.length}</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{total ?? snapshots.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Reorder points
+            {t('kpiReorderPoints')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{reorderPoints.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Suggestions
+            {t('kpiSuggestions')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{reorderSuggestions.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Active branch
+            {t('kpiActiveBranch')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">
             {activeBranch?.name ?? common('globalBranch')}
@@ -436,31 +437,38 @@ export default function StockOnHandPage() {
         onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
       >
         <SmartSelect
+          instanceId="stock-filter-branch"
           value={filters.branchId}
           onChange={(value) => pushFilters({ branchId: value })}
           options={branchOptions}
           placeholder={common('branch')}
           className="nvi-select-container"
         />
-        <SmartSelect
-          value={filters.variantId}
-          onChange={(value) => pushFilters({ variantId: value })}
-          options={variantOptions}
+        <AsyncSmartSelect
+          instanceId="stock-filter-variant"
+          value={getVariantOption(filters.variantId)}
+          loadOptions={loadVariantOptions}
+          defaultOptions={variantOptions}
+          onChange={(opt) => pushFilters({ variantId: opt?.value ?? '' })}
           placeholder={common('variant')}
           className="nvi-select-container"
         />
         <SmartSelect
+          instanceId="stock-filter-status"
           value={filters.status}
           onChange={(value) => pushFilters({ status: value })}
           options={statusOptions}
           placeholder={common('status')}
           className="nvi-select-container"
         />
-        <SmartSelect
-          value={filters.categoryId}
-          onChange={(value) => pushFilters({ categoryId: value })}
-          options={categoryOptions}
+        <AsyncSmartSelect
+          instanceId="stock-filter-category"
+          value={filters.categoryId ? { value: filters.categoryId, label: categories.find((c) => c.id === filters.categoryId)?.name ?? filters.categoryId } : null}
+          onChange={(opt) => pushFilters({ categoryId: opt?.value ?? '' })}
+          loadOptions={loadCategoryOptions}
+          defaultOptions={categories.map((c) => ({ value: c.id, label: c.name }))}
           placeholder={common('category')}
+          isClearable
           className="nvi-select-container"
         />
       </ListFilters>
@@ -500,10 +508,10 @@ export default function StockOnHandPage() {
                 >
                   <div>
                     <div className="h-8 w-8 overflow-hidden rounded border border-[color:var(--border)] bg-[color:var(--surface)]">
-                      {getVariantImageUrl(item.variantId) ? (
+                      {item.variant?.imageUrl ? (
                         <img
-                          src={getVariantImageUrl(item.variantId) as string}
-                          alt={getVariantName(item.variantId)}
+                          src={item.variant.imageUrl}
+                          alt={item.variant.name ?? ''}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -513,12 +521,12 @@ export default function StockOnHandPage() {
                       )}
                     </div>
                   </div>
-                  <div>{getBranchName(item.branchId)}</div>
-                  <div>{getVariantName(item.variantId)}</div>
+                  <div>{item.branch?.name ?? common('unknown')}</div>
+                  <div>{formatVariantLabel({ id: item.variantId, name: item.variant?.name ?? null, productName: item.variant?.product?.name ?? null }, common('unknown'))}</div>
                   <div>
                     {item.quantity}
-                    {getVariantUnitLabel(item.variantId)
-                      ? ` (${getVariantUnitLabel(item.variantId)})`
+                    {item.variant?.baseUnit
+                      ? ` (${item.variant.baseUnit.label} ${item.variant.baseUnit.code})`
                       : ''}
                   </div>
                   <div>{item.inTransitQuantity ?? 0}</div>
@@ -541,10 +549,10 @@ export default function StockOnHandPage() {
                 className="rounded border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-3 text-sm text-[color:var(--foreground)]"
               >
                 <p className="text-xs uppercase text-[color:var(--muted)]">
-                  {getBranchName(item.branchId)}
+                  {item.branch?.name ?? common('unknown')}
                 </p>
                 <p className="text-base text-[color:var(--foreground)]">
-                  {getVariantName(item.variantId)}
+                  {formatVariantLabel({ id: item.variantId, name: item.variant?.name ?? null, productName: item.variant?.product?.name ?? null }, common('unknown'))}
                 </p>
                 <p>
                   {t('onHand')}: {item.quantity}
@@ -590,6 +598,7 @@ export default function StockOnHandPage() {
         </div>
         <div className="grid gap-3 md:grid-cols-4">
           <SmartSelect
+            instanceId="stock-reorder-branch"
             value={reorderForm.branchId}
             onChange={(value) =>
               setReorderForm((prev) => ({ ...prev, branchId: value }))
@@ -602,19 +611,14 @@ export default function StockOnHandPage() {
             isClearable
             className="nvi-select-container"
           />
-          <SmartSelect
-            value={reorderForm.variantId}
-            onChange={(value) =>
-              setReorderForm((prev) => ({ ...prev, variantId: value }))
+          <AsyncSmartSelect
+            instanceId="stock-reorder-variant"
+            value={getVariantOption(reorderForm.variantId)}
+            loadOptions={loadVariantOptions}
+            defaultOptions={variantOptions.filter((o) => o.value !== '')}
+            onChange={(opt) =>
+              setReorderForm((prev) => ({ ...prev, variantId: opt?.value ?? '' }))
             }
-            options={variants.map((variant) => ({
-              value: variant.id,
-              label: formatVariantLabel({
-                id: variant.id,
-                name: variant.name,
-                productName: variant.product?.name ?? null,
-              }),
-            }))}
             placeholder={t('selectVariant')}
             isClearable
             className="nvi-select-container"

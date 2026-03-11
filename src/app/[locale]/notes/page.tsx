@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useToastState } from '@/lib/app-notifications';
+import { confirmAction, useToastState } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -16,6 +16,8 @@ import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { getPermissionSet } from '@/lib/permissions';
 import { useBranchScope } from '@/lib/use-branch-scope';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { useFormatDate } from '@/lib/business-context';
 
 type NoteLink = {
   id?: string;
@@ -59,21 +61,23 @@ type LinkableRecord = {
   destinationBranch?: { name?: string | null } | null;
 };
 
-const LINK_TYPES = [
-  { value: 'Product', label: 'Product' },
-  { value: 'Variant', label: 'Variant' },
-  { value: 'Branch', label: 'Branch' },
-  { value: 'Supplier', label: 'Supplier' },
-  { value: 'Customer', label: 'Customer' },
-  { value: 'PurchaseOrder', label: 'Purchase order' },
-  { value: 'Purchase', label: 'Purchase' },
-  { value: 'Transfer', label: 'Transfer' },
-];
 
 export default function NotesPage() {
   const t = useTranslations('notesPage');
   const actions = useTranslations('actions');
   const common = useTranslations('common');
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
+  const LINK_TYPES = [
+    { value: 'Product', label: t('linkTypeProduct') },
+    { value: 'Variant', label: t('linkTypeVariant') },
+    { value: 'Branch', label: t('linkTypeBranch') },
+    { value: 'Supplier', label: t('linkTypeSupplier') },
+    { value: 'Customer', label: t('linkTypeCustomer') },
+    { value: 'PurchaseOrder', label: t('linkTypePurchaseOrder') },
+    { value: 'Purchase', label: t('linkTypePurchase') },
+    { value: 'Transfer', label: t('linkTypeTransfer') },
+  ];
   const noAccess = useTranslations('noAccess');
   const permissions = getPermissionSet();
   const canWrite = permissions.has('notes.write');
@@ -89,6 +93,8 @@ export default function NotesPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
@@ -98,6 +104,8 @@ export default function NotesPage() {
     visibility: '',
     branchId: '',
   });
+  const debouncedSearch = useDebouncedValue(filters.search, 350);
+  const debouncedTag = useDebouncedValue(filters.tag, 350);
   const { activeBranch } = useBranchScope();
   const [branchFilterInitialized, setBranchFilterInitialized] = useState(false);
   const [form, setForm] = useState({
@@ -124,6 +132,7 @@ export default function NotesPage() {
     >
   >({});
   const [reminderLists, setReminderLists] = useState<Record<string, NoteReminder[]>>({});
+  const [reminderOpen, setReminderOpen] = useState<Record<string, boolean>>({});
 
   const allowedChannels = meta?.allowedChannels ?? ['IN_APP'];
 
@@ -138,46 +147,62 @@ export default function NotesPage() {
     setFilters((prev) => (prev.branchId ? prev : { ...prev, branchId: activeBranch.id }));
   }, [activeBranch?.id, branchFilterInitialized]);
 
-  const load = async (targetPage = 1, nextPageSize?: number) => {
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const [branchData, metaData] = await Promise.all([
+        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', { token }),
+        apiFetch<NotesMeta>('/notes/meta', { token }),
+      ]);
+      setBranches(normalizePaginated(branchData).items);
+      setMeta(metaData);
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     const token = getAccessToken();
     if (!token) {
       return;
     }
     setIsLoading(true);
     const effectivePageSize = nextPageSize ?? pageSize;
-    const cursor = targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+    const cursor = targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
     const query = buildCursorQuery({
       limit: effectivePageSize,
       cursor: cursor ?? undefined,
       includeTotal: targetPage === 1 ? '1' : undefined,
-      search: filters.search || undefined,
-      tag: filters.tag || undefined,
+      search: debouncedSearch || undefined,
+      tag: debouncedTag || undefined,
       visibility: filters.visibility || undefined,
       branchId: filters.branchId || undefined,
     });
     try {
-      const [noteData, branchData, metaData] = await Promise.all([
-        apiFetch<PaginatedResponse<Note> | Note[]>(`/notes${query}`, { token }),
-        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', { token }),
-        apiFetch<NotesMeta>('/notes/meta', { token }),
-      ]);
+      const noteData = await apiFetch<PaginatedResponse<Note> | Note[]>(
+        `/notes${query}`,
+        { token },
+      );
       const notesResult = normalizePaginated(noteData);
       setNotes(notesResult.items);
       setNextCursor(notesResult.nextCursor);
       if (typeof notesResult.total === 'number') {
         setTotal(notesResult.total);
       }
-      setBranches(normalizePaginated(branchData).items);
-      setMeta(metaData);
-    setPage(targetPage);
-    setPageCursors((prev) => {
-      const nextState: Record<number, string | null> =
-        targetPage === 1 ? { 1: null } : { ...prev };
-      if (notesResult.nextCursor) {
-        nextState[targetPage + 1] = notesResult.nextCursor;
-      }
-      return nextState;
-    });
+      setPage(targetPage);
+      setPageCursors((prev) => {
+        const nextState: Record<number, string | null> =
+          targetPage === 1 ? { 1: null } : { ...prev };
+        if (notesResult.nextCursor) {
+          nextState[targetPage + 1] = notesResult.nextCursor;
+        }
+        return nextState;
+      });
     } catch (err) {
       setMessage({
         action: 'load',
@@ -187,14 +212,18 @@ export default function NotesPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, debouncedSearch, debouncedTag, filters.visibility, filters.branchId, t]);
+
+  useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
     load(1);
-  }, [filters.search, filters.tag, filters.visibility, filters.branchId]);
+  }, [load]);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -328,6 +357,12 @@ export default function NotesPage() {
     if (!token) {
       return;
     }
+    const ok = await confirmAction({
+      title: t('archiveNoteConfirmTitle'),
+      message: t('archiveNoteConfirmMessage'),
+      confirmText: t('archiveNoteConfirmButton'),
+    });
+    if (!ok) return;
     setMessage(null);
     try {
       await apiFetch(`/notes/${noteId}/archive`, {
@@ -478,6 +513,15 @@ export default function NotesPage() {
     { value: 'BUSINESS', label: t('visibilityBusiness') },
   ];
 
+  const visibilityLabels = useMemo<Record<string, string>>(
+    () => ({
+      PRIVATE: t('visibilityPrivate'),
+      BRANCH: t('visibilityBranch'),
+      BUSINESS: t('visibilityBusiness'),
+    }),
+    [t],
+  );
+
   const tableRows = useMemo(() => {
     return notes.map((note) => ({
       id: note.id,
@@ -505,13 +549,13 @@ export default function NotesPage() {
   return (
     <section className="space-y-4">
       <PremiumPageHeader
-        eyebrow="KNOWLEDGE LAYER"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">LIVE NOTES</span>
-            <span className="nvi-badge">REMINDER READY</span>
+            <span className="nvi-badge">{t('badgeLiveNotes')}</span>
+            <span className="nvi-badge">{t('badgeReminderReady')}</span>
           </>
         }
         actions={
@@ -525,19 +569,19 @@ export default function NotesPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">TOTAL NOTES</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiTotalNotes')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{notes.length}</p>
         </div>
         <div className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">ACTIVE</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiActive')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{activeNotes}</p>
         </div>
         <div className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">WITH LINKS</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiWithLinks')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{linkedNotes}</p>
         </div>
         <div className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">BRANCH SCOPE</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiBranchScope')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">
             {activeBranch?.name ?? common('all')}
           </p>
@@ -569,6 +613,7 @@ export default function NotesPage() {
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
           <SmartSelect
+            instanceId="notes-form-visibility"
             value={form.visibility}
             onChange={(value) =>
               setForm({ ...form, visibility: value as Note['visibility'] })
@@ -585,6 +630,7 @@ export default function NotesPage() {
             rows={4}
           />
           <SmartSelect
+            instanceId="notes-form-branch"
             value={form.branchId}
             onChange={(value) => setForm({ ...form, branchId: value })}
             options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
@@ -606,6 +652,7 @@ export default function NotesPage() {
           </p>
           <div className="grid gap-3 md:grid-cols-3">
             <SmartSelect
+              instanceId="notes-form-link-type"
               value={linkType}
               onChange={(value) => {
                 setLinkType(value);
@@ -645,6 +692,7 @@ export default function NotesPage() {
           {linkChips}
         </div>
         <button
+          type="button"
           onClick={saveNote}
           disabled={!canWrite || isSaving}
           className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
@@ -665,8 +713,8 @@ export default function NotesPage() {
 
       <div className="command-card nvi-panel p-4 nvi-reveal">
         <div className="mb-3">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">FILTERS</p>
-          <p className="text-sm text-gold-300">Refine notes by search, tag, visibility, or branch.</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('filtersLabel')}</p>
+          <p className="text-sm text-gold-300">{t('filtersDescription')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <input
@@ -682,6 +730,7 @@ export default function NotesPage() {
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
           />
           <SmartSelect
+            instanceId="notes-filter-visibility"
             value={filters.visibility}
             onChange={(value) => setFilters({ ...filters, visibility: value })}
             options={[{ value: '', label: common('all') }, ...visibilityOptions]}
@@ -689,6 +738,7 @@ export default function NotesPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="notes-filter-branch"
             value={filters.branchId}
             onChange={(value) => setFilters({ ...filters, branchId: value })}
             options={[
@@ -723,7 +773,7 @@ export default function NotesPage() {
                   {tableRows.map((row) => (
                     <tr key={row.id} className="border-t border-gold-700/20">
                       <td className="px-3 py-2 font-semibold">{row.title}</td>
-                      <td className="px-3 py-2">{row.visibility}</td>
+                      <td className="px-3 py-2">{visibilityLabels[row.visibility] ?? row.visibility}</td>
                       <td className="px-3 py-2">{row.branch}</td>
                       <td className="px-3 py-2">{row.tags}</td>
                       <td className="px-3 py-2">{row.links}</td>
@@ -776,7 +826,7 @@ export default function NotesPage() {
                       <h4 className="text-lg font-semibold text-gold-100">
                         {note.title}
                       </h4>
-                      <p className="text-xs text-gold-400">{note.visibility}</p>
+                      <p className="text-xs text-gold-400">{visibilityLabels[note.visibility] ?? note.visibility}</p>
                       {note.branch?.name ? (
                         <p className="text-xs text-gold-400">{note.branch.name}</p>
                       ) : null}
@@ -828,14 +878,28 @@ export default function NotesPage() {
                       <p className="text-xs uppercase tracking-[0.2em] text-gold-400">
                         {t('reminders')}
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => loadReminders(note.id)}
-                        className="text-xs text-gold-300 hover:text-gold-100"
-                      >
-                        {actions('view')}
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => loadReminders(note.id)}
+                          className="text-xs text-gold-300 hover:text-gold-100"
+                        >
+                          {actions('view')}
+                        </button>
+                        {canWrite ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setReminderOpen((prev) => ({ ...prev, [note.id]: !prev[note.id] }))
+                            }
+                            className="text-xs text-gold-300 hover:text-gold-100"
+                          >
+                            {reminderOpen[note.id] ? '−' : t('addReminder')}
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
+                    {reminderOpen[note.id] ? (
                     <div className="grid gap-2 md:grid-cols-3">
                       <DateTimePickerInput
                         value={reminderForm.scheduledAt}
@@ -878,13 +942,14 @@ export default function NotesPage() {
                         {reminderForm.busy ? common('loading') : t('addReminder')}
                       </button>
                     </div>
+                    ) : null}
                     {reminderList.length ? (
                       <div className="space-y-1 text-xs text-gold-300">
                         {reminderList.map((reminder) => (
                           <div key={reminder.id} className="flex items-center justify-between">
                             <span>
                               {reminder.channel} • {reminder.status} •{' '}
-                              {new Date(reminder.scheduledAt).toLocaleString()}
+                              {formatDateTime(reminder.scheduledAt)}
                             </span>
                             {reminder.status === 'SCHEDULED' ? (
                               <button

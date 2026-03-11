@@ -6,7 +6,9 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "i18n:audit": "node ../scripts/i18n-usage-audit.js",
+    "i18n:parity": "node ../scripts/i18n-parity-check.js"
   },
   "dependencies": {
     "@zxing/browser": "^0.1.5",

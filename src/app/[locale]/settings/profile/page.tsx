@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getStoredUser } from '@/lib/auth';
 import { useToastState } from '@/lib/app-notifications';
@@ -15,6 +15,7 @@ import {
   PermissionCatalogEntry,
 } from '@/lib/permission-catalog';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type ProfileResponse = {
   user: {
@@ -37,6 +38,8 @@ type ProfileResponse = {
 };
 
 export default function ProfilePage() {
+  const locale = useLocale();
+  const { formatDate, formatDateTime } = useFormatDate();
   const t = useTranslations('profilePage');
   const common = useTranslations('common');
   const actions = useTranslations('actions');
@@ -181,31 +184,31 @@ export default function ProfilePage() {
   return (
     <section className="space-y-6">
       <PremiumPageHeader
-        eyebrow="ACCOUNT CONTROL"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">ROLE MAPPED</span>
-            <span className="nvi-badge">ACCESS REQUESTS</span>
+            <span className="nvi-badge">{t('badgeRoleMapped')}</span>
+            <span className="nvi-badge">{t('badgeAccessRequests')}</span>
           </>
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ROLES</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiRoles')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{profile?.roles.length ?? 0}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">PERMISSIONS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiPermissions')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{permissionList.length}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">STATUS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiStatus')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">{profile?.user.status ?? '—'}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">MEMBERSHIP</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiMembership')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">{profile?.membership.status ?? '—'}</p>
         </article>
       </div>
@@ -231,13 +234,13 @@ export default function ProfilePage() {
             <div>
               <span className="text-gold-500">{t('lastLogin')}:</span>{' '}
               {profile?.user.lastLoginAt
-                ? new Date(profile.user.lastLoginAt).toLocaleString()
+                ? formatDateTime(profile.user.lastLoginAt)
                 : '—'}
             </div>
             <div>
               <span className="text-gold-500">{t('createdAt')}:</span>{' '}
               {profile?.user.createdAt
-                ? new Date(profile.user.createdAt).toLocaleDateString()
+                ? formatDate(profile.user.createdAt)
                 : '—'}
             </div>
           </div>
@@ -299,6 +302,7 @@ export default function ProfilePage() {
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
+            instanceId="profile-request-permission"
             value={requestForm.permission}
             onChange={(value) =>
               setRequestForm((prev) => ({ ...prev, permission: value }))

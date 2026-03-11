@@ -10,6 +10,7 @@ import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
@@ -40,6 +41,7 @@ type Variant = {
   sellUnitId?: string | null;
   conversionFactor?: number | null;
   defaultPrice?: number | null;
+  defaultCost?: number | null;
   minPrice?: number | null;
   vatMode: string;
   status: string;
@@ -136,6 +138,8 @@ export default function VariantsPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isReassigning, setIsReassigning] = useState(false);
@@ -176,6 +180,19 @@ export default function VariantsPage() {
       }, 2000);
     }
   }, []);
+  const loadProductOptions = useCallback(async (inputValue: string) => {
+    const token = getAccessToken();
+    if (!token) return [];
+    try {
+      const data = await apiFetch<PaginatedResponse<Product> | Product[]>(
+        `/products?search=${encodeURIComponent(inputValue)}&limit=25`,
+        { token },
+      );
+      return normalizePaginated(data).items.map((p) => ({ value: p.id, label: p.name }));
+    } catch {
+      return [];
+    }
+  }, []);
   const { filters, pushFilters, resetFilters } = useListFilters({
     search: '',
     status: '',
@@ -186,6 +203,24 @@ export default function VariantsPage() {
   const branchFilterInit = useRef(false);
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchDraft, 350);
+
+  const vatModeLabels = useMemo<Record<string, string>>(
+    () => ({
+      INCLUSIVE: common('vatModeInclusive'),
+      EXCLUSIVE: common('vatModeExclusive'),
+      EXEMPT: common('vatModeExempt'),
+    }),
+    [common],
+  );
+
+  const variantStatusLabels = useMemo<Record<string, string>>(
+    () => ({
+      ACTIVE: common('statusActive'),
+      INACTIVE: common('statusInactive'),
+      ARCHIVED: common('statusArchived'),
+    }),
+    [common],
+  );
 
   const statusOptions = useMemo(
     () => [
@@ -243,65 +278,82 @@ export default function VariantsPage() {
     }
   }, [debouncedSearch, filters.search, pushFilters]);
 
-  const load = async (targetPage = 1, nextPageSize?: number) => {
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const [prod, br, unitList] = await Promise.all([
+        apiFetch<PaginatedResponse<Product> | Product[]>('/products?limit=50', { token }),
+        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', { token }),
+        loadUnits(token),
+      ]);
+      setProducts(normalizePaginated(prod).items);
+      setBranches(normalizePaginated(br).items);
+      setUnits(unitList ?? []);
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     const token = getAccessToken();
     if (!token) {
       return;
     }
     setIsLoading(true);
-    const effectivePageSize = nextPageSize ?? pageSize;
-    const cursor =
-      targetPage === 1 ? null : pageCursors[targetPage] ?? null;
-    const query = buildCursorQuery({
-      limit: effectivePageSize,
-      cursor: cursor ?? undefined,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-      branchId: filters.branchId || undefined,
-      availability: filters.availability || undefined,
-      includeTotal: targetPage === 1 ? '1' : undefined,
-    });
-    const [items, prod, br, unitList] = await Promise.all([
-      apiFetch<PaginatedResponse<Variant> | Variant[]>(`/variants${query}`, {
-        token,
-      }),
-      apiFetch<PaginatedResponse<Product> | Product[]>('/products?limit=200', {
-        token,
-      }),
-      apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
-        token,
-      }),
-      loadUnits(token),
-    ]);
-    const variantResult = normalizePaginated(items);
-    const productResult = normalizePaginated(prod);
-    const branchResult = normalizePaginated(br);
-    setVariants(variantResult.items);
-    setProducts(productResult.items);
-    setBranches(branchResult.items);
-    setUnits(unitList);
-    setNextCursor(variantResult.nextCursor);
-    if (typeof variantResult.total === 'number') {
-      setTotal(variantResult.total);
-    }
-    setPage(targetPage);
-    setPageCursors((prev) => {
-      const nextState: Record<number, string | null> =
-        targetPage === 1 ? { 1: null } : { ...prev };
-      if (variantResult.nextCursor) {
-        nextState[targetPage + 1] = variantResult.nextCursor;
+    try {
+      const effectivePageSize = nextPageSize ?? pageSize;
+      const cursor =
+        targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
+      const query = buildCursorQuery({
+        limit: effectivePageSize,
+        cursor: cursor ?? undefined,
+        search: filters.search || undefined,
+        status: filters.status || undefined,
+        branchId: filters.branchId || undefined,
+        availability: filters.availability || undefined,
+        includeTotal: targetPage === 1 ? '1' : undefined,
+      });
+      const items = await apiFetch<PaginatedResponse<Variant> | Variant[]>(
+        `/variants${query}`,
+        { token },
+      );
+      const variantResult = normalizePaginated(items);
+      setVariants(variantResult.items);
+      setNextCursor(variantResult.nextCursor);
+      if (typeof variantResult.total === 'number') {
+        setTotal(variantResult.total);
       }
-      return nextState;
-    });
-    setIsLoading(false);
-  };
+      setPage(targetPage);
+      setPageCursors((prev) => {
+        const nextState: Record<number, string | null> =
+          targetPage === 1 ? { 1: null } : { ...prev };
+        if (variantResult.nextCursor) {
+          nextState[targetPage + 1] = variantResult.nextCursor;
+        }
+        return nextState;
+      });
+    } catch (err) {
+      setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('loadFailed')) });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [pageSize, filters.search, filters.status, filters.branchId, filters.availability, t]);
+
+  useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
-    load(1).catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
-  }, [filters.search, filters.status, filters.branchId, filters.availability]);
+    load(1);
+  }, [load]);
 
   useEffect(() => {
     if (!units.length) {
@@ -368,8 +420,6 @@ export default function VariantsPage() {
             message: getApiErrorMessage(err, t('addBarcodeFailed')),
           });
         }
-      } else {
-        await load(1);
       }
       setForm({
         productId: '',
@@ -544,6 +594,8 @@ export default function VariantsPage() {
         body: JSON.stringify({ imageUrl: presign.publicUrl }),
       });
       await load(page);
+    } catch (err) {
+      setMessage({ action: 'save', outcome: 'failure', message: getApiErrorMessage(err, t('uploadFailed')) });
     } finally {
       setUploadingVariantId(null);
     }
@@ -604,7 +656,8 @@ export default function VariantsPage() {
       scannerRef.current = reader;
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter((device) => device.kind === 'videoinput');
-      const deviceId = videoDevices[0]?.deviceId;
+      const rearCamera = videoDevices.find((d) => /back|rear|environment/i.test(d.label));
+      const deviceId = (rearCamera ?? videoDevices[0])?.deviceId;
       let handled = false;
       await reader.decodeFromVideoDevice(
         deviceId,
@@ -785,13 +838,13 @@ export default function VariantsPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Variant operations"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Barcode-ready</span>
-            <span className="status-chip">Multi-branch</span>
+            <span className="status-chip">{t('badgeBarcodeReady')}</span>
+            <span className="status-chip">{t('badgeMultiBranch')}</span>
           </>
         }
         actions={
@@ -805,19 +858,19 @@ export default function VariantsPage() {
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Variants</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiVariants')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActive')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{activeVariants}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">With barcode</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiWithBarcode')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{barcodeCoverage}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Branches</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiBranches')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
         </article>
       </div>
@@ -825,15 +878,13 @@ export default function VariantsPage() {
       <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('newVariant')}</h3>
         <div className="grid gap-3 md:grid-cols-3">
-          <SmartSelect
-            value={form.productId}
-            onChange={(value) => setForm({ ...form, productId: value })}
-            options={products.map((product) => ({
-              value: product.id,
-              label: product.name,
-            }))}
+          <AsyncSmartSelect
+            instanceId="variant-create-product"
+            value={form.productId ? { value: form.productId, label: products.find((p) => p.id === form.productId)?.name ?? '' } : null}
+            onChange={(opt) => setForm({ ...form, productId: opt?.value ?? '' })}
+            loadOptions={loadProductOptions}
+            defaultOptions={products.map((p) => ({ value: p.id, label: p.name }))}
             placeholder={t('selectProduct')}
-            isClearable
             className="nvi-select-container"
           />
           <input
@@ -861,6 +912,7 @@ export default function VariantsPage() {
             className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
           <button
+            type="button"
             onClick={() => startScan('assignNew')}
             disabled={!canWrite}
             title={!canWrite ? noAccess('title') : undefined}
@@ -887,6 +939,7 @@ export default function VariantsPage() {
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
           <SmartSelect
+            instanceId="variant-create-vat-mode"
             value={form.vatMode}
             onChange={(value) => setForm({ ...form, vatMode: value })}
             options={[
@@ -901,6 +954,7 @@ export default function VariantsPage() {
           <label className="space-y-1 text-xs text-gold-300">
             <span className="text-gold-400">{t('baseUnit')}</span>
             <SmartSelect
+              instanceId="variant-create-base-unit"
               value={form.baseUnitId}
               onChange={(value) =>
                 setForm((prev) => {
@@ -923,6 +977,7 @@ export default function VariantsPage() {
           <label className="space-y-1 text-xs text-gold-300">
             <span className="text-gold-400">{t('sellUnit')}</span>
             <SmartSelect
+              instanceId="variant-create-sell-unit"
               value={form.sellUnitId}
               onChange={(value) =>
                 setForm((prev) => ({
@@ -952,6 +1007,7 @@ export default function VariantsPage() {
           </label>
         </div>
         <button
+          type="button"
           onClick={createVariant}
           disabled={!canWrite || isCreating}
           title={!canWrite ? noAccess('title') : undefined}
@@ -970,6 +1026,7 @@ export default function VariantsPage() {
         </h3>
         <div className="grid gap-3 md:grid-cols-3">
           <SmartSelect
+            instanceId="variant-barcode-reassign-barcode"
             value={barcodeReassign.barcodeId}
             onChange={(value) =>
               setBarcodeReassign({
@@ -993,6 +1050,7 @@ export default function VariantsPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="variant-barcode-reassign-target"
             value={barcodeReassign.variantId}
             onChange={(value) =>
               setBarcodeReassign({
@@ -1025,9 +1083,10 @@ export default function VariantsPage() {
           />
         </div>
         <button
+          type="button"
           onClick={() =>
             reassignBarcode().catch((err) =>
-              setMessage(getApiErrorMessage(err, t('barcodeReassignFailed'))),
+              setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('barcodeReassignFailed')) }),
             )
           }
           disabled={!canWrite || isReassigning}
@@ -1065,6 +1124,7 @@ export default function VariantsPage() {
         ) : null}
         <div className="flex flex-wrap gap-2">
           <button
+            type="button"
             onClick={() =>
               startScan(
                 scanMode,
@@ -1077,6 +1137,7 @@ export default function VariantsPage() {
           </button>
           {scanActive ? (
             <button
+              type="button"
               onClick={stopScan}
               className="rounded border border-gold-700/50 px-4 py-2 text-sm text-gold-100"
             >
@@ -1098,9 +1159,10 @@ export default function VariantsPage() {
         </p>
         <div className="flex flex-wrap gap-2">
           <button
+            type="button"
             onClick={() =>
               printLabels('A4').catch((err) =>
-                setMessage(getApiErrorMessage(err, t('labelsPrintFailed'))),
+                setMessage({ action: 'export', outcome: 'failure', message: getApiErrorMessage(err, t('labelsPrintFailed')) }),
               )
             }
             disabled={isPrinting}
@@ -1112,9 +1174,10 @@ export default function VariantsPage() {
             </span>
           </button>
           <button
+            type="button"
             onClick={() =>
               printLabels('THERMAL').catch((err) =>
-                setMessage(getApiErrorMessage(err, t('labelsPrintFailed'))),
+                setMessage({ action: 'export', outcome: 'failure', message: getApiErrorMessage(err, t('labelsPrintFailed')) }),
               )
             }
             disabled={isPrinting}
@@ -1144,6 +1207,7 @@ export default function VariantsPage() {
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         >
           <SmartSelect
+            instanceId="variants-filter-status"
             value={filters.status}
             onChange={(value) => pushFilters({ status: value })}
             options={statusOptions}
@@ -1151,6 +1215,7 @@ export default function VariantsPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="variants-filter-branch"
             value={filters.branchId}
             onChange={(value) => pushFilters({ branchId: value })}
             options={branchOptions}
@@ -1158,6 +1223,7 @@ export default function VariantsPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="variants-filter-availability"
             value={filters.availability}
             onChange={(value) => pushFilters({ availability: value })}
             options={availabilityOptions}
@@ -1181,6 +1247,8 @@ export default function VariantsPage() {
                     <th className="px-3 py-2">{t('variantName')}</th>
                     <th className="px-3 py-2">{t('sku')}</th>
                     <th className="px-3 py-2">{t('price')}</th>
+                    <th className="px-3 py-2">{t('defaultCost')}</th>
+                    <th className="px-3 py-2">{t('margin')}</th>
                     <th className="px-3 py-2">{t('vat')}</th>
                     <th className="px-3 py-2">{common('status')}</th>
                     <th className="px-3 py-2">{t('trackStock')}</th>
@@ -1210,8 +1278,24 @@ export default function VariantsPage() {
                       <td className="px-3 py-2 font-semibold">{variant.name}</td>
                       <td className="px-3 py-2">{variant.sku ?? '—'}</td>
                       <td className="px-3 py-2">{variant.defaultPrice ?? '—'}</td>
-                      <td className="px-3 py-2">{variant.vatMode}</td>
-                      <td className="px-3 py-2">{variant.status}</td>
+                      <td className="px-3 py-2 text-gold-400">
+                        {variant.defaultCost != null ? variant.defaultCost : '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        {variant.defaultPrice != null && variant.defaultCost != null && variant.defaultPrice > 0
+                          ? (
+                            <span className={
+                              ((variant.defaultPrice - variant.defaultCost) / variant.defaultPrice) * 100 < 0
+                                ? 'text-red-400'
+                                : 'text-emerald-400'
+                            }>
+                              {(((variant.defaultPrice - variant.defaultCost) / variant.defaultPrice) * 100).toFixed(1)}%
+                            </span>
+                          )
+                          : '—'}
+                      </td>
+                      <td className="px-3 py-2">{vatModeLabels[variant.vatMode] ?? variant.vatMode}</td>
+                      <td className="px-3 py-2">{variantStatusLabels[variant.status] ?? variant.status}</td>
                       <td className="px-3 py-2">
                         {variant.trackStock ? common('yes') : common('no')}
                       </td>
@@ -1254,6 +1338,12 @@ export default function VariantsPage() {
                   </p>
                   <p className="text-xs text-gold-500">
                     {t('minPriceLabel', { value: variant.minPrice ?? '—' })}
+                  </p>
+                  <p className="text-xs text-gold-400">
+                    {t('costLabel', { value: variant.defaultCost ?? '—' })}
+                    {variant.defaultPrice != null && variant.defaultCost != null && variant.defaultPrice > 0
+                      ? ` · ${t('marginLabel', { value: (((variant.defaultPrice - variant.defaultCost) / variant.defaultPrice) * 100).toFixed(1) })}`
+                      : null}
                   </p>
                 </div>
                 {variant.imageUrl ? (
@@ -1301,7 +1391,7 @@ export default function VariantsPage() {
                     updateVariant(variant.id, {
                       trackStock: event.target.checked,
                     }).catch((err) =>
-                      setMessage(getApiErrorMessage(err, t('updateFailed'))),
+                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
                     )
                   }
                 />
@@ -1310,12 +1400,13 @@ export default function VariantsPage() {
               <label className="flex items-center gap-2">
                 {t('status')}
                 <SmartSelect
+                  instanceId={`variant-status-${variant.id}`}
                   value={variant.status}
                   onChange={(value) =>
                     updateVariant(variant.id, {
                       status: value as Variant['status'],
                     }).catch((err) =>
-                      setMessage(getApiErrorMessage(err, t('updateFailed'))),
+                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
                     )
                   }
                   options={[
@@ -1331,6 +1422,7 @@ export default function VariantsPage() {
               <label className="space-y-1">
                 <span className="text-gold-400">{t('baseUnit')}</span>
                 <SmartSelect
+                  instanceId={`variant-base-unit-${variant.id}`}
                   value={variant.baseUnitId ?? ''}
                   onChange={(value) =>
                     updateVariant(variant.id, {
@@ -1342,7 +1434,7 @@ export default function VariantsPage() {
                       conversionFactor:
                         variant.sellUnitId === value ? 1 : variant.conversionFactor ?? 1,
                     }).catch((err) =>
-                      setMessage(getApiErrorMessage(err, t('updateFailed'))),
+                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
                     )
                   }
                   options={unitOptions}
@@ -1353,6 +1445,7 @@ export default function VariantsPage() {
               <label className="space-y-1">
                 <span className="text-gold-400">{t('sellUnit')}</span>
                 <SmartSelect
+                  instanceId={`variant-sell-unit-${variant.id}`}
                   value={variant.sellUnitId ?? variant.baseUnitId ?? ''}
                   onChange={(value) =>
                     updateVariant(variant.id, {
@@ -1360,7 +1453,7 @@ export default function VariantsPage() {
                       conversionFactor:
                         value === variant.baseUnitId ? 1 : variant.conversionFactor ?? 1,
                     }).catch((err) =>
-                      setMessage(getApiErrorMessage(err, t('updateFailed'))),
+                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
                     )
                   }
                   options={unitOptions}
@@ -1376,7 +1469,7 @@ export default function VariantsPage() {
                     updateVariant(variant.id, {
                       conversionFactor: Number(event.target.value || 1),
                     }).catch((err) =>
-                      setMessage(getApiErrorMessage(err, t('updateFailed'))),
+                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
                     )
                   }
                   disabled={(variant.sellUnitId ?? variant.baseUnitId) === variant.baseUnitId}
@@ -1419,6 +1512,7 @@ export default function VariantsPage() {
                   disabled={!canWrite}
                 />
                 <button
+                  type="button"
                   onClick={() => startScan('assignExisting', variant.id)}
                   disabled={!canWrite}
                   title={!canWrite ? noAccess('title') : undefined}
@@ -1427,6 +1521,7 @@ export default function VariantsPage() {
                   {t('scanAssign')}
                 </button>
                 <button
+                  type="button"
                   onClick={() => generateBarcode(variant.id)}
                   disabled={!canWrite || barcodeAction?.variantId === variant.id}
                   title={!canWrite ? noAccess('title') : undefined}

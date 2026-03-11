@@ -60,7 +60,12 @@ export function PlatformBusinessActionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/70 p-4">
-      <div className="w-full max-w-lg rounded border border-gold-700/60 bg-[#080b10] p-4 shadow-2xl">
+      <div
+        className="w-full max-w-lg rounded border border-gold-700/60 bg-[#080b10] p-4 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        onKeyDown={(e) => { if (e.key === 'Escape') setModal(null); }}
+      >
         <div className="mb-3 flex items-center justify-between">
           <h4 className="text-lg font-semibold text-gold-100">
             {t('actionGuardTitle', { action: modal.action })}

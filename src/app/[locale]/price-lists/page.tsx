@@ -1,15 +1,16 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
+import { useVariantSearch } from '@/lib/use-variant-search';
 import { StatusBanner } from '@/components/StatusBanner';
 import {
   buildCursorQuery,
@@ -45,10 +46,10 @@ export default function PriceListsPage() {
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
-  const params = useParams<{ locale: string }>();
-  const locale = params?.locale ?? 'en';
+  const locale = useLocale();
   const permissions = getPermissionSet();
   const canManage = permissions.has('price-lists.manage');
+  const { loadOptions: loadVariantOptions, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -71,7 +72,27 @@ export default function PriceListsPage() {
     price: '',
   });
 
-  const load = async (cursor?: string, append = false) => {
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const variantData = await apiFetch<PaginatedResponse<Variant> | Variant[]>(
+        '/variants?limit=200',
+        { token },
+      );
+      const variantList = normalizePaginated(variantData).items;
+      setVariants(variantList);
+      seedVariantCache(variantList);
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const load = useCallback(async (cursor?: string, append = false) => {
     if (append) {
       setIsLoadingMore(true);
     } else {
@@ -88,22 +109,15 @@ export default function PriceListsPage() {
     }
     try {
       const query = buildCursorQuery({ limit: 25, cursor });
-      const [listData, variantData] = await Promise.all([
-        apiFetch<PaginatedResponse<PriceList> | PriceList[]>(
-          `/price-lists${query}`,
-          { token },
-        ),
-        apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', {
-          token,
-        }),
-      ]);
+      const listData = await apiFetch<PaginatedResponse<PriceList> | PriceList[]>(
+        `/price-lists${query}`,
+        { token },
+      );
       const listResult = normalizePaginated(listData);
-      const variantResult = normalizePaginated(variantData);
       setLists((prev) =>
         append ? [...prev, ...listResult.items] : listResult.items,
       );
       setNextCursor(listResult.nextCursor);
-      setVariants(variantResult.items);
     } catch (err) {
       setMessage({
         action: 'load',
@@ -117,11 +131,15 @@ export default function PriceListsPage() {
         setIsLoading(false);
       }
     }
-  };
+  }, [t]);
+
+  useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   const createList = async () => {
     const token = getAccessToken();
@@ -243,6 +261,15 @@ export default function PriceListsPage() {
     }
   };
 
+  const listStatusLabels = useMemo<Record<string, string>>(
+    () => ({
+      ACTIVE: common('statusActive'),
+      INACTIVE: common('statusInactive'),
+      ARCHIVED: common('statusArchived'),
+    }),
+    [common],
+  );
+
   const variantMap = useMemo(() => {
     return new Map(variants.map((variant) => [variant.id, variant]));
   }, [variants]);
@@ -262,13 +289,13 @@ export default function PriceListsPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Pricing command"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Price governance</span>
-            <span className="status-chip">Live</span>
+            <span className="status-chip">{t('badgePriceGovernance')}</span>
+            <span className="status-chip">{t('badgeLive')}</span>
           </>
         }
         actions={
@@ -283,19 +310,19 @@ export default function PriceListsPage() {
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Price lists</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiPriceLists')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{lists.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active lists</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActiveLists')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{activeLists}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Overrides</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiOverrides')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{overrideCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Variant pool</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiVariantPool')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
         </article>
       </div>
@@ -326,6 +353,7 @@ export default function PriceListsPage() {
         <h3 className="text-lg font-semibold text-gold-100">{t('assignTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-3">
           <SmartSelect
+            instanceId="pricelist-assign-list"
             value={itemForm.listId}
             onChange={(value) => setItemForm({ ...itemForm, listId: value })}
             options={lists.map((list) => ({
@@ -336,19 +364,15 @@ export default function PriceListsPage() {
             isClearable
             className="nvi-select-container"
           />
-          <SmartSelect
-            value={itemForm.variantId}
-            onChange={(value) =>
-              setItemForm({ ...itemForm, variantId: value })
-            }
-            options={variants.map((variant) => ({
-              value: variant.id,
-              label: formatVariantLabel({
-                id: variant.id,
-                name: variant.name,
-                productName: variant.product?.name ?? null,
-              }),
+          <AsyncSmartSelect
+            instanceId="pricelist-assign-variant"
+            value={getVariantOption(itemForm.variantId)}
+            loadOptions={loadVariantOptions}
+            defaultOptions={variants.map((v) => ({
+              value: v.id,
+              label: formatVariantLabel({ id: v.id, name: v.name, productName: v.product?.name ?? null }),
             }))}
+            onChange={(opt) => setItemForm({ ...itemForm, variantId: opt?.value ?? '' })}
             placeholder={t('selectVariant')}
             isClearable
             className="nvi-select-container"
@@ -395,6 +419,7 @@ export default function PriceListsPage() {
                     className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                   />
                   <SmartSelect
+                    instanceId={`pricelist-edit-status-${list.id}`}
                     value={editing.status ?? 'ACTIVE'}
                     onChange={(value) =>
                       setEditing({
@@ -415,7 +440,7 @@ export default function PriceListsPage() {
                   <div>
                     <p className="text-sm text-gold-100">{list.name}</p>
                     <p className="text-xs text-gold-400">
-                      {t('statusLabel')}: {list.status ?? 'ACTIVE'}
+                      {t('statusLabel')}: {listStatusLabels[list.status ?? 'ACTIVE'] ?? list.status ?? common('statusActive')}
                     </p>
                   </div>
                   <button

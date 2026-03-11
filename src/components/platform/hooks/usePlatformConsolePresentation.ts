@@ -35,12 +35,14 @@ export function usePlatformConsolePresentation({
   businessTrendRange,
   queuesSummary,
   overviewSnapshot,
+  locale,
 }: {
   t: Translate;
   metrics: MetricsSeed | null;
   businessTrendRange: '7d' | '30d';
   queuesSummary: QueueSummaryPayloadSeed | null;
   overviewSnapshot: OverviewSnapshotSeed | null;
+  locale: string;
 }) {
   const formatDateLabel = useCallback(
     (value?: string | null) => {
@@ -51,9 +53,9 @@ export function usePlatformConsolePresentation({
       if (Number.isNaN(parsed.getTime())) {
         return t('notAvailable');
       }
-      return parsed.toLocaleDateString();
+      return parsed.toLocaleDateString(locale);
     },
-    [t],
+    [t, locale],
   );
 
   const getDaysRemaining = useCallback((value?: string | null) => {

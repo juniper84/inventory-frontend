@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -22,6 +22,7 @@ import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Branch = { id: string; name: string };
 
@@ -45,6 +46,8 @@ export default function ExpensesPage() {
   const t = useTranslations('expensesPage');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
+  const locale = useLocale();
+  const { formatDate } = useFormatDate();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('expenses.write');
   const [isLoading, setIsLoading] = useState(true);
@@ -58,6 +61,8 @@ export default function ExpensesPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const { filters, pushFilters, resetFilters } = useListFilters({
@@ -137,7 +142,28 @@ export default function ExpensesPage() {
     }
   }, [debouncedSearch, filters.search, pushFilters]);
 
-  const load = async (targetPage = 1, nextPageSize?: number) => {
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const [branchData, settings] = await Promise.all([
+        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', { token }),
+        apiFetch<SettingsResponse>('/settings', { token }),
+      ]);
+      setBranches(normalizePaginated(branchData).items);
+      if (settings.localeSettings?.currency) {
+        setForm((prev) => prev.currency ? prev : { ...prev, currency: settings.localeSettings?.currency ?? '' });
+      }
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     setIsLoading(true);
     const token = getAccessToken();
     if (!token) {
@@ -147,7 +173,7 @@ export default function ExpensesPage() {
     try {
       const effectivePageSize = nextPageSize ?? pageSize;
       const cursor =
-        targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+        targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
       const query = buildCursorQuery({
         limit: effectivePageSize,
         cursor: cursor ?? undefined,
@@ -159,35 +185,25 @@ export default function ExpensesPage() {
         from: filters.from || undefined,
         to: filters.to || undefined,
       });
-      const [branchData, expenseData, settings] = await Promise.all([
-        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
-          token,
-        }),
-        apiFetch<PaginatedResponse<Expense> | Expense[]>(
-          `/expenses${query}`,
-          { token },
-        ),
-        apiFetch<SettingsResponse>('/settings', { token }),
-      ]);
-      setBranches(normalizePaginated(branchData).items);
+      const expenseData = await apiFetch<PaginatedResponse<Expense> | Expense[]>(
+        `/expenses${query}`,
+        { token },
+      );
       const expenseResult = normalizePaginated(expenseData);
       setExpenses(expenseResult.items);
       setNextCursor(expenseResult.nextCursor);
       if (typeof expenseResult.total === 'number') {
         setTotal(expenseResult.total);
       }
-    setPage(targetPage);
-    setPageCursors((prev) => {
-      const nextState: Record<number, string | null> =
-        targetPage === 1 ? { 1: null } : { ...prev };
-      if (expenseResult.nextCursor) {
-        nextState[targetPage + 1] = expenseResult.nextCursor;
-      }
-      return nextState;
-    });
-      if (!form.currency && settings.localeSettings?.currency) {
-        setForm((prev) => ({ ...prev, currency: settings.localeSettings?.currency ?? '' }));
-      }
+      setPage(targetPage);
+      setPageCursors((prev) => {
+        const nextState: Record<number, string | null> =
+          targetPage === 1 ? { 1: null } : { ...prev };
+        if (expenseResult.nextCursor) {
+          nextState[targetPage + 1] = expenseResult.nextCursor;
+        }
+        return nextState;
+      });
     } catch (err) {
       setMessage({
         action: 'load',
@@ -197,21 +213,18 @@ export default function ExpensesPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, effectiveFilterBranchId, filters.search, filters.category, filters.status, filters.from, filters.to, t]);
+
+  useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
     load(1);
-  }, [
-    filters.search,
-    filters.branchId,
-    filters.category,
-    filters.status,
-    filters.from,
-    filters.to,
-  ]);
+  }, [load]);
 
   const submit = async () => {
     const token = getAccessToken();
@@ -267,34 +280,34 @@ export default function ExpensesPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Expense control"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Ops spend</span>
-            <span className="status-chip">Live</span>
+            <span className="status-chip">{t('badgeOpsSpend')}</span>
+            <span className="status-chip">{t('badgeLive')}</span>
           </>
         }
       />
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Rows</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiRows')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{expenses.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Total amount</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{totalAmount.toLocaleString()}</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiTotalAmount')}</p>
+          <p className="mt-2 text-3xl font-semibold text-gold-100">{totalAmount.toLocaleString(locale)}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Category filter</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiCategoryFilter')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">
             {filters.category || common('allCategories')}
           </p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Branch scope</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiBranchScope')}</p>
           <p className="mt-2 text-lg font-semibold text-gold-100">
             {filters.branchId
               ? branches.find((b) => b.id === filters.branchId)?.name ?? common('unknown')
@@ -313,6 +326,7 @@ export default function ExpensesPage() {
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         >
           <SmartSelect
+            instanceId="expenses-filter-branch"
             value={filters.branchId}
             onChange={(value) => pushFilters({ branchId: value })}
             options={branchOptions}
@@ -320,6 +334,7 @@ export default function ExpensesPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="expenses-filter-category"
             value={filters.category}
             onChange={(value) => pushFilters({ category: value })}
             options={categoryOptions}
@@ -327,6 +342,7 @@ export default function ExpensesPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="expenses-filter-status"
             value={filters.status}
             onChange={(value) => pushFilters({ status: value })}
             options={statusOptions}
@@ -352,6 +368,7 @@ export default function ExpensesPage() {
         <h3 className="text-lg font-semibold text-gold-100">{t('newExpense')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
+            instanceId="expenses-form-branch"
             value={form.branchId}
             onChange={(value) => setForm((prev) => ({ ...prev, branchId: value }))}
             options={branches.map((branch) => ({
@@ -363,6 +380,7 @@ export default function ExpensesPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="expenses-form-category"
             value={form.category}
             onChange={(value) =>
               setForm((prev) => ({ ...prev, category: value || 'GENERAL' }))
@@ -407,6 +425,7 @@ export default function ExpensesPage() {
           />
         </div>
         <button
+          type="button"
           onClick={submit}
           className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={!canWrite || isSubmitting}
@@ -432,7 +451,7 @@ export default function ExpensesPage() {
                     {expense.branch?.name ?? common('branch')} · {categoryLabel(expense.category)}
                   </p>
                   <p className="text-xs text-gold-400">
-                    {new Date(expense.expenseDate).toLocaleDateString()}
+                    {formatDate(expense.expenseDate)}
                   </p>
                 </div>
                 <div className="text-gold-100 font-semibold">

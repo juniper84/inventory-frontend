@@ -49,9 +49,11 @@ export function PlatformAuditCommandSurface({
   nextAuditInvestigationCursor,
   withAction,
   isLoadingMoreAudit,
+  locale,
 }: {
   show: boolean;
   t: (key: string, values?: Record<string, string | number | Date>) => string;
+  locale: string;
   auditBusinessId: string;
   setAuditBusinessId: (value: string) => void;
   businessSelectOptions: SelectOption[];
@@ -81,6 +83,7 @@ export function PlatformAuditCommandSurface({
       <h3 className="text-xl font-semibold">{t('platformAuditTitle')}</h3>
       <form className="grid gap-3 md:grid-cols-4" onSubmit={fetchAuditLogs}>
         <SmartSelect
+          instanceId="platform-audit-business"
           value={auditBusinessId}
           onChange={setAuditBusinessId}
           options={businessSelectOptions}
@@ -95,6 +98,7 @@ export function PlatformAuditCommandSurface({
           className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
         />
         <SmartSelect
+          instanceId="platform-audit-outcome"
           value={auditOutcome}
           onChange={(value) => setAuditOutcome(value)}
           placeholder={t('allOutcomes')}
@@ -126,8 +130,8 @@ export function PlatformAuditCommandSurface({
                 })}
               </p>
               <p className="text-gold-500">
-                {new Date(group.startedAt).toLocaleString()} →{' '}
-                {new Date(group.latestAt).toLocaleString()}
+                {new Date(group.startedAt).toLocaleString(locale)} →{' '}
+                {new Date(group.latestAt).toLocaleString(locale)}
               </p>
             </div>
             <p className="text-[11px] text-gold-500">
@@ -165,7 +169,7 @@ export function PlatformAuditCommandSurface({
               {group.actions.slice(0, 8).map((action) => (
                 <p key={action.id} className="text-[11px] text-gold-400">
                   {action.action} • {action.outcome} • {action.resourceType} •{' '}
-                  {new Date(action.createdAt).toLocaleString()}
+                  {new Date(action.createdAt).toLocaleString(locale)}
                 </p>
               ))}
             </div>
@@ -176,7 +180,7 @@ export function PlatformAuditCommandSurface({
                   <p key={action.id} className="text-[11px] text-gold-400">
                     {action.action} • {action.resourceType}
                     {action.reason ? ` • ${action.reason}` : ''} •{' '}
-                    {new Date(action.createdAt).toLocaleString()}
+                    {new Date(action.createdAt).toLocaleString(locale)}
                   </p>
                 ))
               ) : (

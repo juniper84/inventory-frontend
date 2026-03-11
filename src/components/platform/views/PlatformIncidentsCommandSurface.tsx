@@ -1,6 +1,7 @@
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import type { Dispatch, SetStateAction } from 'react';
+import { formatEnum } from '@/lib/format-enum';
 
 type SelectOption = { value: string; label: string };
 
@@ -95,6 +96,13 @@ export function PlatformIncidentsCommandSurface({
   nextIncidentCursor: string | null;
   isLoadingMoreIncidents: boolean;
 }) {
+  const severityLabels: Record<string, string> = {
+    LOW: t('severityLow'),
+    MEDIUM: t('severityMedium'),
+    HIGH: t('severityHigh'),
+    CRITICAL: t('severityCritical'),
+  };
+
   if (!show) {
     return null;
   }
@@ -117,6 +125,7 @@ export function PlatformIncidentsCommandSurface({
       </div>
       <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_auto]">
         <SmartSelect
+          instanceId="platform-incidents-filter-business"
           value={incidentFilters.businessId}
           onChange={(value) =>
             setIncidentFilters((prev) => ({ ...prev, businessId: value }))
@@ -128,6 +137,7 @@ export function PlatformIncidentsCommandSurface({
           placeholder={t('filterByBusiness')}
         />
         <SmartSelect
+          instanceId="platform-incidents-filter-status"
           value={incidentFilters.status}
           onChange={(value) =>
             setIncidentFilters((prev) => ({ ...prev, status: value }))
@@ -136,6 +146,7 @@ export function PlatformIncidentsCommandSurface({
           placeholder={t('allStatuses')}
         />
         <SmartSelect
+          instanceId="platform-incidents-filter-severity"
           value={incidentFilters.severity}
           onChange={(value) =>
             setIncidentFilters((prev) => ({ ...prev, severity: value }))
@@ -161,6 +172,7 @@ export function PlatformIncidentsCommandSurface({
       </div>
       <div className="grid gap-3 md:grid-cols-[2fr_1fr_2fr_auto]">
         <SmartSelect
+          instanceId="platform-incidents-create-business"
           value={incidentForm.businessId}
           onChange={(value) =>
             setIncidentForm((prev) => ({ ...prev, businessId: value }))
@@ -169,6 +181,7 @@ export function PlatformIncidentsCommandSurface({
           placeholder={t('selectBusinessToFlag')}
         />
         <SmartSelect
+          instanceId="platform-incidents-create-severity"
           value={incidentForm.severity}
           onChange={(value) =>
             setIncidentForm((prev) => ({ ...prev, severity: value }))
@@ -222,7 +235,7 @@ export function PlatformIncidentsCommandSurface({
                     </p>
                     <p className="text-[11px] text-gold-500">{incident.businessId}</p>
                     <p className="text-[11px]">
-                      {t('incidentSeverityLabel', { value: incident.severity })}
+                      {t('incidentSeverityLabel', { value: formatEnum(severityLabels, incident.severity) })}
                     </p>
                     <p className="text-[11px]">
                       {t('incidentStatusLabel', {
@@ -241,6 +254,7 @@ export function PlatformIncidentsCommandSurface({
                     </p>
                     <div className="mt-2 flex items-center gap-2">
                       <SmartSelect
+                        instanceId={`platform-incident-severity-${incident.id}`}
                         value={incidentSeverityEdits[incident.id] ?? incident.severity}
                         onChange={(value) =>
                           setIncidentSeverityEdits((prev) => ({

@@ -2,6 +2,7 @@ const ACCESS_TOKEN_KEY = 'nvi.accessToken';
 const REFRESH_TOKEN_KEY = 'nvi.refreshToken';
 const USER_KEY = 'nvi.user';
 const PLATFORM_ACCESS_TOKEN_KEY = 'nvi.platformAccessToken';
+const PLATFORM_REFRESH_TOKEN_KEY = 'nvi.platformRefreshToken';
 const DEVICE_ID_KEY = 'nvi.deviceId';
 const SESSION_ID_KEY = 'nvi.sessionId';
 const LAST_BUSINESS_KEY = 'nvi.lastBusinessId';
@@ -20,6 +21,7 @@ export function setSession(accessToken: string, refreshToken: string, user: Stor
   localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
+  document.cookie = 'nvi.auth=1; Path=/; SameSite=Lax; Max-Age=604800; Secure';
 }
 
 export function setTokens(accessToken: string, refreshToken: string) {
@@ -28,6 +30,7 @@ export function setTokens(accessToken: string, refreshToken: string) {
   }
   localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+  window.dispatchEvent(new CustomEvent('nvi-session-changed'));
 }
 
 export function clearSession() {
@@ -37,6 +40,12 @@ export function clearSession() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(PLATFORM_ACCESS_TOKEN_KEY);
+  localStorage.removeItem(PLATFORM_REFRESH_TOKEN_KEY);
+  localStorage.removeItem(LAST_BUSINESS_KEY);
+  document.cookie = 'nvi.auth=; Path=/; SameSite=Lax; Max-Age=0';
+  document.cookie = 'nvi.platform_auth=; Path=/; SameSite=Lax; Max-Age=0';
+  window.dispatchEvent(new CustomEvent('nvi-session-changed'));
 }
 
 export function getAccessToken() {
@@ -121,11 +130,15 @@ export function getStoredUser(): StoredUser | null {
   }
 }
 
-export function setPlatformSession(accessToken: string) {
+export function setPlatformSession(accessToken: string, refreshToken?: string) {
   if (typeof window === 'undefined') {
     return;
   }
   localStorage.setItem(PLATFORM_ACCESS_TOKEN_KEY, accessToken);
+  if (refreshToken) {
+    localStorage.setItem(PLATFORM_REFRESH_TOKEN_KEY, refreshToken);
+  }
+  document.cookie = 'nvi.platform_auth=1; Path=/; SameSite=Lax; Max-Age=604800; Secure';
 }
 
 export function clearPlatformSession() {
@@ -133,6 +146,8 @@ export function clearPlatformSession() {
     return;
   }
   localStorage.removeItem(PLATFORM_ACCESS_TOKEN_KEY);
+  localStorage.removeItem(PLATFORM_REFRESH_TOKEN_KEY);
+  document.cookie = 'nvi.platform_auth=; Path=/; SameSite=Lax; Max-Age=0';
 }
 
 export function getPlatformAccessToken() {
@@ -140,6 +155,13 @@ export function getPlatformAccessToken() {
     return null;
   }
   return localStorage.getItem(PLATFORM_ACCESS_TOKEN_KEY);
+}
+
+export function getPlatformRefreshToken() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  return localStorage.getItem(PLATFORM_REFRESH_TOKEN_KEY);
 }
 
 export function decodeJwt<T = Record<string, unknown>>(token: string) {

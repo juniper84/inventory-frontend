@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage, refreshSessionToken } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -21,6 +21,7 @@ import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Notification = {
   id: string;
@@ -37,6 +38,8 @@ const API_BASE_URL =
 
 export default function NotificationsPage() {
   const t = useTranslations('notificationsPage');
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
   const [isLoading, setIsLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<Record<string, boolean>>({});
   const [items, setItems] = useState<Notification[]>([]);
@@ -49,6 +52,8 @@ export default function NotificationsPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
   const [message, setMessage] = useToastState();
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -93,7 +98,7 @@ export default function NotificationsPage() {
     }
   }, [debouncedSearch, filters.search, pushFilters]);
 
-  const load = async (targetPage = 1, nextPageSize?: number) => {
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     setIsLoading(true);
     const token = getAccessToken();
     if (!token) {
@@ -102,7 +107,7 @@ export default function NotificationsPage() {
     }
     const effectivePageSize = nextPageSize ?? pageSize;
     const cursor =
-      targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+      targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
     try {
       const query = buildCursorQuery({
         limit: effectivePageSize,
@@ -143,20 +148,14 @@ export default function NotificationsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, filters.search, filters.status, filters.priority, filters.from, filters.to, t]);
 
   useEffect(() => {
     setPage(1);
     setPageCursors({ 1: null });
     setTotal(null);
     load(1);
-  }, [
-    filters.search,
-    filters.status,
-    filters.priority,
-    filters.from,
-    filters.to,
-  ]);
+  }, [load]);
 
   useEffect(() => {
     let active = true;
@@ -195,12 +194,22 @@ export default function NotificationsPage() {
       if (!active) {
         return;
       }
-      const token = getAccessToken();
-      if (!token) {
+      const mainToken = getAccessToken();
+      if (!mainToken) {
+        return;
+      }
+      let sseToken: string;
+      try {
+        const res = await apiFetch<{ token: string }>(
+          '/notifications/stream-token',
+          { method: 'POST', token: mainToken },
+        );
+        sseToken = res.token;
+      } catch {
         return;
       }
       const url = new URL(`${API_BASE_URL}/notifications/stream`);
-      url.searchParams.set('token', token);
+      url.searchParams.set('token', sseToken);
       source = new EventSource(url.toString());
 
       const handleNotification = (event: MessageEvent) => {
@@ -272,6 +281,10 @@ export default function NotificationsPage() {
     pageSize,
   ]);
 
+  const dispatchRefresh = () => {
+    window.dispatchEvent(new CustomEvent('nvi:notifications:refresh'));
+  };
+
   const markRead = async (id: string) => {
     const token = getAccessToken();
     if (!token) {
@@ -285,6 +298,7 @@ export default function NotificationsPage() {
           item.id === id ? { ...item, status: 'READ' } : item,
         ),
       );
+      dispatchRefresh();
       setMessage({ action: 'update', outcome: 'success', message: t('markedRead') });
     } catch (err) {
       setMessage({
@@ -315,6 +329,7 @@ export default function NotificationsPage() {
       await apiFetch('/notifications/read-all', { token, method: 'POST' });
       setItems((prev) => prev.map((item) => ({ ...item, status: 'READ' })));
       setSelectedIds(new Set());
+      dispatchRefresh();
       setMessage({ action: 'update', outcome: 'success', message: t('markedAllRead') });
     } catch (err) {
       setMessage({
@@ -348,6 +363,7 @@ export default function NotificationsPage() {
         ),
       );
       setSelectedIds(new Set());
+      dispatchRefresh();
       setMessage({
         action: 'update',
         outcome: 'success',
@@ -441,32 +457,32 @@ export default function NotificationsPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Alert inbox"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Stream</span>
-            <span className="status-chip">Live</span>
+            <span className="status-chip">{t('badgeStream')}</span>
+            <span className="status-chip">{t('badgeLive')}</span>
           </>
         }
       />
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Inbox size</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiInboxSize')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{items.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Unread</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiUnread')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{unreadCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Action required</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActionRequired')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{actionRequiredCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Selected</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiSelected')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{selectedCount}</p>
         </article>
       </div>
@@ -481,6 +497,7 @@ export default function NotificationsPage() {
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         >
           <SmartSelect
+            instanceId="notifications-filter-status"
             value={filters.status}
             onChange={(value) => pushFilters({ status: value })}
             options={statusOptions}
@@ -488,6 +505,7 @@ export default function NotificationsPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="notifications-filter-priority"
             value={filters.priority}
             onChange={(value) => pushFilters({ priority: value })}
             options={priorityOptions}
@@ -573,7 +591,7 @@ export default function NotificationsPage() {
                     />
                     <span>{priorityLabel(item.priority)}</span>
                   </label>
-                  <span>{new Date(item.createdAt).toLocaleString()}</span>
+                  <span>{formatDateTime(item.createdAt)}</span>
                 </div>
                 <h4 className="text-base font-semibold text-red-100">
                   {item.title}
@@ -583,6 +601,7 @@ export default function NotificationsPage() {
                 </p>
                 {item.status !== 'READ' ? (
                   <button
+                    type="button"
                     onClick={() => markRead(item.id)}
                     className="mt-3 inline-flex items-center gap-2 rounded border border-red-500/50 px-3 py-1 text-xs text-red-100 disabled:cursor-not-allowed disabled:opacity-70"
                     disabled={actionBusy[item.id]}
@@ -616,7 +635,7 @@ export default function NotificationsPage() {
                   />
                   <span>{priorityLabel(item.priority)}</span>
                 </label>
-                <span>{new Date(item.createdAt).toLocaleString()}</span>
+                <span>{formatDateTime(item.createdAt)}</span>
               </div>
               <h3 className="text-lg font-semibold text-gold-100">{item.title}</h3>
               <p className="text-sm text-gold-200">
@@ -624,6 +643,7 @@ export default function NotificationsPage() {
               </p>
               {item.status !== 'READ' ? (
                 <button
+                  type="button"
                   onClick={() => markRead(item.id)}
                   className="mt-3 inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
                   disabled={actionBusy[item.id]}

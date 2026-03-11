@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { useFormatDate } from '@/lib/business-context';
 import { apiFetch, refreshSessionToken } from '@/lib/api';
-import { getAccessToken } from '@/lib/auth';
+import { clearSession, getAccessToken } from '@/lib/auth';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { formatNotificationMessage } from '@/lib/notification-format';
+import { pushToast } from '@/lib/app-notifications';
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000/api/v1';
@@ -39,6 +41,7 @@ const PRIORITY_ORDER: Notification['priority'][] = [
 
 export function NotificationSurface({ locale }: { locale: string }) {
   const t = useTranslations('notifications');
+  const { formatDateTime, formatTime } = useFormatDate();
   const [items, setItems] = useState<Notification[]>([]);
   const [streamToken, setStreamToken] = useState<string | null>(null);
   const debugStream = process.env.NODE_ENV !== 'production';
@@ -69,13 +72,14 @@ export function NotificationSurface({ locale }: { locale: string }) {
       });
     }
 
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === 'nvi.accessToken') {
-        lastToken = event.newValue;
-        setStreamToken(event.newValue);
+    const handleStorage = (_event: StorageEvent) => {
+      const nextToken = getAccessToken();
+      if (nextToken !== lastToken) {
+        lastToken = nextToken;
+        setStreamToken(nextToken);
         if (debugStream) {
           console.info('[notifications] token sync storage', {
-            hasToken: Boolean(event.newValue),
+            hasToken: Boolean(nextToken),
           });
         }
       }
@@ -143,9 +147,12 @@ export function NotificationSurface({ locale }: { locale: string }) {
     };
     load();
     const interval = window.setInterval(load, 120000);
+    const handleRefresh = () => { void load(); };
+    window.addEventListener('nvi:notifications:refresh', handleRefresh);
     return () => {
       active = false;
       window.clearInterval(interval);
+      window.removeEventListener('nvi:notifications:refresh', handleRefresh);
     };
   }, [streamToken]);
 
@@ -159,8 +166,18 @@ export function NotificationSurface({ locale }: { locale: string }) {
       if (!streamToken) {
         return;
       }
+      let sseToken: string;
+      try {
+        const res = await apiFetch<{ token: string }>(
+          '/notifications/stream-token',
+          { method: 'POST', token: streamToken },
+        );
+        sseToken = res.token;
+      } catch {
+        return;
+      }
       const url = new URL(`${API_BASE_URL}/notifications/stream`);
-      url.searchParams.set('token', streamToken);
+      url.searchParams.set('token', sseToken);
       if (debugStream) {
         console.info('[notifications] stream connect', { url: url.toString() });
       }
@@ -226,8 +243,29 @@ export function NotificationSurface({ locale }: { locale: string }) {
         }, delay);
       };
 
+      const handleForceLogout = (event: MessageEvent) => {
+        source.close();
+        clearSession();
+        let reason: string | undefined;
+        try {
+          const data = JSON.parse(event.data) as { reason?: string };
+          reason = data.reason;
+        } catch {
+          // ignore parse errors
+        }
+        const message =
+          reason === 'deactivated'
+            ? t('accountDeactivated')
+            : t('sessionRevoked');
+        pushToast({ message, variant: 'warning', durationMs: 4000 });
+        setTimeout(() => {
+          window.location.href = `/${locale}/login`;
+        }, 3500);
+      };
+
       source.addEventListener('notification', handleNotification as EventListener);
       source.addEventListener('announcement', handleAnnouncement as EventListener);
+      source.addEventListener('force-logout', handleForceLogout as EventListener);
       source.addEventListener('ping', () => {
         retryRef.current = 0;
       });
@@ -322,6 +360,22 @@ export function NotificationSurface({ locale }: { locale: string }) {
     setDismissedIds((prev) => new Set([...prev, id]));
   };
 
+  const markRead = async (id: string) => {
+    const token = streamToken ?? getAccessToken();
+    if (!token) {
+      return;
+    }
+    try {
+      await apiFetch(`/notifications/${id}/read`, { token, method: 'POST' });
+      setItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, status: 'READ' } : item)),
+      );
+      window.dispatchEvent(new CustomEvent('nvi:notifications:refresh'));
+    } catch (err) {
+      console.warn('Failed to mark notification read', err);
+    }
+  };
+
   return (
     <>
       {announcement && announcement.id !== dismissedAnnouncementId ? (
@@ -336,7 +390,7 @@ export function NotificationSurface({ locale }: { locale: string }) {
             </div>
             <div className="flex items-center gap-3">
               <span className="rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--muted)]">
-                {new Date(announcement.startsAt).toLocaleString()}
+                {formatDateTime(announcement.startsAt)}
               </span>
               <button
                 type="button"
@@ -386,6 +440,13 @@ export function NotificationSurface({ locale }: { locale: string }) {
               </Link>
               <button
                 type="button"
+                onClick={() => void markRead(highest.id)}
+                className="rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--foreground)]"
+              >
+                {t('markRead')}
+              </button>
+              <button
+                type="button"
                 onClick={() => dismiss(highest.id)}
                 className="rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--muted)]"
               >
@@ -405,7 +466,7 @@ export function NotificationSurface({ locale }: { locale: string }) {
             >
               <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-[color:var(--muted)]">
                 <span>{item.priority}</span>
-                <span>{new Date(item.createdAt).toLocaleTimeString()}</span>
+                <span>{formatTime(item.createdAt)}</span>
               </div>
               <p className="mt-2 text-sm font-semibold text-[color:var(--foreground)]">
                 {item.title}
@@ -470,7 +531,7 @@ export function NotificationSurface({ locale }: { locale: string }) {
             </p>
             <p className="mt-4 text-xs text-[color:var(--muted)]">
               {announcement.severity} •{' '}
-              {new Date(announcement.startsAt).toLocaleString()}
+              {formatDateTime(announcement.startsAt)}
             </p>
             <div className="mt-6 flex items-center justify-end gap-3">
               <button

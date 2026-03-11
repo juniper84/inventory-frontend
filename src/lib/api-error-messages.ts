@@ -4,6 +4,7 @@ type ErrorMessageTable = Record<string, string>;
 
 export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
   en: {
+    A_USER_WITH_THIS_EMAIL_ALREADY_EXISTS: 'A user with this email already exists.',
     ADMIN_IS_NOT_ACTIVE: 'Admin is not active.',
     APPROVAL_NOT_FOUND: 'Approval not found.',
     APPROVAL_REFERENCE_MISSING: 'Approval reference missing.',
@@ -39,9 +40,12 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     EXPORT_JOB_NOT_FOUND: 'Export job not found.',
     EXPORTS_HTTP_ERROR: 'HTTP {details}',
     IMAGE_EXCEEDS_20MB_LIMIT: 'Image exceeds 20MB limit.',
+    IMPORT_DUPLICATE_BARCODE: 'Duplicate barcode found in import file.',
     IMPORT_MISSING_HEADERS: 'Missing headers: {details}',
     INSUFFICIENT_STOCK_FOR_SALE: 'Insufficient stock for sale.',
     INVALID_ACCESS_TOKEN: 'Invalid access token.',
+    INVALID_OR_EXPIRED_REFRESH_TOKEN: 'Invalid or expired refresh token.',
+    INVALID_PERMISSION_IDS: 'One or more permission IDs are invalid.',
     INVALID_CREDENTIALS: 'Invalid credentials.',
     INVALID_EXPENSE_CATEGORY: 'Invalid expense category.',
     INVALID_REFUND_QUANTITY: 'Invalid refund quantity.',
@@ -58,6 +62,7 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     MISSING_REQUIRED_SIGNUP_FIELDS: 'Missing required signup fields.',
     MULTIPLE_VARIANTS_MATCHED_THIS_BARCODE: 'Multiple variants matched this barcode.',
     NAME_IS_REQUIRED: 'name is required.',
+    NEW_PASSWORD_DOES_NOT_MEET_REQUIREMENTS: 'New password does not meet requirements.',
     NOTES_UNKNOWN_RESOURCE: 'Unknown resource for {details}',
     NOTES_UNSUPPORTED_LINK_TYPE: 'Unsupported link type: {details}',
     NOT_ALLOWED_TO_ARCHIVE_THIS_NOTE: 'Not allowed to archive this note.',
@@ -87,6 +92,7 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     RECEIVING_IS_NOT_ALLOWED_IN_OFFLINE_MODE: 'Receiving is not allowed in offline mode.',
     RECEIVING_LINE_NOT_FOUND: 'Receiving line not found.',
     REFRESH_TOKEN_DEVICE_MISMATCH: 'Refresh token device mismatch.',
+    REFRESH_TOKEN_REQUIRED_TO_SWITCH_BUSINESS: 'A valid session is required to switch business. Please sign in again.',
     REFRESH_TOKEN_EXPIRED: 'Refresh token expired.',
     REFRESH_TOKEN_REUSE_DETECTED: 'Refresh token reuse detected.',
     REQUEST_ALREADY_RESOLVED: 'Request already resolved.',
@@ -114,6 +120,7 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     SUPPLIER_IS_INACTIVE: 'Supplier is inactive.',
     SUPPORT_ACCESS_IS_READ_ONLY: 'Support access is read-only.',
     SYSTEM_OWNER_ROLE_MISSING: 'System Owner role missing.',
+    SYSTEM_ROLES_CANNOT_BE_RENAMED: 'System roles cannot be renamed.',
     TITLE_AND_BODY_ARE_REQUIRED: 'Title and body are required.',
     TYPE_AND_CSV_ARE_REQUIRED: 'type and csv are required.',
     TYPE_IS_REQUIRED: 'type is required.',
@@ -127,6 +134,9 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     UNSUPPORTED_IMPORT_TYPE: 'Unsupported import type.',
     UNSUPPORTED_UNIT_FOR_THIS_VARIANT: 'Unsupported unit for this variant.',
     USER_IS_NOT_ACTIVE: 'User is not active.',
+    YOU_CANNOT_DEACTIVATE_YOUR_OWN_ACCOUNT: 'You cannot deactivate your own account.',
+    YOU_CAN_ONLY_ASSIGN_ROLES_BELOW_YOUR_OWN_LEVEL: 'You can only assign roles below your own level.',
+    YOU_CAN_ONLY_INVITE_USERS_TO_ROLES_BELOW_YOUR_OWN_LEVEL: 'You can only invite users to roles below your own level.',
     USER_IS_NOT_ACTIVE_FOR_ANY_BUSINESS: 'User is not active for any business.',
     USER_IS_NOT_ACTIVE_FOR_THIS_BUSINESS: 'User is not active for this business.',
     USER_NOT_ACTIVE_FOR_THIS_BUSINESS: 'User not active for this business.',
@@ -138,6 +148,8 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     VARIANT_NOT_ON_PURCHASE_ORDER: 'Variant not on purchase order.',
     VARIANTID_IS_REQUIRED: 'variantId is required.',
     VERIFICATION_TOKEN_EXPIRED: 'Verification token expired.',
+    A_CATEGORY_CANNOT_BE_ITS_OWN_PARENT: 'A category cannot be its own parent.',
+    ALL_TRANSFER_ITEMS_MUST_HAVE_STOCK_TRACKING_ENABLED: 'All transfer items must have stock tracking enabled.',
     A_PENDING_SUBSCRIPTION_REQUEST_ALREADY_EXISTS:
       'A pending subscription request already exists.',
     ADDITIONAL_IMAGES_ARE_NOT_ENABLED_FOR_THIS_SUBSCRIPTION:
@@ -224,8 +236,59 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
       'Transfers are not allowed in offline mode.',
     UNKNOWN_PERMISSION: 'Unknown permission.',
     USER_ALREADY_HAS_THIS_PERMISSION: 'User already has this permission.',
+    BARCODE_IS_ALREADY_ASSIGNED_TO_ANOTHER_VARIANT: 'Barcode is already assigned to another variant.',
+    BATCH_DOES_NOT_MATCH_THE_SOURCE_BRANCH_OR_VARIANT: 'Batch does not match the source branch or variant.',
+    BATCH_IS_EXPIRED: 'Batch is expired.',
+    BATCH_NOT_FOUND: 'Batch not found.',
+    BATCH_TRACKING_IS_DISABLED: 'Batch tracking is disabled.',
+    BRANCH_NOT_FOUND: 'Branch not found.',
+    COUNTED_QUANTITY_CANNOT_BE_NEGATIVE: 'Counted quantity cannot be negative.',
+    IDEMPOTENCY_KEY_ALREADY_USED: 'Idempotency key already used.',
+    INSUFFICIENT_STOCK_FOR_TRANSFER: 'Insufficient stock for transfer.',
+    INVALID_EXPENSE_AMOUNT: 'Invalid expense amount.',
+    LOSS_REASON_IS_REQUIRED_FOR_NEGATIVE_ADJUSTMENTS: 'Loss reason is required for negative adjustments.',
+    MINIMUM_PRICE_CANNOT_BE_GREATER_THAN_THE_DEFAULT_PRICE: 'Minimum price cannot be greater than the default price.',
+    NEGATIVE_STOCK_IS_NOT_ALLOWED: 'Negative stock is not allowed.',
+    ONE_OR_MORE_VARIANTS_ARE_NOT_AVAILABLE_AT_THE_SOURCE_BRANCH: 'One or more variants are not available at the source branch.',
+    ONE_OR_MORE_VARIANTS_NOT_FOUND: 'One or more variants not found.',
+    RECEIVED_QUANTITY_EXCEEDS_REMAINING_QUANTITY: 'Received quantity exceeds remaining quantity.',
+    SETTING_THIS_PARENT_WOULD_CREATE_A_CIRCULAR_REFERENCE: 'Setting this parent would create a circular reference.',
+    SOURCE_AND_DESTINATION_BRANCHES_MUST_DIFFER: 'Source and destination branches must differ.',
+    SOURCE_OR_DESTINATION_BRANCH_NOT_FOUND: 'Source or destination branch not found.',
+    TRANSFER_CANNOT_BE_APPROVED_IN_ITS_CURRENT_STATUS: 'Transfer cannot be approved in its current status.',
+    TRANSFER_IS_ALREADY_CLOSED: 'Transfer is already closed.',
+    TRANSFER_MUST_BE_APPROVED_BEFORE_RECEIVING: 'Transfer must be approved before receiving.',
+    TRANSFER_NOT_FOUND: 'Transfer not found.',
+    ALL_LINE_QUANTITIES_MUST_BE_POSITIVE_AND_UNIT_COST_CANNOT_BE_NEGATIVE: 'All line quantities must be positive and unit cost cannot be negative.',
+    AN_ACTIVE_APPROVAL_POLICY_ALREADY_EXISTS_FOR_THIS_ACTION_TYPE: 'An active approval policy already exists for this action type.',
+    BANK_TRANSFER_REFERENCE_IS_REQUIRED: 'Bank transfer reference is required.',
+    CLOSING_CASH_AMOUNT_CANNOT_BE_NEGATIVE: 'Closing cash amount cannot be negative.',
+    ONE_OR_MORE_SELECTED_ROLES_ARE_INVALID_FOR_THIS_BUSINESS: 'One or more selected roles are invalid for this business.',
+    ONE_OR_MORE_VARIANTS_DO_NOT_BELONG_TO_THIS_BUSINESS: 'One or more variants do not belong to this business.',
+    PURCHASE_NOT_APPROVED_FOR_RECEIVING: 'Purchase not approved for receiving.',
+    PURCHASE_ORDER_CANNOT_BE_APPROVED_IN_ITS_CURRENT_STATUS: 'Purchase order cannot be approved in its current status.',
+    PURCHASE_ORDER_CANNOT_BE_EDITED_IN_ITS_CURRENT_STATUS: 'Purchase order cannot be edited in its current status.',
+    RETURN_MUST_INCLUDE_AT_LEAST_ONE_LINE: 'Return must include at least one line.',
+    SALE_HAS_NO_OUTSTANDING_BALANCE: 'Sale has no outstanding balance.',
+    YOU_CAN_ONLY_APPROVE_REQUESTS_FROM_USERS_WITH_A_LOWER_ROLE_THAN_YOURS: 'You can only approve requests from users with a lower role than yours.',
+    YOU_CAN_ONLY_REJECT_REQUESTS_FROM_USERS_WITH_A_LOWER_ROLE_THAN_YOURS: 'You can only reject requests from users with a lower role than yours.',
+    YOU_CANNOT_APPROVE_YOUR_OWN_REQUEST: 'You cannot approve your own request.',
+    YOU_CANNOT_REJECT_YOUR_OWN_REQUEST: 'You cannot reject your own request.',
+    ANNOUNCEMENT_NOT_FOUND: 'Announcement not found.',
+    CANNOT_REVOKE_ANOTHER_ADMINS_SESSION: "Cannot revoke another admin's session.",
+    END_DATE_MUST_BE_AFTER_START_DATE: 'End date must be after start date.',
+    INVALID_ACTION_FILTER_VALUE: 'Invalid action filter value.',
+    INVALID_BUSINESS_STATUS_TRANSITION: 'Invalid business status transition.',
+    INVALID_INCIDENT_STATUS_TRANSITION: 'Invalid incident status transition.',
+    INVALID_SEVERITY_MUST_BE_INFO_WARNING_OR_SECURITY: 'Invalid severity. Must be INFO, WARNING, or SECURITY.',
+    SUBSCRIPTION_LIMIT_EXCEEDED: 'Subscription limit exceeded.',
+    OFFLINE_NOT_AVAILABLE: 'Offline mode is not available on your current subscription plan.',
+    OFFLINE_LIMITS_EXCEEDED: 'Offline limits exceed the maximum allowed for your subscription tier.',
+    REQUEST_TIMEOUT: 'Request timed out. Please try again.',
+    NETWORK_ERROR: 'Network error. Please check your connection.',
   },
   sw: {
+    A_USER_WITH_THIS_EMAIL_ALREADY_EXISTS: 'Mtumiaji mwenye barua pepe hii tayari yupo.',
     ADMIN_IS_NOT_ACTIVE: 'Msimamizi hayuko hai.',
     APPROVAL_NOT_FOUND: 'Idhini haikupatikana.',
     APPROVAL_REFERENCE_MISSING: 'Rejea ya idhini haipo.',
@@ -243,7 +306,7 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     BUSINESS_IS_NOT_ACTIVE: 'Biashara haiko hai.',
     BUSINESS_MUST_BE_ARCHIVED_BEFORE_PURGE: 'Biashara lazima ihifadhiwe kabla ya kuondolewa kabisa.',
     BUSINESS_NOT_FOUND: 'Biashara haikupatikana.',
-    CANNOT_ADD_REMINDERS_TO_ARCHIVED_NOTES: 'Haiwezi kuongeza vikumbusho kwenye noti zilizohifadhiwa.',
+    CANNOT_ADD_REMINDERS_TO_ARCHIVED_NOTES: 'Hauruhusiwi kuongeza vikumbusho kwenye noti zilizohifadhiwa.',
     CATEGORYID_IS_REQUIRED: 'categoryId inahitajika.',
     CONFIRMATION_TEXT_DOES_NOT_MATCH: 'Maandishi ya uthibitisho hayalingani.',
     CONVERSION_FACTOR_IS_REQUIRED: 'Kipengele cha ubadilishaji kinahitajika.',
@@ -261,9 +324,12 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     EXPORT_JOB_NOT_FOUND: 'Kazi ya uhamishaji haikupatikana.',
     EXPORTS_HTTP_ERROR: 'HTTP {details}',
     IMAGE_EXCEEDS_20MB_LIMIT: 'Picha imezidi kikomo cha 20MB.',
+    IMPORT_DUPLICATE_BARCODE: 'Barcode inayorudiwa imepatikana katika faili la uingizaji.',
     IMPORT_MISSING_HEADERS: 'Vichwa vinakosekana: {details}',
     INSUFFICIENT_STOCK_FOR_SALE: 'Hisa haitoshi kwa mauzo.',
     INVALID_ACCESS_TOKEN: 'Tokeni ya ufikiaji si sahihi.',
+    INVALID_OR_EXPIRED_REFRESH_TOKEN: 'Tokeni ya upya si sahihi au imeisha muda.',
+    INVALID_PERMISSION_IDS: 'Kitambulisho kimoja au zaidi cha ruhusa si sahihi.',
     INVALID_CREDENTIALS: 'Taarifa za kuingia si sahihi.',
     INVALID_EXPENSE_CATEGORY: 'Kategoria ya gharama si sahihi.',
     INVALID_REFUND_QUANTITY: 'Kiasi cha kurejesha si sahihi.',
@@ -272,7 +338,7 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     INVALID_STOCK_COUNT_PAYLOAD: 'Data ya hesabu ya hisa si sahihi.',
     INVALID_SUPPORT_ACCESS_TOKEN: 'Tokeni ya msaada si sahihi.',
     ITEM_QUANTITY_MUST_BE_A_NUMBER: 'Kiasi cha bidhaa lazima kiwe nambari.',
-    ITEMS_ARE_REQUIRED: 'Vitu vinahitajika.',
+    ITEMS_ARE_REQUIRED: 'Bidhaa zinahitajika.',
     LINES_ARE_REQUIRED: 'Mistari inahitajika.',
     LINK_REQUIRES_RESOURCE_TYPE_AND_ID: 'Kiungo kinahitaji aina ya rasilimali na kitambulisho.',
     MISSING_ACCESS_TOKEN: 'Tokeni ya ufikiaji haipo.',
@@ -280,6 +346,7 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     MISSING_REQUIRED_SIGNUP_FIELDS: 'Sehemu muhimu za kujisajili zinakosekana.',
     MULTIPLE_VARIANTS_MATCHED_THIS_BARCODE: 'Matoleo mengi yamefanana na msimbo wa pau.',
     NAME_IS_REQUIRED: 'Jina linahitajika.',
+    NEW_PASSWORD_DOES_NOT_MEET_REQUIREMENTS: 'Nenosiri jipya halikidhi masharti.',
     NOTES_UNKNOWN_RESOURCE: 'Rasilimali haijulikani kwa {details}',
     NOTES_UNSUPPORTED_LINK_TYPE: 'Aina ya kiungo haijaungwa mkono: {details}',
     NOT_ALLOWED_TO_ARCHIVE_THIS_NOTE: 'Hauruhusiwi kuhifadhi noti hii.',
@@ -291,10 +358,10 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     OFFLINE_DEVICE_IS_NOT_ACTIVE: 'Kifaa cha nje ya mtandao hakiko hai.',
     OFFLINE_DEVICE_IS_NOT_REGISTERED: 'Kifaa cha nje ya mtandao hakijasajiliwa.',
     OFFLINE_SALE_EXCEEDS_MAX_TOTAL_VALUE: 'Mauzo ya nje ya mtandao yamezidi thamani ya juu.',
-    OFFLINE_SALE_OWNER_MISMATCH: 'Mmiliki wa mauzo ya nje ya mtandao haulingani.',
+    OFFLINE_SALE_OWNER_MISMATCH: 'Mmiliki wa mauzo ya nje ya mtandao halingani.',
     OFFLINE_SALE_QUEUE_LIMIT_REACHED: 'Kikomo cha foleni ya mauzo ya nje ya mtandao kimefikiwa.',
     OFFLINE_SALES_ARE_NOT_ENABLED: 'Mauzo ya nje ya mtandao hayajawezeshwa.',
-    OFFLINE_SESSION_DURATION_EXCEEDED: 'Muda wa kikao cha nje ya mtandao umevukwa.',
+    OFFLINE_SESSION_DURATION_EXCEEDED: 'Muda wa kikao cha nje ya mtandao umepita.',
     ONLY_COMPLETED_SALES_CAN_BE_REFUNDED: 'Ni mauzo yaliyokamilika pekee yanayoweza kurejeshewa.',
     ONLY_DRAFT_SALES_CAN_BE_VOIDED: 'Ni mauzo ya rasimu pekee yanayoweza kufutwa.',
     PASSWORD_DOES_NOT_MEET_REQUIREMENTS: 'Nenosiri halikidhi masharti.',
@@ -308,7 +375,8 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     REASON_IS_REQUIRED_FOR_SKU_REASSIGNMENT: 'Sababu inahitajika kwa kuhamisha SKU.',
     RECEIVING_IS_NOT_ALLOWED_IN_OFFLINE_MODE: 'Kupokea hakuruhusiwi katika hali ya nje ya mtandao.',
     RECEIVING_LINE_NOT_FOUND: 'Mstari wa upokeaji haukupatikana.',
-    REFRESH_TOKEN_DEVICE_MISMATCH: 'Kifaa cha tokeni ya upya hakilingani.',
+    REFRESH_TOKEN_DEVICE_MISMATCH: 'Tokeni ya upya hailingani na kifaa hiki. Tafadhali ingia tena.',
+    REFRESH_TOKEN_REQUIRED_TO_SWITCH_BUSINESS: 'Kikao halali kinahitajika kubadilisha biashara. Tafadhali ingia tena.',
     REFRESH_TOKEN_EXPIRED: 'Tokeni ya upya imeisha muda.',
     REFRESH_TOKEN_REUSE_DETECTED: 'Matumizi ya upya ya tokeni yamegunduliwa.',
     REQUEST_ALREADY_RESOLVED: 'Ombi tayari limetatuliwa.',
@@ -336,6 +404,7 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     SUPPLIER_IS_INACTIVE: 'Msambazaji hayuko hai.',
     SUPPORT_ACCESS_IS_READ_ONLY: 'Ufikiaji wa msaada ni wa kusoma tu.',
     SYSTEM_OWNER_ROLE_MISSING: 'Jukumu la mmiliki wa mfumo halipo.',
+    SYSTEM_ROLES_CANNOT_BE_RENAMED: 'Majukumu ya mfumo hayawezi kubadilishwa jina.',
     TITLE_AND_BODY_ARE_REQUIRED: 'Kichwa na maudhui vinahitajika.',
     TYPE_AND_CSV_ARE_REQUIRED: 'type na csv zinahitajika.',
     TYPE_IS_REQUIRED: 'type inahitajika.',
@@ -349,6 +418,9 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
     UNSUPPORTED_IMPORT_TYPE: 'Aina ya uingizaji haijaungwa mkono.',
     UNSUPPORTED_UNIT_FOR_THIS_VARIANT: 'Kipimo hiki hakijaungwa mkono kwa toleo hili.',
     USER_IS_NOT_ACTIVE: 'Mtumiaji hayuko hai.',
+    YOU_CANNOT_DEACTIVATE_YOUR_OWN_ACCOUNT: 'Huwezi kuzima akaunti yako mwenyewe.',
+    YOU_CAN_ONLY_ASSIGN_ROLES_BELOW_YOUR_OWN_LEVEL: 'Unaweza tu kuteua majukumu ya chini ya kiwango chako.',
+    YOU_CAN_ONLY_INVITE_USERS_TO_ROLES_BELOW_YOUR_OWN_LEVEL: 'Unaweza tu kuwaalika watumiaji kwa majukumu ya chini ya kiwango chako.',
     USER_IS_NOT_ACTIVE_FOR_ANY_BUSINESS: 'Mtumiaji hayuko hai kwa biashara yoyote.',
     USER_IS_NOT_ACTIVE_FOR_THIS_BUSINESS: 'Mtumiaji hayuko hai kwa biashara hii.',
     USER_NOT_ACTIVE_FOR_THIS_BUSINESS: 'Mtumiaji hayuko hai kwa biashara hii.',
@@ -447,6 +519,58 @@ export const API_ERROR_MESSAGES: Record<ErrorLocale, ErrorMessageTable> = {
       'Uhamisho hauruhusiwi katika hali ya nje ya mtandao.',
     UNKNOWN_PERMISSION: 'Ruhusa isiyojulikana.',
     USER_ALREADY_HAS_THIS_PERMISSION: 'Mtumiaji tayari ana ruhusa hii.',
+    BARCODE_IS_ALREADY_ASSIGNED_TO_ANOTHER_VARIANT: 'Barcode hii tayari imewekwa kwa toleo lingine.',
+    BATCH_DOES_NOT_MATCH_THE_SOURCE_BRANCH_OR_VARIANT: 'Batch hailingani na tawi au toleo la chanzo.',
+    BATCH_IS_EXPIRED: 'Batch imeisha muda wake.',
+    BATCH_NOT_FOUND: 'Batch haikupatikana.',
+    BATCH_TRACKING_IS_DISABLED: 'Ufuatiliaji wa batch umezimwa.',
+    BRANCH_NOT_FOUND: 'Tawi halikupatikana.',
+    COUNTED_QUANTITY_CANNOT_BE_NEGATIVE: 'Kiasi kilichohesabiwa hakiwezi kuwa hasi.',
+    IDEMPOTENCY_KEY_ALREADY_USED: 'Ufunguo wa idempotency tayari umetumika.',
+    INSUFFICIENT_STOCK_FOR_TRANSFER: 'Hisa haitoshi kwa uhamisho.',
+    INVALID_EXPENSE_AMOUNT: 'Kiasi cha gharama si sahihi.',
+    LOSS_REASON_IS_REQUIRED_FOR_NEGATIVE_ADJUSTMENTS: 'Sababu ya upotezaji inahitajika kwa marekebisho ya kupunguza hisa.',
+    MINIMUM_PRICE_CANNOT_BE_GREATER_THAN_THE_DEFAULT_PRICE: 'Bei ya chini haiwezi kuwa zaidi ya bei ya kawaida.',
+    NEGATIVE_STOCK_IS_NOT_ALLOWED: 'Hisa ya chini ya sifuri hairuhusiwi.',
+    ONE_OR_MORE_VARIANTS_ARE_NOT_AVAILABLE_AT_THE_SOURCE_BRANCH: 'Toleo moja au zaidi halipatikani kwenye tawi la chanzo.',
+    ONE_OR_MORE_VARIANTS_NOT_FOUND: 'Toleo moja au zaidi halikupatikana.',
+    RECEIVED_QUANTITY_EXCEEDS_REMAINING_QUANTITY: 'Kiasi kilichopokelewa kimezidi kiasi kilichobaki.',
+    SETTING_THIS_PARENT_WOULD_CREATE_A_CIRCULAR_REFERENCE: 'Kuweka mzazi huyu kungesababisha mzunguko wa makundi.',
+    SOURCE_AND_DESTINATION_BRANCHES_MUST_DIFFER: 'Matawi ya chanzo na lengwa lazima yawe tofauti.',
+    SOURCE_OR_DESTINATION_BRANCH_NOT_FOUND: 'Tawi la chanzo au lengwa halikupatikana.',
+    TRANSFER_CANNOT_BE_APPROVED_IN_ITS_CURRENT_STATUS: 'Uhamisho hauwezi kuidhinishwa katika hali yake ya sasa.',
+    TRANSFER_IS_ALREADY_CLOSED: 'Uhamisho umeshafungwa.',
+    TRANSFER_MUST_BE_APPROVED_BEFORE_RECEIVING: 'Uhamisho lazima uidhinishwe kabla ya kupokea.',
+    TRANSFER_NOT_FOUND: 'Uhamisho haukupatikana.',
+    A_CATEGORY_CANNOT_BE_ITS_OWN_PARENT: 'Kategoria haiwezi kuwa mzazi wake mwenyewe.',
+    ALL_TRANSFER_ITEMS_MUST_HAVE_STOCK_TRACKING_ENABLED: 'Bidhaa zote za uhamisho lazima ziwe na ufuatiliaji wa hisa.',
+    ALL_LINE_QUANTITIES_MUST_BE_POSITIVE_AND_UNIT_COST_CANNOT_BE_NEGATIVE: 'Kiasi cha mistari yote lazima kiwe chanya na gharama ya kitengo haiwezi kuwa hasi.',
+    AN_ACTIVE_APPROVAL_POLICY_ALREADY_EXISTS_FOR_THIS_ACTION_TYPE: 'Sera ya idhini inayofanya kazi tayari ipo kwa aina hii ya hatua.',
+    BANK_TRANSFER_REFERENCE_IS_REQUIRED: 'Nambari ya kumbukumbu ya uhamisho wa benki inahitajika.',
+    CLOSING_CASH_AMOUNT_CANNOT_BE_NEGATIVE: 'Kiasi cha pesa ya kufunga zamu hakiwezi kuwa hasi.',
+    ONE_OR_MORE_SELECTED_ROLES_ARE_INVALID_FOR_THIS_BUSINESS: 'Jukumu moja au zaidi lililochaguliwa si halali kwa biashara hii.',
+    ONE_OR_MORE_VARIANTS_DO_NOT_BELONG_TO_THIS_BUSINESS: 'Toleo moja au zaidi halihusiani na biashara hii.',
+    PURCHASE_NOT_APPROVED_FOR_RECEIVING: 'Manunuzi hayajaidhinishwa kwa upokeaji.',
+    PURCHASE_ORDER_CANNOT_BE_APPROVED_IN_ITS_CURRENT_STATUS: 'Oda ya manunuzi haiwezi kuidhinishwa katika hali yake ya sasa.',
+    PURCHASE_ORDER_CANNOT_BE_EDITED_IN_ITS_CURRENT_STATUS: 'Oda ya manunuzi haiwezi kuhaririwa katika hali yake ya sasa.',
+    RETURN_MUST_INCLUDE_AT_LEAST_ONE_LINE: 'Kirejesho lazima kiwe na angalau mstari mmoja.',
+    SALE_HAS_NO_OUTSTANDING_BALANCE: 'Mauzo haya hayana salio linalodaiwa.',
+    YOU_CAN_ONLY_APPROVE_REQUESTS_FROM_USERS_WITH_A_LOWER_ROLE_THAN_YOURS: 'Unaweza tu kuidhinisha maombi ya watumiaji wenye jukumu la chini kuliko lako.',
+    YOU_CAN_ONLY_REJECT_REQUESTS_FROM_USERS_WITH_A_LOWER_ROLE_THAN_YOURS: 'Unaweza tu kukataa maombi ya watumiaji wenye jukumu la chini kuliko lako.',
+    YOU_CANNOT_APPROVE_YOUR_OWN_REQUEST: 'Huwezi kuidhinisha ombi lako mwenyewe.',
+    YOU_CANNOT_REJECT_YOUR_OWN_REQUEST: 'Huwezi kukataa ombi lako mwenyewe.',
+    ANNOUNCEMENT_NOT_FOUND: 'Tangazo halikupatikana.',
+    CANNOT_REVOKE_ANOTHER_ADMINS_SESSION: 'Huwezi kufuta kikao cha msimamizi mwingine.',
+    END_DATE_MUST_BE_AFTER_START_DATE: 'Tarehe ya mwisho lazima iwe baada ya tarehe ya kuanza.',
+    INVALID_ACTION_FILTER_VALUE: 'Thamani ya kichujio cha hatua si sahihi.',
+    INVALID_BUSINESS_STATUS_TRANSITION: 'Mabadiliko ya hali ya biashara si sahihi.',
+    INVALID_INCIDENT_STATUS_TRANSITION: 'Mabadiliko ya hali ya tukio si sahihi.',
+    INVALID_SEVERITY_MUST_BE_INFO_WARNING_OR_SECURITY: 'Kiwango cha ukali si sahihi. Lazima iwe INFO, WARNING, au SECURITY.',
+    SUBSCRIPTION_LIMIT_EXCEEDED: 'Kikomo cha usajili kimevukwa.',
+    OFFLINE_NOT_AVAILABLE: 'Hali ya nje ya mtandao haipatikani kwenye mpango wako wa sasa wa usajili.',
+    OFFLINE_LIMITS_EXCEEDED: 'Mipaka ya nje ya mtandao imezidi kiwango kinachokubaliwa kwa kiwango chako cha usajili.',
+    REQUEST_TIMEOUT: 'Ombi limechukua muda mrefu. Tafadhali jaribu tena.',
+    NETWORK_ERROR: 'Hitilafu ya mtandao. Tafadhali angalia muunganisho wako.',
   },
 };
 
@@ -455,28 +579,28 @@ const extractDetails = (code: string, fallbackMessage?: string) => {
     return '';
   }
   if (code === 'EXPORTS_HTTP_ERROR') {
-    return fallbackMessage.replace(/^HTTP\\s+/i, '').trim();
+    return fallbackMessage.replace(/^HTTP\s+/i, '').trim();
   }
   if (code === 'PRISMA_DELETE_DISABLED') {
     return fallbackMessage
-      .replace(/^Deletes are disabled for\\s+/i, '')
-      .replace(/\\.$/, '')
+      .replace(/^Deletes are disabled for\s+/i, '')
+      .replace(/\.$/, '')
       .trim();
   }
   if (code === 'NOTES_UNKNOWN_RESOURCE') {
     return fallbackMessage
-      .replace(/^Unknown resource for\\s+/i, '')
-      .replace(/\\.$/, '')
+      .replace(/^Unknown resource for\s+/i, '')
+      .replace(/\.$/, '')
       .trim();
   }
   if (code === 'NOTES_UNSUPPORTED_LINK_TYPE') {
-    return fallbackMessage.replace(/^Unsupported link type:\\s*/i, '').trim();
+    return fallbackMessage.replace(/^Unsupported link type:\s*/i, '').trim();
   }
   if (code === 'IMPORT_MISSING_HEADERS') {
-    return fallbackMessage.replace(/^Missing headers:\\s*/i, '').trim();
+    return fallbackMessage.replace(/^Missing headers:\s*/i, '').trim();
   }
   if (code === 'SMS_SEND_FAILED') {
-    return fallbackMessage.replace(/^Infobip SMS send failed:\\s*/i, '').trim();
+    return fallbackMessage.replace(/^Infobip SMS send failed:\s*/i, '').trim();
   }
   const tail = fallbackMessage.split(':').slice(1).join(':').trim();
   return tail || fallbackMessage;

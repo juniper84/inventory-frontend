@@ -15,7 +15,7 @@ type SmartSelectProps = {
   isDisabled?: boolean;
   onChange: (value: string) => void;
   className?: string;
-  instanceId?: string;
+  instanceId: string;
   noOptionsMessage?: () => string;
 };
 

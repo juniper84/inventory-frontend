@@ -59,9 +59,11 @@ export function PlatformExportsCommandSurface({
   setExportDeliveryForm,
   markExportDelivered,
   isMarkingExportDelivered,
+  locale,
 }: {
   show: boolean;
   t: (key: string, values?: Record<string, string | number | Date>) => string;
+  locale: string;
   withAction: (key: string, task: () => void | Promise<void>) => Promise<void>;
   loadExportJobs: (cursor?: string, append?: boolean) => Promise<void>;
   loadExportQueueStats: () => Promise<void>;
@@ -118,6 +120,7 @@ export function PlatformExportsCommandSurface({
         </div>
         <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_auto]">
           <SmartSelect
+            instanceId="platform-exports-filter-business"
             value={exportFilters.businessId}
             onChange={(value) =>
               setExportFilters((prev) => ({ ...prev, businessId: value }))
@@ -129,6 +132,7 @@ export function PlatformExportsCommandSurface({
             placeholder={t('filterByBusiness')}
           />
           <SmartSelect
+            instanceId="platform-exports-filter-status"
             value={exportFilters.status}
             onChange={(value) =>
               setExportFilters((prev) => ({ ...prev, status: value }))
@@ -143,6 +147,7 @@ export function PlatformExportsCommandSurface({
             ]}
           />
           <SmartSelect
+            instanceId="platform-exports-filter-type"
             value={exportFilters.type}
             onChange={(value) =>
               setExportFilters((prev) => ({ ...prev, type: value }))
@@ -216,7 +221,7 @@ export function PlatformExportsCommandSurface({
                     <p className="text-[11px] text-gold-500">{job.businessId}</p>
                     <p className="text-[11px] text-gold-500">
                       {t('exportCreated', {
-                        value: new Date(job.createdAt).toLocaleString(),
+                        value: new Date(job.createdAt).toLocaleString(locale),
                       })}
                     </p>
                     {job.lastError ? (
@@ -296,6 +301,7 @@ export function PlatformExportsCommandSurface({
         <h3 className="text-xl font-semibold">{t('exportDeliveryTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <SmartSelect
+            instanceId="platform-exports-delivery-business"
             value={exportDeliveryBusinessId}
             onChange={setExportDeliveryBusinessId}
             options={businessSelectOptions}

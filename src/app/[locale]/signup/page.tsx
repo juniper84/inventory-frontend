@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useRouter } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
@@ -11,7 +11,7 @@ import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 export default function SignupPage() {
   const t = useTranslations('auth');
   const router = useRouter();
-  const params = useParams<{ locale: string }>();
+  const locale = useLocale();
   const [businessName, setBusinessName] = useState('');
   const [ownerName, setOwnerName] = useState('');
   const [email, setEmail] = useState('');
@@ -41,9 +41,10 @@ export default function SignupPage() {
           tier,
         }),
       });
-      if (response.verificationToken && response.businessId) {
+      if ((response.verificationToken || response.verificationRequired) && response.businessId) {
+        // Token travels via email only — do NOT include it in the redirect URL
         router.replace(
-          `/${params.locale}/verify-email?token=${response.verificationToken}&businessId=${encodeURIComponent(response.businessId)}&email=${encodeURIComponent(email)}`,
+          `/${locale}/verify-email?email=${encodeURIComponent(email)}`,
         );
       } else {
         setError(t('signupTokenMissing'));
@@ -58,29 +59,29 @@ export default function SignupPage() {
   return (
     <div className="space-y-6 nvi-reveal">
       <PremiumPageHeader
-        eyebrow="ACCOUNT PROVISIONING"
+        eyebrow={t('eyebrow')}
         title={t('createBusinessTitle')}
         subtitle={t('createBusinessSubtitle')}
         badges={
           <>
-            <span className="nvi-badge">TRIAL FLOW</span>
-            <span className="nvi-badge">{tier}</span>
+            <span className="nvi-badge">{t('badgeTrialFlow')}</span>
+            <span className="nvi-badge">{t(`tier${tier.charAt(0)}${tier.slice(1).toLowerCase()}`)}</span>
           </>
         }
       />
 
       <div className="grid gap-3 sm:grid-cols-3 nvi-stagger">
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">BUSINESS NAME</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{businessName.trim() ? 'SET' : 'PENDING'}</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiBusinessName')}</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{businessName.trim() ? t('set') : t('pending')}</p>
         </article>
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">OWNER</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{ownerName.trim() ? 'SET' : 'PENDING'}</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiOwner')}</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{ownerName.trim() ? t('set') : t('pending')}</p>
         </article>
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">STATUS</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('creating') : 'READY'}</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiStatus')}</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('creating') : t('ready')}</p>
         </article>
       </div>
 
@@ -90,12 +91,14 @@ export default function SignupPage() {
           onChange={(event) => setBusinessName(event.target.value)}
           placeholder={t('businessName')}
           className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          required
         />
         <input
           value={ownerName}
           onChange={(event) => setOwnerName(event.target.value)}
           placeholder={t('ownerName')}
           className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          required
         />
         <input
           value={email}
@@ -103,6 +106,8 @@ export default function SignupPage() {
           placeholder={t('ownerEmail')}
           type="email"
           className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          required
+          autoComplete="email"
         />
         <div className="space-y-2">
           <div className="relative">
@@ -112,6 +117,8 @@ export default function SignupPage() {
               placeholder={t('password')}
               type={showPassword ? 'text' : 'password'}
               className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 pr-12 text-gold-100"
+              autoComplete="new-password"
+              required
             />
             <button
               type="button"
@@ -124,6 +131,7 @@ export default function SignupPage() {
           <p className="text-xs text-gold-400">{t('passwordRequirements')}</p>
         </div>
         <SmartSelect
+          instanceId="signup-tier"
           value={tier}
           onChange={(value) => setTier(value)}
           options={[

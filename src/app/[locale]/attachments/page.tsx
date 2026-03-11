@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useCallback, useEffect, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
+import { confirmAction, useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { PageSkeleton } from '@/components/PageSkeleton';
@@ -14,10 +14,11 @@ import {
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
-import { formatEntityLabel } from '@/lib/display';
+import { formatEntityLabel, shortId } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Supplier = { id: string; name: string };
 type Purchase = { id: string; status: string; createdAt?: string; supplier?: Supplier | null };
@@ -38,9 +39,18 @@ export default function AttachmentsPage() {
   const t = useTranslations('attachmentsPage');
   const actions = useTranslations('actions');
   const common = useTranslations('common');
+  const locale = useLocale();
+  const { formatDate } = useFormatDate();
   const noAccess = useTranslations('noAccess');
   const permissions = getPermissionSet();
   const canWrite = permissions.has('attachments.write');
+  const getAttachmentStatusStyle = (status: string): string => {
+    switch (status) {
+      case 'ACTIVE': return 'border-green-500/50 bg-green-500/10 text-green-200';
+      case 'REMOVED': case 'ARCHIVED': return 'border-gray-600/50 bg-gray-900/40 text-gray-400';
+      default: return 'border-gold-700/50 bg-black/40 text-gold-400';
+    }
+  };
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -64,12 +74,31 @@ export default function AttachmentsPage() {
     0,
   );
   const formatDocLabel = (doc: Purchase | PurchaseOrder) => {
-    const dateLabel = doc.createdAt ? new Date(doc.createdAt).toLocaleDateString() : null;
+    const dateLabel = doc.createdAt ? formatDate(doc.createdAt) : null;
     const parts = [doc.supplier?.name ?? null, dateLabel, doc.status].filter(Boolean);
     return parts.length
       ? parts.join(' • ')
       : formatEntityLabel({ id: doc.id }, common('unknown'));
   };
+
+  const loadReferenceData = useCallback(async () => {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const [purchaseData, poData] = await Promise.all([
+        apiFetch<PaginatedResponse<Purchase> | Purchase[]>('/purchases?limit=200', { token }),
+        apiFetch<PaginatedResponse<PurchaseOrder> | PurchaseOrder[]>('/purchase-orders?limit=200', { token }),
+      ]);
+      setPurchases(normalizePaginated(purchaseData).items);
+      setPurchaseOrders(normalizePaginated(poData).items);
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
 
   const load = async (
     selectedId?: string,
@@ -92,18 +121,6 @@ export default function AttachmentsPage() {
       return;
     }
     try {
-      const [purchaseData, poData] = await Promise.all([
-        apiFetch<PaginatedResponse<Purchase> | Purchase[]>('/purchases?limit=200', {
-          token,
-        }),
-        apiFetch<PaginatedResponse<PurchaseOrder> | PurchaseOrder[]>(
-          '/purchase-orders?limit=200',
-          { token },
-        ),
-      ]);
-      setPurchases(normalizePaginated(purchaseData).items);
-      setPurchaseOrders(normalizePaginated(poData).items);
-
       const id = selectedId ?? targetId;
       const type = selectedType ?? targetType;
       if (!id) {
@@ -141,6 +158,10 @@ export default function AttachmentsPage() {
       }
     }
   };
+
+  useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
     load();
@@ -204,6 +225,12 @@ export default function AttachmentsPage() {
     if (!token) {
       return;
     }
+    const ok = await confirmAction({
+      title: t('removeConfirmTitle'),
+      message: t('removeConfirmMessage'),
+      confirmText: t('removeConfirmButton'),
+    });
+    if (!ok) return;
     setMessage(null);
     setRemovingId(id);
     try {
@@ -228,12 +255,12 @@ export default function AttachmentsPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Document control"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Attachments</span>
+            <span className="status-chip">{t('badgeAttachments')}</span>
             <span className="status-chip">{targetType === 'purchase' ? t('purchase') : t('purchaseOrder')}</span>
           </>
         }
@@ -248,20 +275,20 @@ export default function AttachmentsPage() {
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Loaded files</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiLoadedFiles')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{attachments.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Active versions</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActiveVersions')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{activeAttachments}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Storage (MB)</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiStorageMb')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{totalSizeMb.toFixed(2)}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Selected document</p>
-          <p className="mt-2 text-lg font-semibold text-gold-100">{targetId ? 'Linked' : 'Not selected'}</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiSelectedDocument')}</p>
+          <p className="mt-2 text-lg font-semibold text-gold-100">{targetId ? t('linked') : t('notSelected')}</p>
         </article>
       </div>
 
@@ -269,6 +296,7 @@ export default function AttachmentsPage() {
         <h3 className="text-lg font-semibold text-gold-100">{t('uploadTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-3">
           <SmartSelect
+            instanceId="attachment-target-type"
             value={targetType}
             onChange={(value) => {
               setTargetType(value as 'purchase' | 'purchaseOrder');
@@ -281,13 +309,14 @@ export default function AttachmentsPage() {
             ]}
           />
           <SmartSelect
+            instanceId="attachment-target-id"
             value={targetId}
             onChange={(value) => {
               setTargetId(value);
               setNextCursor(null);
               if (value) {
                 load(value, targetType).catch((err) =>
-                  setMessage(getApiErrorMessage(err, t('loadFailed'))),
+                  setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('loadFailed')) }),
                 );
               }
             }}
@@ -302,11 +331,19 @@ export default function AttachmentsPage() {
             className="md:col-span-2"
           />
         </div>
-        <input
-          type="file"
-          onChange={(event) => setFile(event.target.files?.[0] || null)}
-          className="text-sm text-gold-200"
-        />
+        <div className="space-y-1">
+          <input
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.csv"
+            onChange={(event) => setFile(event.target.files?.[0] || null)}
+            className="block w-full text-sm text-gold-300 file:mr-3 file:cursor-pointer file:rounded file:border file:border-gold-700/50 file:bg-black file:px-3 file:py-1.5 file:text-xs file:text-gold-100 hover:file:border-gold-500/60"
+          />
+          {file ? (
+            <p className="text-xs text-gold-400">
+              {file.name} · {(file.size / (1024 * 1024)).toFixed(2)} MB
+            </p>
+          ) : null}
+        </div>
         <button
           type="button"
           onClick={upload}
@@ -328,12 +365,11 @@ export default function AttachmentsPage() {
             <StatusBanner message={t('empty')} />
           ) : (
             <div className="overflow-auto text-sm text-gold-200">
-              <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
+              <table className="min-w-[640px] w-full text-left text-sm text-gold-100">
                 <thead className="text-xs uppercase text-gold-400">
                   <tr>
                     <th className="px-3 py-2">{t('filename')}</th>
-                    <th className="px-3 py-2">{t('mimeType')}</th>
-                    <th className="px-3 py-2">{t('size')}</th>
+                    <th className="px-3 py-2">{t('mimeType')} · {t('size')}</th>
                     <th className="px-3 py-2">{t('versionLabel')}</th>
                     <th className="px-3 py-2">{t('statusLabel')}</th>
                     <th className="px-3 py-2">{t('createdAt')}</th>
@@ -343,23 +379,29 @@ export default function AttachmentsPage() {
                 <tbody>
                   {attachments.map((attachment) => (
                     <tr key={attachment.id} className="border-t border-gold-700/20">
-                      <td className="px-3 py-2 font-semibold">{attachment.filename}</td>
-                      <td className="px-3 py-2">
-                        {attachment.mimeType ?? common('unknown')}
+                      <td className="max-w-[200px] truncate px-3 py-2 font-semibold text-gold-100">
+                        {attachment.filename}
                       </td>
                       <td className="px-3 py-2">
-                        {attachment.sizeMb ? `${attachment.sizeMb} MB` : common('unknown')}
+                        <p className="text-gold-300">{attachment.mimeType ?? '—'}</p>
+                        {attachment.sizeMb ? (
+                          <p className="text-[11px] text-gold-500">{attachment.sizeMb} MB</p>
+                        ) : null}
                       </td>
-                      <td className="px-3 py-2">v{attachment.version}</td>
-                      <td className="px-3 py-2">{attachment.status}</td>
+                      <td className="px-3 py-2 text-gold-400">v{attachment.version}</td>
                       <td className="px-3 py-2">
-                        {new Date(attachment.createdAt).toLocaleString()}
+                        <span className={`rounded border px-2 py-0.5 text-[11px] ${getAttachmentStatusStyle(attachment.status)}`}>
+                          {attachment.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-gold-300">
+                        {formatDate(attachment.createdAt)}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2 text-xs">
                           <a
                             href={attachment.url}
-                            className="rounded border border-gold-700/50 px-3 py-1 text-gold-100"
+                            className="rounded border border-gold-700/50 px-3 py-1.5 text-gold-100 hover:border-gold-500/60"
                             target="_blank"
                             rel="noreferrer"
                           >
@@ -368,7 +410,7 @@ export default function AttachmentsPage() {
                           <button
                             type="button"
                             onClick={() => remove(attachment.id)}
-                            className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
+                            className="inline-flex items-center gap-1.5 rounded border border-gold-700/50 px-3 py-1.5 text-gold-100 hover:border-red-500/40 disabled:cursor-not-allowed disabled:opacity-70"
                             disabled={removingId === attachment.id || !canWrite}
                             title={!canWrite ? noAccess('title') : undefined}
                           >
@@ -390,20 +432,31 @@ export default function AttachmentsPage() {
             {attachments.map((attachment) => (
               <div
                 key={attachment.id}
-                className="rounded border border-gold-700/40 bg-black/40 p-3"
+                className="rounded border border-gold-700/30 bg-black/40 p-4"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-gold-100">{attachment.filename}</p>
-                    <p className="text-xs text-gold-400">
-                      {attachment.mimeType ?? common('unknown')} • v{attachment.version}{' '}
-                      • {attachment.status}
-                    </p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="max-w-[60%] truncate font-semibold text-gold-100">
+                        {attachment.filename}
+                      </p>
+                      <span className={`rounded border px-2 py-0.5 text-[11px] ${getAttachmentStatusStyle(attachment.status)}`}>
+                        {attachment.status}
+                      </span>
+                      <span className="rounded bg-gold-900/20 px-2 py-0.5 text-[11px] text-gold-400">
+                        v{attachment.version}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gold-400">
+                      {attachment.mimeType ? <span>{attachment.mimeType}</span> : null}
+                      {attachment.sizeMb ? <span>{attachment.sizeMb} MB</span> : null}
+                      <span>{formatDate(attachment.createdAt)}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs">
+                  <div className="shrink-0 flex items-center gap-2">
                     <a
                       href={attachment.url}
-                      className="rounded border border-gold-700/50 px-3 py-1 text-gold-100"
+                      className="rounded border border-gold-700/50 px-3 py-1.5 text-xs text-gold-100 hover:border-gold-500/60"
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -412,7 +465,7 @@ export default function AttachmentsPage() {
                     <button
                       type="button"
                       onClick={() => remove(attachment.id)}
-                      className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
+                      className="inline-flex items-center gap-1.5 rounded border border-gold-700/50 px-3 py-1.5 text-xs text-gold-100 hover:border-red-500/40 disabled:cursor-not-allowed disabled:opacity-70"
                       disabled={removingId === attachment.id || !canWrite}
                       title={!canWrite ? noAccess('title') : undefined}
                     >

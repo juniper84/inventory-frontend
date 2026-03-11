@@ -1,6 +1,7 @@
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
+import type { ToastInput } from '@/lib/app-notifications';
 
 type Translate = (key: string, values?: Record<string, string | number | Date>) => string;
 
@@ -57,7 +58,7 @@ export function usePlatformAnnouncements({
 }: {
   token: string | null;
   t: Translate;
-  setMessage: (value: string | null) => void;
+  setMessage: (value: ToastInput | null) => void;
   announcementForm: AnnouncementForm;
   setAnnouncementForm: Dispatch<SetStateAction<AnnouncementForm>>;
   announcementTargetSignature: string;
@@ -80,24 +81,32 @@ export function usePlatformAnnouncements({
     ).padStart(2, '0')}`;
 
   const applyDefaultAnnouncementEnd = (startsAt: string, endsAt: string) => {
-    if (!startsAt || endsAt) {
-      return endsAt;
+    if (!startsAt) return endsAt;
+    const parsedStart = new Date(startsAt);
+    if (Number.isNaN(parsedStart.getTime())) return endsAt;
+    const nextEnd = new Date(parsedStart.getTime() + 24 * 60 * 60 * 1000);
+    // Auto-fill when endsAt is empty.
+    if (!endsAt) return formatLocalDateTime(nextEnd);
+    // If the existing endsAt is now before or equal to startsAt (e.g. admin
+    // pushed startsAt forward), bump endsAt to startsAt + 24h.
+    const parsedEnd = new Date(endsAt);
+    if (Number.isNaN(parsedEnd.getTime()) || parsedEnd <= parsedStart) {
+      return formatLocalDateTime(nextEnd);
     }
-    const parsed = new Date(startsAt);
-    if (Number.isNaN(parsed.getTime())) {
-      return endsAt;
-    }
-    const nextEnd = new Date(parsed.getTime() + 24 * 60 * 60 * 1000);
-    return formatLocalDateTime(nextEnd);
+    return endsAt;
   };
 
-  const loadAnnouncements = async () => {
+  const loadAnnouncements = useCallback(async () => {
     if (!token) {
       return;
     }
-    const data = await apiFetch<AnnouncementItem[]>('/platform/announcements', { token });
-    setAnnouncements(data);
-  };
+    try {
+      const data = await apiFetch<AnnouncementItem[]>('/platform/announcements', { token });
+      setAnnouncements(data);
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('announcementLoadFailed')));
+    }
+  }, [token, t, setMessage]);
 
   const createAnnouncement = async (event: FormEvent) => {
     event.preventDefault();
@@ -108,16 +117,24 @@ export function usePlatformAnnouncements({
       setMessage(t('announcementPreviewRequired'));
       return;
     }
+    if (!announcementForm.startsAt) {
+      setMessage(t('announcementStartRequired'));
+      return;
+    }
+    if (
+      announcementForm.endsAt &&
+      new Date(announcementForm.endsAt) <= new Date(announcementForm.startsAt)
+    ) {
+      setMessage(t('announcementEndBeforeStart'));
+      return;
+    }
 
-    const toIsoDateTime = (value: string) => {
-      if (!value) {
-        return undefined;
-      }
-      const parsed = new Date(value);
-      if (Number.isNaN(parsed.getTime())) {
-        return undefined;
-      }
-      return parsed.toISOString();
+    const toIsoDateTime = (value: string): string | undefined => {
+      if (!value) return undefined;
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return undefined;
+      // 'YYYY-MM-DDTHH:mm' is parsed as local browser time by the JS engine.
+      // Converting via toISOString() produces UTC, which the backend (UTC server) stores correctly.
+      return new Date(value).toISOString();
     };
 
     try {
@@ -183,6 +200,9 @@ export function usePlatformAnnouncements({
         }),
       );
     } catch (err) {
+      // Clear stale preview state so the submit guard is not bypassed on error.
+      setAnnouncementPreviewSignature('');
+      setAnnouncementAudiencePreview(null);
       setMessage(getApiErrorMessage(err, t('announcementPreviewFailed')));
     } finally {
       setIsPreviewingAnnouncementAudience(false);

@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
+import { getOfflineCache } from '@/lib/offline-store';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
+import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
+import { useVariantSearch } from '@/lib/use-variant-search';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
@@ -17,7 +20,7 @@ import {
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
-import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
+import { formatEntityLabel, formatVariantLabel, shortId } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { ListFilters } from '@/components/ListFilters';
@@ -25,6 +28,7 @@ import { useListFilters } from '@/lib/list-filters';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useBranchScope } from '@/lib/use-branch-scope';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Branch = { id: string; name: string };
 type Supplier = { id: string; name: string };
@@ -66,6 +70,8 @@ type SettingsResponse = {
 
 export default function ReceivingPage() {
   const t = useTranslations('receivingPage');
+  const locale = useLocale();
+  const { formatDate } = useFormatDate();
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
@@ -88,6 +94,9 @@ export default function ReceivingPage() {
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  // Ref so `load` can read cursor values without `pageCursors` being a dep
+  // (having it as a dep causes an infinite loop: load → setPageCursors → new load → effect re-fires)
+  const pageCursorsRef = useRef<Record<number, string | null>>({ 1: null });
   const [total, setTotal] = useState<number | null>(null);
   const [targetType, setTargetType] = useState<'purchase' | 'purchaseOrder'>(
     'purchase',
@@ -106,13 +115,13 @@ export default function ReceivingPage() {
       expiryDate: '',
     },
   ]);
-  const formatDocLabel = (doc: Purchase | PurchaseOrder) => {
-    const dateLabel = doc.createdAt ? new Date(doc.createdAt).toLocaleDateString() : null;
+  const formatDocLabel = useCallback((doc: Purchase | PurchaseOrder) => {
+    const dateLabel = doc.createdAt ? formatDate(doc.createdAt) : null;
     const parts = [doc.supplier?.name ?? null, dateLabel, doc.status].filter(Boolean);
     return parts.length
       ? parts.join(' • ')
       : formatEntityLabel({ id: doc.id }, common('unknown'));
-  };
+  }, [common]);
   const { filters, pushFilters, resetFilters } = useListFilters({
     search: '',
     branchId: '',
@@ -120,6 +129,7 @@ export default function ReceivingPage() {
     from: '',
     to: '',
   });
+  const { loadOptions: loadVariantOptions, getVariantData, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
   const { activeBranch } = useBranchScope();
   const [branchFilterInitialized, setBranchFilterInitialized] = useState(false);
   const [searchDraft, setSearchDraft] = useState(filters.search);
@@ -176,17 +186,68 @@ export default function ReceivingPage() {
     }
   }, [debouncedSearch, filters.search, pushFilters]);
 
-  const load = async (targetPage = 1, nextPageSize?: number) => {
+  const loadReferenceData = useCallback(async () => {
+    if (!navigator.onLine) return;
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const [branchData, purchaseData, poData, variantData, unitList, settings] = await Promise.all([
+        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', { token }),
+        apiFetch<PaginatedResponse<Purchase> | Purchase[]>('/purchases?limit=200', { token }),
+        apiFetch<PaginatedResponse<PurchaseOrder> | PurchaseOrder[]>('/purchase-orders?limit=200', { token }),
+        apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', { token }),
+        loadUnits(token),
+        apiFetch<SettingsResponse>('/settings', { token }),
+      ]);
+      setBranches(normalizePaginated(branchData).items);
+      setPurchases(normalizePaginated(purchaseData).items);
+      setPurchaseOrders(normalizePaginated(poData).items);
+      setVariants(normalizePaginated(variantData).items);
+      seedVariantCache(normalizePaginated(variantData).items);
+      setUnits(unitList);
+      setBatchTrackingEnabled(!!settings.stockPolicies?.batchTrackingEnabled);
+    } catch (err) {
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('loadFailed')),
+      });
+    }
+  }, [setMessage, t]);
+
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     setIsLoading(true);
     const token = getAccessToken();
     if (!token) {
       setIsLoading(false);
       return;
     }
+    if (!navigator.onLine) {
+      const cache = await getOfflineCache<{
+        branches?: Branch[];
+        variants?: Variant[];
+        units?: Unit[];
+      }>('snapshot');
+      if (cache) {
+        setBranches(cache.branches ?? []);
+        setVariants(cache.variants ?? []);
+        seedVariantCache(cache.variants ?? []);
+        setUnits(cache.units ?? []);
+      } else {
+        setMessage({ action: 'sync', outcome: 'info', message: t('offlineCacheUnavailable') });
+      }
+      setReceivings([]);
+      setNextCursor(null);
+      setPage(1);
+      setPageCursors({ 1: null });
+      setTotal(null);
+      setIsLoading(false);
+      return;
+    }
     try {
       const effectivePageSize = nextPageSize ?? pageSize;
       const cursor =
-        targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+        targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
       const query = buildCursorQuery({
         limit: effectivePageSize,
         cursor: cursor ?? undefined,
@@ -197,56 +258,26 @@ export default function ReceivingPage() {
         search: filters.search || undefined,
         includeTotal: targetPage === 1 ? '1' : undefined,
       });
-      const [
-        branchData,
-        purchaseData,
-        poData,
-        variantData,
-        unitList,
-        receivingData,
-        settings,
-      ] = await Promise.all([
-        apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
-          token,
-        }),
-        apiFetch<PaginatedResponse<Purchase> | Purchase[]>('/purchases?limit=200', {
-          token,
-        }),
-          apiFetch<PaginatedResponse<PurchaseOrder> | PurchaseOrder[]>(
-            '/purchase-orders?limit=200',
-            { token },
-          ),
-          apiFetch<PaginatedResponse<Variant> | Variant[]>('/variants?limit=200', {
-            token,
-          }),
-          loadUnits(token),
-          apiFetch<PaginatedResponse<ReceivingLine> | ReceivingLine[]>(
-            `/receiving${query}`,
-            { token },
-          ),
-          apiFetch<SettingsResponse>('/settings', { token }),
-        ]);
-      setBranches(normalizePaginated(branchData).items);
-      setPurchases(normalizePaginated(purchaseData).items);
-      setPurchaseOrders(normalizePaginated(poData).items);
-      setVariants(normalizePaginated(variantData).items);
-      setUnits(unitList);
+      const receivingData = await apiFetch<PaginatedResponse<ReceivingLine> | ReceivingLine[]>(
+        `/receiving${query}`,
+        { token },
+      );
       const receivingResult = normalizePaginated(receivingData);
       setReceivings(receivingResult.items);
       setNextCursor(receivingResult.nextCursor);
       if (typeof receivingResult.total === 'number') {
         setTotal(receivingResult.total);
       }
-    setPage(targetPage);
-    setPageCursors((prev) => {
-      const nextState: Record<number, string | null> =
-        targetPage === 1 ? { 1: null } : { ...prev };
-      if (receivingResult.nextCursor) {
-        nextState[targetPage + 1] = receivingResult.nextCursor;
-      }
-      return nextState;
-    });
-      setBatchTrackingEnabled(!!settings.stockPolicies?.batchTrackingEnabled);
+      setPage(targetPage);
+      setPageCursors((prev) => {
+        const nextState: Record<number, string | null> =
+          targetPage === 1 ? { 1: null } : { ...prev };
+        if (receivingResult.nextCursor) {
+          nextState[targetPage + 1] = receivingResult.nextCursor;
+        }
+        pageCursorsRef.current = nextState;
+        return nextState;
+      });
     } catch (err) {
       setMessage({
         action: 'load',
@@ -256,20 +287,20 @@ export default function ReceivingPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pageSize, filters.branchId, filters.status, filters.from, filters.to, filters.search, t]);
+
+  useEffect(() => {
+    loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
     setPage(1);
+    pageCursorsRef.current = { 1: null };
     setPageCursors({ 1: null });
     setTotal(null);
     load(1);
-  }, [
-    filters.search,
-    filters.branchId,
-    filters.status,
-    filters.from,
-    filters.to,
-  ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.branchId, filters.status, filters.from, filters.to, filters.search]);
 
   const updateLine = (id: string, patch: Partial<ReceiveLine>) => {
     setLines((prev) =>
@@ -298,7 +329,11 @@ export default function ReceivingPage() {
 
   const receive = async () => {
     const token = getAccessToken();
-    if (!token || !targetId) {
+    if (!token) {
+      return;
+    }
+    if (!targetId) {
+      setMessage({ action: 'save', outcome: 'warning', message: t('targetRequired') });
       return;
     }
     const payloadLines = lines
@@ -360,13 +395,13 @@ export default function ReceivingPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Warehouse receiving"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Live queue</span>
-            <span className="status-chip">{batchTrackingEnabled ? 'Batch tracking' : 'Standard'}</span>
+            <span className="status-chip">{t('badgeLiveQueue')}</span>
+            <span className="status-chip">{batchTrackingEnabled ? t('badgeBatchTracking') : t('badgeStandard')}</span>
           </>
         }
         actions={
@@ -381,25 +416,25 @@ export default function ReceivingPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Recent lines
+            {t('kpiRecentLines')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{receivings.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Manual receives
+            {t('kpiManualReceives')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{manualCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Batched lines
+            {t('kpiBatchedLines')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{batchedCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Target mode
+            {t('kpiTargetMode')}
           </p>
           <p className="mt-2 text-lg font-semibold text-gold-100">
             {targetType === 'purchase' ? t('purchase') : t('purchaseOrder')}
@@ -417,6 +452,7 @@ export default function ReceivingPage() {
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         >
           <SmartSelect
+            instanceId="filter-branch"
             value={filters.branchId}
             onChange={(value) => pushFilters({ branchId: value })}
             options={branchOptions}
@@ -424,6 +460,7 @@ export default function ReceivingPage() {
             className="nvi-select-container"
           />
           <SmartSelect
+            instanceId="filter-status"
             value={filters.status}
             onChange={(value) => pushFilters({ status: value })}
             options={statusOptions}
@@ -447,8 +484,9 @@ export default function ReceivingPage() {
 
       <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
         <h3 className="text-lg font-semibold text-gold-100">{t('receiveTitle')}</h3>
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-3">
           <SmartSelect
+            instanceId="receive-target-type"
             value={targetType}
             onChange={(value) =>
               setTargetType(value as 'purchase' | 'purchaseOrder')
@@ -459,6 +497,7 @@ export default function ReceivingPage() {
             ]}
           />
           <SmartSelect
+            instanceId="receive-target-document"
             value={targetId}
             onChange={(value) => setTargetId(value)}
             placeholder={t('selectDocument')}
@@ -469,42 +508,43 @@ export default function ReceivingPage() {
               }),
             )}
             isClearable
-            className="md:col-span-2"
+            className="sm:col-span-2 nvi-select-container"
+          />
+          <input
+            value={overrideReason}
+            onChange={(event) => setOverrideReason(event.target.value)}
+            placeholder={t('overrideReason')}
+            className="sm:col-span-3 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
         </div>
-        <input
-          value={overrideReason}
-          onChange={(event) => setOverrideReason(event.target.value)}
-          placeholder={t('overrideReason')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
         <div className="space-y-2">
           {lines.map((line) => (
             <div
               key={line.id}
               className={`grid gap-2 ${batchTrackingEnabled ? 'md:grid-cols-7' : 'md:grid-cols-5'}`}
             >
-              <SmartSelect
-                value={line.variantId}
-                onChange={(value) => {
-                  const variant = variants.find((item) => item.id === value);
+              <AsyncSmartSelect
+                instanceId={`line-${line.id}-variant`}
+                value={getVariantOption(line.variantId)}
+                loadOptions={loadVariantOptions}
+                defaultOptions={variants.map((v) => ({
+                  value: v.id,
+                  label: formatVariantLabel({
+                    id: v.id,
+                    name: v.name,
+                    productName: v.product?.name ?? null,
+                  }),
+                }))}
+                onChange={(opt) => {
+                  const variantId = opt?.value ?? '';
+                  const vd = getVariantData(variantId) ?? variants.find((v) => v.id === variantId);
                   updateLine(line.id, {
-                    variantId: value,
-                    unitId:
-                      variant?.sellUnitId ??
-                      variant?.baseUnitId ??
-                      line.unitId,
+                    variantId,
+                    unitId: vd?.baseUnitId ?? vd?.sellUnitId ?? line.unitId,
                   });
                 }}
                 placeholder={t('variant')}
-                options={variants.map((variant) => ({
-                  value: variant.id,
-                  label: formatVariantLabel({
-                    id: variant.id,
-                    name: variant.name,
-                    productName: variant.product?.name ?? null,
-                  }),
-                }))}
+                isClearable
               />
               <input
                 value={line.quantity}
@@ -515,6 +555,7 @@ export default function ReceivingPage() {
                 className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
               />
               <SmartSelect
+                instanceId={`line-${line.id}-unit`}
                 value={line.unitId}
                 onChange={(value) => updateLine(line.id, { unitId: value })}
                 options={units.map((unit) => ({
@@ -543,12 +584,9 @@ export default function ReceivingPage() {
                     placeholder={t('batchCode')}
                     className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                   />
-                  <input
-                    type="date"
+                  <DatePickerInput
                     value={line.expiryDate}
-                    onChange={(event) =>
-                      updateLine(line.id, { expiryDate: event.target.value })
-                    }
+                    onChange={(v) => updateLine(line.id, { expiryDate: v })}
                     placeholder={t('expiryDate')}
                     className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                   />
@@ -600,10 +638,10 @@ export default function ReceivingPage() {
                 <thead className="text-xs uppercase text-gold-400">
                   <tr>
                     <th className="px-3 py-2">{t('variant')}</th>
-                    <th className="px-3 py-2">{t('quantity')}</th>
-                    <th className="px-3 py-2">{t('unit')}</th>
+                    <th className="px-3 py-2">{t('quantity')} · {t('unit')}</th>
                     <th className="px-3 py-2">{t('unitCost')}</th>
                     <th className="px-3 py-2">{t('source')}</th>
+                    {batchTrackingEnabled ? <th className="px-3 py-2">{t('batchCode')}</th> : null}
                     <th className="px-3 py-2">{t('receivedAt')}</th>
                   </tr>
                 </thead>
@@ -613,22 +651,40 @@ export default function ReceivingPage() {
                       ? units.find((item) => item.id === line.unitId) ?? null
                       : null;
                     const unitLabel = unit ? buildUnitLabel(unit) : line.unitId ?? '';
-                    const sourceLabel = line.purchase
-                      ? t('purchaseShort', { id: formatDocLabel(line.purchase) })
-                      : line.purchaseOrder
-                        ? t('purchaseOrderShort', { id: formatDocLabel(line.purchaseOrder) })
-                        : t('manual');
+                    const sourceType = line.purchase ? 'purchase' : line.purchaseOrder ? 'purchaseOrder' : 'manual';
                     return (
                       <tr key={line.id} className="border-t border-gold-700/20">
-                        <td className="px-3 py-2 font-semibold">
-                          {line.variant?.name ?? t('variantFallback')}
-                        </td>
-                        <td className="px-3 py-2">{line.quantity}</td>
-                        <td className="px-3 py-2">{unitLabel}</td>
-                        <td className="px-3 py-2">{line.unitCost}</td>
-                        <td className="px-3 py-2">{sourceLabel}</td>
                         <td className="px-3 py-2">
-                          {new Date(line.receivedAt).toLocaleString()}
+                          <p className="font-semibold text-gold-100">
+                            {line.variant
+                              ? formatVariantLabel({
+                                  id: line.variant.id,
+                                  name: line.variant.name,
+                                  productName: line.variant.product?.name ?? null,
+                                })
+                              : t('variantFallback')}
+                          </p>
+                        </td>
+                        <td className="px-3 py-2 text-gold-300">{line.quantity} {unitLabel}</td>
+                        <td className="px-3 py-2 text-gold-300">{line.unitCost}</td>
+                        <td className="px-3 py-2">
+                          <span className={`rounded border px-2 py-0.5 text-[11px] ${
+                            sourceType === 'purchase'
+                              ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+                              : sourceType === 'purchaseOrder'
+                                ? 'border-purple-500/30 bg-purple-500/10 text-purple-300'
+                                : 'border-gold-700/40 bg-black/30 text-gold-500'
+                          }`}>
+                            {sourceType === 'purchase' ? t('purchase') : sourceType === 'purchaseOrder' ? t('purchaseOrder') : t('manual')}
+                          </span>
+                        </td>
+                        {batchTrackingEnabled ? (
+                          <td className="px-3 py-2 text-gold-400 text-xs">
+                            {line.batch?.code ?? '—'}
+                          </td>
+                        ) : null}
+                        <td className="px-3 py-2 text-xs text-gold-400">
+                          {formatDate(line.receivedAt)}
                         </td>
                       </tr>
                     );
@@ -639,59 +695,71 @@ export default function ReceivingPage() {
           </div>
         ) : (
           <div className="space-y-3 text-sm text-gold-200">
+            {!receivings.length ? (
+              <StatusBanner message={t('noReceivings')} />
+            ) : null}
             {receivings.map((line) => {
               const unit = line.unitId
                 ? units.find((item) => item.id === line.unitId) ?? null
                 : null;
               const unitLabel = unit ? buildUnitLabel(unit) : line.unitId ?? '';
+              const sourceType = line.purchase ? 'purchase' : line.purchaseOrder ? 'purchaseOrder' : 'manual';
               return (
                 <div
                   key={line.id}
-                  className="rounded border border-gold-700/40 bg-black/40 p-4 space-y-1"
+                  className="rounded border border-gold-700/30 bg-black/40 p-4"
                 >
-                  <p className="text-gold-100">
-                    {t('lineSummary', {
-                      name: line.variant?.name ?? t('variantFallback'),
-                      qty: line.quantity,
-                      unit: unitLabel,
-                      cost: line.unitCost,
-                    })}
-                  </p>
-                  <p className="text-xs text-gold-400">
-                    {t('sourceLine', {
-                      source: line.purchase
-                        ? t('purchaseShort', {
-                            id: formatDocLabel(line.purchase),
-                          })
-                        : line.purchaseOrder
-                          ? t('purchaseOrderShort', {
-                              id: formatDocLabel(line.purchaseOrder),
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-gold-100 truncate">
+                        {line.variant
+                          ? formatVariantLabel({
+                              id: line.variant.id,
+                              name: line.variant.name,
+                              productName: line.variant.product?.name ?? null,
                             })
-                          : t('manual'),
-                      date: new Date(line.receivedAt).toLocaleString(),
-                    })}
-                  </p>
-                  {line.batch?.code ? (
-                    <p className="text-xs text-gold-400">
-                      {t('batchLabel', {
-                        code: line.batch.code,
-                        expiry: line.batch.expiryDate
-                          ? new Date(line.batch.expiryDate).toLocaleDateString()
-                          : t('noExpiry'),
-                      })}
-                    </p>
-                  ) : null}
-                  {line.overrideReason ? (
-                    <p className="text-xs text-gold-400">
-                      {t('overrideLabel', { reason: line.overrideReason })}
-                    </p>
-                  ) : null}
+                          : t('variantFallback')}
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gold-400">
+                        <span>{line.quantity} {unitLabel} @ {line.unitCost}</span>
+                        <span>{formatDate(line.receivedAt)}</span>
+                        {line.purchase ? (
+                          <span>{line.purchase.supplier?.name ?? formatDocLabel(line.purchase)}</span>
+                        ) : line.purchaseOrder ? (
+                          <span>{line.purchaseOrder.supplier?.name ?? formatDocLabel(line.purchaseOrder)}</span>
+                        ) : null}
+                      </div>
+                      {(line.batch?.code || line.overrideReason) ? (
+                        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gold-500">
+                          {line.batch?.code ? (
+                            <span>
+                              {t('batchLabel', {
+                                code: line.batch.code,
+                                expiry: line.batch.expiryDate
+                                  ? formatDate(line.batch.expiryDate)
+                                  : t('noExpiry'),
+                              })}
+                            </span>
+                          ) : null}
+                          {line.overrideReason ? (
+                            <span>{t('overrideLabel', { reason: line.overrideReason })}</span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                    <span className={`shrink-0 rounded border px-2 py-0.5 text-[11px] ${
+                      sourceType === 'purchase'
+                        ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+                        : sourceType === 'purchaseOrder'
+                          ? 'border-purple-500/30 bg-purple-500/10 text-purple-300'
+                          : 'border-gold-700/40 bg-black/30 text-gold-500'
+                    }`}>
+                      {sourceType === 'purchase' ? t('purchase') : sourceType === 'purchaseOrder' ? t('purchaseOrder') : t('manual')}
+                    </span>
+                  </div>
                 </div>
               );
             })}
-            {!receivings.length ? (
-              <StatusBanner message={t('noReceivings')} />
-            ) : null}
           </div>
         )}
         <div className="pt-2">

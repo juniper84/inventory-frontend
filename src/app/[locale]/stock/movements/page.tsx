@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -14,6 +14,7 @@ import { SmartSelect } from '@/components/SmartSelect';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { ListFilters } from '@/components/ListFilters';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 import {
   buildCursorQuery,
   normalizePaginated,
@@ -60,6 +61,8 @@ export default function StockMovementsPage() {
   const t = useTranslations('stockMovementsPage');
   const actions = useTranslations('actions');
   const common = useTranslations('common');
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
@@ -89,12 +92,31 @@ export default function StockMovementsPage() {
     [branches, common],
   );
 
+  const movementTypeLabels = useMemo<Record<string, string>>(
+    () => ({
+      OPENING_BALANCE: t('typeOpeningBalance'),
+      PURCHASE_IN: t('typePurchaseIn'),
+      SALE_OUT: t('typeSaleOut'),
+      ADJUSTMENT_POSITIVE: t('typeAdjustmentPositive'),
+      ADJUSTMENT_NEGATIVE: t('typeAdjustmentNegative'),
+      TRANSFER_OUT: t('typeTransferOut'),
+      TRANSFER_IN: t('typeTransferIn'),
+      RETURN_IN: t('typeReturnIn'),
+      RETURN_OUT: t('typeReturnOut'),
+      STOCK_COUNT_VARIANCE: t('typeStockCountVariance'),
+    }),
+    [t],
+  );
+
   const typeOptions = useMemo(
     () => [
       { value: '', label: common('allTypes') },
-      ...MOVEMENT_TYPES.map((type) => ({ value: type, label: type })),
+      ...MOVEMENT_TYPES.map((type) => ({
+        value: type,
+        label: movementTypeLabels[type] ?? type,
+      })),
     ],
-    [common],
+    [common, movementTypeLabels],
   );
   const actorOptions = useMemo(
     () => [
@@ -147,7 +169,7 @@ export default function StockMovementsPage() {
     }
   }, [debouncedSearch, filters.search, pushFilters]);
 
-  const load = async (cursor?: string, append = false) => {
+  const load = useCallback(async (cursor?: string, append = false) => {
     if (append) {
       setIsLoadingMore(true);
     } else {
@@ -195,19 +217,12 @@ export default function StockMovementsPage() {
         setIsLoading(false);
       }
     }
-  };
+  }, [filters.branchId, filters.type, filters.actorId, filters.from, filters.to, filters.search, t]);
 
   useEffect(() => {
     setNextCursor(null);
     load();
-  }, [
-    filters.branchId,
-    filters.type,
-    filters.actorId,
-    filters.from,
-    filters.to,
-    filters.search,
-  ]);
+  }, [load]);
 
   if (isLoading) {
     return <PageSkeleton />;
@@ -231,30 +246,30 @@ export default function StockMovementsPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Movement rows
+            {t('kpiMovementRows')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{movements.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            Actor options
+            {t('kpiActorOptions')}
           </p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{actorOptions.length - 1}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            View mode
+            {t('kpiViewMode')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">
-            {viewMode === 'table' ? 'Table' : 'Cards'}
+            {viewMode === 'table' ? t('kpiViewTable') : t('kpiViewCards')}
           </p>
         </article>
         <article className="kpi-card nvi-tile p-4">
           <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            More pages
+            {t('kpiMorePages')}
           </p>
           <p className="mt-2 text-xl font-semibold text-gold-100">
-            {nextCursor ? 'Available' : 'Complete'}
+            {nextCursor ? t('kpiMorePagesYes') : t('kpiMorePagesNo')}
           </p>
         </article>
       </div>
@@ -268,6 +283,7 @@ export default function StockMovementsPage() {
         onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
       >
         <SmartSelect
+          instanceId="movements-filter-branch"
           value={filters.branchId}
           onChange={(value) => pushFilters({ branchId: value })}
           options={branchOptions}
@@ -275,6 +291,7 @@ export default function StockMovementsPage() {
           className="nvi-select-container"
         />
         <SmartSelect
+          instanceId="movements-filter-type"
           value={filters.type}
           onChange={(value) => pushFilters({ type: value })}
           options={typeOptions}
@@ -282,6 +299,7 @@ export default function StockMovementsPage() {
           className="nvi-select-container"
         />
         <SmartSelect
+          instanceId="movements-filter-actor"
           value={filters.actorId}
           onChange={(value) => pushFilters({ actorId: value })}
           options={actorOptions}
@@ -331,7 +349,7 @@ export default function StockMovementsPage() {
                   </div>
                 </div>
                 <div className="text-xs text-gold-300">
-                  {new Date(movement.createdAt).toLocaleString()}
+                  {formatDateTime(movement.createdAt)}
                 </div>
                 <div className="min-w-0">{movement.branch?.name || t('empty')}</div>
                 <div className="min-w-0">
@@ -347,7 +365,7 @@ export default function StockMovementsPage() {
                     : t('empty')}
                 </div>
                 <div className="text-xs text-gold-300 truncate" title={movement.movementType}>
-                  {movement.movementType}
+                  {movementTypeLabels[movement.movementType] ?? movement.movementType}
                 </div>
                 <div className="tabular-nums">{movement.quantity}</div>
                 <div className="text-xs text-gold-300">
@@ -369,7 +387,7 @@ export default function StockMovementsPage() {
                 className="rounded border border-gold-700/40 bg-black/60 p-3 text-sm text-gold-200"
               >
                 <p className="text-xs text-gold-400">
-                  {new Date(movement.createdAt).toLocaleString()}
+                  {formatDateTime(movement.createdAt)}
                 </p>
                 <p className="text-base text-gold-100">
                   {movement.variant
@@ -383,7 +401,7 @@ export default function StockMovementsPage() {
                       )
                     : t('empty')}
                 </p>
-                <p>{movement.movementType}</p>
+                <p>{movementTypeLabels[movement.movementType] ?? movement.movementType}</p>
                 <p>
                   {t('quantity')}: {movement.quantity}
                 </p>

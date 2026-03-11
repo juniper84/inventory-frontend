@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import { useActiveBranch } from '@/lib/branch-context';
 import {
@@ -17,12 +17,15 @@ export function useBranchScope() {
     [pathname],
   );
 
-  const resolveBranchId = (selectedBranchId?: string | null) =>
-    resolveBranchIdForMode({
-      mode,
-      selectedBranchId,
-      activeBranchId: activeBranch?.id ?? '',
-    });
+  const resolveBranchId = useCallback(
+    (selectedBranchId?: string | null) =>
+      resolveBranchIdForMode({
+        mode,
+        selectedBranchId,
+        activeBranchId: activeBranch?.id ?? '',
+      }),
+    [mode, activeBranch],
+  );
 
   return {
     mode,

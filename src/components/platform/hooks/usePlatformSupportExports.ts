@@ -1,7 +1,8 @@
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { buildCursorQuery, normalizePaginated, type PaginatedResponse } from '@/lib/pagination';
+import { confirmAction, type ToastInput } from '@/lib/app-notifications';
 
 type Translate = (key: string, values?: Record<string, string | number | Date>) => string;
 
@@ -115,7 +116,7 @@ export function usePlatformSupportExports({
 }: {
   token: string | null;
   t: Translate;
-  setMessage: (value: string | null) => void;
+  setMessage: (value: ToastInput | null) => void;
 }) {
   const [isLoadingMoreSupport, setIsLoadingMoreSupport] = useState(false);
   const [isLoadingMoreSupportSessions, setIsLoadingMoreSupportSessions] = useState(false);
@@ -165,7 +166,7 @@ export function usePlatformSupportExports({
     type: '',
   });
 
-  const loadSupportRequests = async (cursor?: string, append = false) => {
+  const loadSupportRequests = useCallback(async (cursor?: string, append = false) => {
     if (!token) return;
     if (append) setIsLoadingMoreSupport(true);
     try {
@@ -192,9 +193,20 @@ export function usePlatformSupportExports({
     } finally {
       if (append) setIsLoadingMoreSupport(false);
     }
-  };
+  }, [
+    token,
+    supportFilters.status,
+    supportFilters.businessId,
+    supportFilters.platformAdminId,
+    supportFilters.severity,
+    supportFilters.priority,
+    supportFilters.requestedFrom,
+    supportFilters.requestedTo,
+    setMessage,
+    t,
+  ]);
 
-  const loadSupportSessions = async (cursor?: string, append = false) => {
+  const loadSupportSessions = useCallback(async (cursor?: string, append = false) => {
     if (!token) return;
     if (append) setIsLoadingMoreSupportSessions(true);
     try {
@@ -217,9 +229,16 @@ export function usePlatformSupportExports({
     } finally {
       if (append) setIsLoadingMoreSupportSessions(false);
     }
-  };
+  }, [
+    token,
+    supportFilters.businessId,
+    supportFilters.platformAdminId,
+    supportFilters.activeOnly,
+    setMessage,
+    t,
+  ]);
 
-  const loadSubscriptionRequests = async () => {
+  const loadSubscriptionRequests = useCallback(async () => {
     if (!token) return;
     try {
       const data = await apiFetch<PaginatedResponse<SubscriptionRequest> | SubscriptionRequest[]>(
@@ -231,7 +250,7 @@ export function usePlatformSupportExports({
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('loadSubscriptionRequestsFailed')));
     }
-  };
+  }, [token, setMessage, t]);
 
   const requestSupport = async (event: FormEvent) => {
     event.preventDefault();
@@ -272,7 +291,7 @@ export function usePlatformSupportExports({
     if (!token) return;
     setActivatingSupportId(requestId);
     try {
-      const response = await apiFetch<{ token: string; businessId: string }>(
+      const response = await apiFetch<{ businessId: string }>(
         `/platform/support-access/requests/${requestId}/activate`,
         {
           token,
@@ -282,7 +301,6 @@ export function usePlatformSupportExports({
       setMessage(
         t('supportTokenCreated', {
           businessId: response.businessId,
-          token: response.token,
         }),
       );
       await Promise.all([loadSupportRequests(), loadSupportSessions(), loadSubscriptionRequests()]);
@@ -349,7 +367,7 @@ export function usePlatformSupportExports({
     }
   };
 
-  const loadExportJobs = async (cursor?: string, append = false) => {
+  const loadExportJobs = useCallback(async (cursor?: string, append = false) => {
     if (!token) return;
     if (append) {
       setIsLoadingMoreExports(true);
@@ -380,9 +398,16 @@ export function usePlatformSupportExports({
         setIsLoadingExports(false);
       }
     }
-  };
+  }, [
+    token,
+    exportFilters.businessId,
+    exportFilters.status,
+    exportFilters.type,
+    setMessage,
+    t,
+  ]);
 
-  const loadExportQueueStats = async () => {
+  const loadExportQueueStats = useCallback(async () => {
     if (!token) return;
     setIsLoadingExportStats(true);
     try {
@@ -399,7 +424,13 @@ export function usePlatformSupportExports({
     } finally {
       setIsLoadingExportStats(false);
     }
-  };
+  }, [
+    token,
+    exportFilters.businessId,
+    exportFilters.type,
+    setMessage,
+    t,
+  ]);
 
   const exportOnExit = async (businessId: string) => {
     if (!token) return;
@@ -439,6 +470,12 @@ export function usePlatformSupportExports({
 
   const retryExportJob = async (jobId: string) => {
     if (!token) return;
+    const ok = await confirmAction({
+      title: t('exportRetryConfirmTitle'),
+      message: t('exportRetryConfirmMessage'),
+      confirmText: t('exportRetrySuccess'),
+    });
+    if (!ok) return;
     try {
       await apiFetch(`/platform/exports/${jobId}/retry`, {
         token,
@@ -454,6 +491,12 @@ export function usePlatformSupportExports({
 
   const requeueExportJob = async (jobId: string) => {
     if (!token) return;
+    const ok = await confirmAction({
+      title: t('exportRequeueConfirmTitle'),
+      message: t('exportRequeueConfirmMessage'),
+      confirmText: t('exportRequeueSuccess'),
+    });
+    if (!ok) return;
     try {
       await apiFetch(`/platform/exports/${jobId}/requeue`, {
         token,
@@ -469,6 +512,12 @@ export function usePlatformSupportExports({
 
   const cancelExportJob = async (jobId: string) => {
     if (!token) return;
+    const ok = await confirmAction({
+      title: t('exportCancelConfirmTitle'),
+      message: t('exportCancelConfirmMessage'),
+      confirmText: t('exportCancelSuccess'),
+    });
+    if (!ok) return;
     try {
       await apiFetch(`/platform/exports/${jobId}/cancel`, {
         token,

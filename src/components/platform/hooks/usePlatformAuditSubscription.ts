@@ -2,6 +2,7 @@ import type { FormEvent } from 'react';
 import { useMemo, useState } from 'react';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { buildCursorQuery, normalizePaginated, type PaginatedResponse } from '@/lib/pagination';
+import type { ToastInput } from '@/lib/app-notifications';
 
 type Translate = (key: string, values?: Record<string, string | number | Date>) => string;
 
@@ -47,7 +48,7 @@ export function usePlatformAuditSubscription({
 }: {
   token: string | null;
   t: Translate;
-  setMessage: (value: string | null) => void;
+  setMessage: (value: ToastInput | null) => void;
 }) {
   const [isLoadingMoreAudit, setIsLoadingMoreAudit] = useState(false);
   const [loadingLogs, setLoadingLogs] = useState(false);

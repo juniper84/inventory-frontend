@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { DayPicker } from 'react-day-picker';
 import { createPortal } from 'react-dom';
@@ -19,7 +19,8 @@ const minuteOptions = Array.from({ length: 12 }, (_, index) =>
   pad2(index * 5),
 );
 
-const formatDate = (date: Date) => date.toISOString().slice(0, 10);
+const formatDate = (date: Date) =>
+  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 
 const parseValue = (value: string) => {
   if (!value) {
@@ -52,6 +53,7 @@ export function DateTimePickerInput({
     null,
   );
   const anchorRef = useRef<HTMLDivElement>(null);
+  const portalRef = useRef<HTMLDivElement>(null);
   const parsed = useMemo(() => parseValue(value), [value]);
   const selected = useMemo(
     () =>
@@ -85,6 +87,36 @@ export function DateTimePickerInput({
     }
     onChange(`${parsed.datePart}T${hours}:${minutes}`);
   };
+
+  // Close on click-outside
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        anchorRef.current?.contains(target) ||
+        portalRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setOpen(false);
+      setPortalStyle(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Reposition on scroll or resize
+  useEffect(() => {
+    if (!open) return;
+    const reposition = () => updatePortalStyle();
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+    return () => {
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [open]);
 
   return (
     <div className="relative" ref={anchorRef}>
@@ -142,6 +174,7 @@ export function DateTimePickerInput({
       {open && portalStyle
         ? createPortal(
             <div
+              ref={portalRef}
               style={portalStyle}
               className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3 shadow-xl"
             >
@@ -153,6 +186,7 @@ export function DateTimePickerInput({
                     setDatePart(date);
                   }
                   setOpen(false);
+                  setPortalStyle(null);
                 }}
               />
             </div>,

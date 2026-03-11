@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -11,7 +11,6 @@ import { DatePickerInput } from '@/components/DatePickerInput';
 import { SmartSelect } from '@/components/SmartSelect';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
-import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import {
   buildCursorQuery,
   normalizePaginated,
@@ -21,6 +20,7 @@ import { buildAuditNarrative } from '@/lib/auditNarrative';
 import { formatEntityLabel } from '@/lib/display';
 import { useBranchScope } from '@/lib/use-branch-scope';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Branch = { id: string; name: string };
 type Role = { id: string; name: string };
@@ -89,15 +89,15 @@ const collectDiffHighlights = (
 const buildRelatedLinks = (
   log: AuditLog,
   t: (key: string) => string,
+  locale: string,
 ) => {
   const links: { label: string; href: string }[] = [];
   const resourceId = log.resourceId ?? '';
-  const addLink = (label: string, href: string) => links.push({ label, href });
+  const addLink = (label: string, href: string) => links.push({ label, href: `/${locale}${href}` });
   switch (log.resourceType) {
     case 'Sale':
     case 'SaleRefund':
       addLink(t('relatedReceipts'), '/receipts');
-      if (resourceId) addLink(t('relatedSaleApi'), `/api/v1/sales/${resourceId}`);
       break;
     case 'Approval':
     case 'ApprovalPolicy':
@@ -141,10 +141,88 @@ const buildRelatedLinks = (
   return links;
 };
 
+const formatFieldLabel = (field: string, labels: Record<string, string>): string => {
+  return field
+    .split('.')
+    .map((part) => labels[part] ?? part.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()).trim())
+    .join(' › ');
+};
+
 export default function AuditLogsPage() {
   const t = useTranslations('auditLogsPage');
   const common = useTranslations('common');
-  const actions = useTranslations('actions');
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
+  const fieldLabels = useMemo<Record<string, string>>(() => ({
+    id: t('fieldLabelId'),
+    businessId: t('fieldLabelBusinessId'),
+    branchId: t('fieldLabelBranchId'),
+    userId: t('fieldLabelUserId'),
+    roleId: t('fieldLabelRoleId'),
+    categoryId: t('fieldLabelCategoryId'),
+    productId: t('fieldLabelProductId'),
+    variantId: t('fieldLabelVariantId'),
+    supplierId: t('fieldLabelSupplierId'),
+    customerId: t('fieldLabelCustomerId'),
+    unitId: t('fieldLabelUnitId'),
+    priceListId: t('fieldLabelPriceListId'),
+    transferId: t('fieldLabelTransferId'),
+    purchaseOrderId: t('fieldLabelPurchaseOrderId'),
+    saleId: t('fieldLabelSaleId'),
+    approvedById: t('fieldLabelApprovedById'),
+    rejectedById: t('fieldLabelRejectedById'),
+    name: t('fieldLabelName'),
+    email: t('fieldLabelEmail'),
+    phone: t('fieldLabelPhone'),
+    address: t('fieldLabelAddress'),
+    city: t('fieldLabelCity'),
+    country: t('fieldLabelCountry'),
+    description: t('fieldLabelDescription'),
+    notes: t('fieldLabelNotes'),
+    content: t('fieldLabelContent'),
+    title: t('fieldLabelTitle'),
+    status: t('fieldLabelStatus'),
+    reason: t('fieldLabelReason'),
+    lossReason: t('fieldLabelLossReason'),
+    isActive: t('fieldLabelIsActive'),
+    isSystem: t('fieldLabelIsSystem'),
+    isArchived: t('fieldLabelIsArchived'),
+    isAnonymized: t('fieldLabelIsAnonymized'),
+    isReadOnly: t('fieldLabelIsReadOnly'),
+    isEnabled: t('fieldLabelIsEnabled'),
+    sku: t('fieldLabelSku'),
+    barcode: t('fieldLabelBarcode'),
+    costPrice: t('fieldLabelCostPrice'),
+    sellingPrice: t('fieldLabelSellingPrice'),
+    quantity: t('fieldLabelQuantity'),
+    reorderPoint: t('fieldLabelReorderPoint'),
+    minStock: t('fieldLabelMinStock'),
+    maxStock: t('fieldLabelMaxStock'),
+    movementType: t('fieldLabelMovementType'),
+    batchNumber: t('fieldLabelBatchNumber'),
+    expiryDate: t('fieldLabelExpiryDate'),
+    unitName: t('fieldLabelUnitName'),
+    total: t('fieldLabelTotal'),
+    subtotal: t('fieldLabelSubtotal'),
+    vat: t('fieldLabelVat'),
+    discount: t('fieldLabelDiscount'),
+    paymentMethod: t('fieldLabelPaymentMethod'),
+    currency: t('fieldLabelCurrency'),
+    exchangeRate: t('fieldLabelExchangeRate'),
+    receiptNumber: t('fieldLabelReceiptNumber'),
+    approvalTier: t('fieldLabelApprovalTier'),
+    approvalStatus: t('fieldLabelApprovalStatus'),
+    openedAt: t('fieldLabelOpenedAt'),
+    closedAt: t('fieldLabelClosedAt'),
+    openingBalance: t('fieldLabelOpeningBalance'),
+    closingBalance: t('fieldLabelClosingBalance'),
+    plan: t('fieldLabelPlan'),
+    expiresAt: t('fieldLabelExpiresAt'),
+    trialEndsAt: t('fieldLabelTrialEndsAt'),
+    deactivatedAt: t('fieldLabelDeactivatedAt'),
+    taxId: t('fieldLabelTaxId'),
+    website: t('fieldLabelWebsite'),
+  }), [t]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPaging, setIsPaging] = useState(false);
@@ -159,10 +237,11 @@ export default function AuditLogsPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
   const [chainLogs, setChainLogs] = useState<AuditLog[] | null>(null);
   const [chainAnchor, setChainAnchor] = useState<AuditLog | null>(null);
@@ -171,11 +250,10 @@ export default function AuditLogsPage() {
   const [showAuthRefresh, setShowAuthRefresh] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [activityFilter, setActivityFilter] = useState('');
-  const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>(
-    {},
-  );
+  const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const dashboardFilterInit = useRef(false);
   const branchFilterInit = useRef(false);
+  const chainSectionRef = useRef<HTMLDivElement>(null);
   const [userQuery, setUserQuery] = useState('');
   const [resourceQuery, setResourceQuery] = useState('');
   const { activeBranch } = useBranchScope();
@@ -357,7 +435,7 @@ export default function AuditLogsPage() {
     }
   };
 
-  const loadLogs = async (targetPage = 1, nextPageSize?: number) => {
+  const loadLogs = useCallback(async (targetPage = 1, nextPageSize?: number) => {
     const token = getAccessToken();
     if (!token) {
       setIsLoading(false);
@@ -368,7 +446,7 @@ export default function AuditLogsPage() {
     }
     const effectivePageSize = nextPageSize ?? pageSize;
     const cursor =
-      targetPage === 1 ? null : pageCursors[targetPage] ?? null;
+      targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
     const query = buildCursorQuery({
       limit: effectivePageSize,
       cursor: cursor ?? undefined,
@@ -422,7 +500,7 @@ export default function AuditLogsPage() {
       setIsPaging(false);
       setIsLoading(false);
     }
-  };
+  }, [pageSize, filters, showGuardChecks, showDashboardReports, showAuthRefresh, t]);
 
   const loadChain = async (log: AuditLog) => {
     const token = getAccessToken();
@@ -456,15 +534,18 @@ export default function AuditLogsPage() {
   };
 
   useEffect(() => {
+    if (!chainAnchor) return;
+    chainSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [chainAnchor]);
+
+  useEffect(() => {
     setIsLoading(true);
-    loadReferenceData()
-      .then(() => {
-        setPage(1);
-        setPageCursors({ 1: null });
-        setTotal(null);
-        return loadLogs(1);
-      })
-      .catch((err) => setMessage(getApiErrorMessage(err, t('loadFailed'))));
+    loadReferenceData().then(() => {
+      setPage(1);
+      setPageCursors({ 1: null });
+      setTotal(null);
+      loadLogs(1);
+    });
   }, []);
 
   useEffect(() => {
@@ -478,7 +559,7 @@ export default function AuditLogsPage() {
     setPageCursors({ 1: null });
     setTotal(null);
     loadLogs(1).finally(() => setIsRefreshing(false));
-  }, [showDashboardReports, showAuthRefresh]);
+  }, [showDashboardReports, showAuthRefresh, loadLogs]);
 
   useEffect(() => {
     if (filters.userId) {
@@ -602,6 +683,7 @@ export default function AuditLogsPage() {
             branchName,
             roleName,
             resourceLabel,
+            locale,
           }),
         };
       }),
@@ -648,43 +730,126 @@ export default function AuditLogsPage() {
     return <PageSkeleton />;
   }
 
+  const exportBase = buildCursorQuery({
+    ...filters,
+    approvalStatus: filters.approvalStatus || undefined,
+    from: filters.from || undefined,
+    to: filters.to || undefined,
+    showGuardChecks: showGuardChecks ? '1' : undefined,
+    showAuthRefresh: showAuthRefresh ? '1' : undefined,
+    showDashboardReports: showDashboardReports ? '1' : undefined,
+  });
+
+  const detailNarrative = selectedLog ? summaryMap.get(selectedLog.id) : null;
+  const detailRelatedLinks = selectedLog ? buildRelatedLinks(selectedLog, t, locale) : [];
+  const detailResolvedLabel = selectedLog ? resolveResourceLabel(selectedLog) : null;
+  const detailResolvedJson = selectedLog
+    ? selectedLog.resolved ?? ({
+        ...selectedLog,
+        labels: {
+          resource: detailResolvedLabel,
+          user: selectedLog.userId ? userMap.get(selectedLog.userId) ?? selectedLog.userId : null,
+          role: selectedLog.roleId ? roleMap.get(selectedLog.roleId) ?? selectedLog.roleId : null,
+          branch: selectedLog.branchId ? branchMap.get(selectedLog.branchId) ?? selectedLog.branchId : null,
+          device: typeof selectedLog.metadata?.deviceName === 'string'
+            ? selectedLog.metadata.deviceName
+            : selectedLog.deviceId ?? null,
+        },
+      } as Record<string, unknown>)
+    : null;
+  const detailResolvedDiff = detailResolvedJson && typeof detailResolvedJson === 'object'
+    ? ((detailResolvedJson as Record<string, unknown>).diff as Record<string, unknown> | null | undefined)
+    : null;
+  const detailDiffHighlights = collectDiffHighlights(detailResolvedDiff ?? null).slice(0, 8);
+
   return (
-    <section className="space-y-6">
+    <section className="nvi-page space-y-5 [overflow-x:clip]">
       <PremiumPageHeader
-        eyebrow="SECURITY LEDGER"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="nvi-badge">EVIDENCE LIVE</span>
-            <span className="nvi-badge">CHAIN READY</span>
+            <span className="nvi-badge">{t('badgeEvidenceLive')}</span>
+            <span className="nvi-badge">{t('badgeChainReady')}</span>
           </>
         }
       />
 
+      {/* KPI strip */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">LOADED EVENTS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiLoadedEvents')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{filteredLogs.length}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">SUCCESS</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{successCount}</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiSuccess')}</p>
+          <p className="mt-2 text-3xl font-semibold text-emerald-300">{successCount}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">FAILURE</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{failureCount}</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiFailure')}</p>
+          <p className="mt-2 text-3xl font-semibold text-red-300">{failureCount}</p>
         </article>
         <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">ACTIVE FILTERS</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActiveFilters')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{activeFilterCount}</p>
         </article>
       </div>
+
       {message ? <StatusBanner message={message} /> : null}
 
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-lg font-semibold text-gold-100">{t('filters')}</h3>
+      {/* Filter bar */}
+      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
+        {/* Primary filter row */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <DatePickerInput
+            value={filters.from}
+            onChange={(value) => setFilters({ ...filters, from: value })}
+            placeholder={t('fromDate')}
+            className="rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-[color:var(--foreground)]"
+          />
+          <DatePickerInput
+            value={filters.to}
+            onChange={(value) => setFilters({ ...filters, to: value })}
+            placeholder={t('toDate')}
+            className="rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-[color:var(--foreground)]"
+          />
+          <SmartSelect
+            instanceId="audit-filter-outcome"
+            value={filters.outcome}
+            onChange={(value) => setFilters({ ...filters, outcome: value })}
+            options={[
+              { value: 'SUCCESS', label: t('success') },
+              { value: 'FAILURE', label: t('failure') },
+            ]}
+            placeholder={t('allOutcomes')}
+            isClearable
+            className="nvi-select-container"
+          />
+          <SmartSelect
+            instanceId="audit-filter-activity"
+            value={activityFilter}
+            onChange={(value) => applyActivityFilter(value || '')}
+            options={activityOptions}
+            placeholder={t('activityType')}
+            isClearable
+            className="nvi-select-container"
+          />
+        </div>
+
+        {/* Secondary row: actor, controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-[200px] flex-1">
+            <SmartSelect
+              instanceId="audit-filter-user"
+              value={filters.userId}
+              onChange={(value) => setFilters({ ...filters, userId: value })}
+              options={userOptions}
+              placeholder={t('actorPlaceholder')}
+              isClearable
+              className="nvi-select-container"
+            />
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -708,156 +873,113 @@ export default function AuditLogsPage() {
                 return next;
               });
             }}
-            className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
+            className="inline-flex items-center gap-1.5 rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
           >
-            {showAdvancedFilters ? t('hideAdvanced') : t('showAdvanced')}
+            {t('moreFilters')}
+            {activeFilterCount > 0 ? (
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gold-500 text-[10px] font-semibold text-black">
+                {activeFilterCount}
+              </span>
+            ) : null}
           </button>
+          <button
+            type="button"
+            onClick={async () => {
+              setIsRefreshing(true);
+              setNextCursor(null);
+              setPage(1);
+              setPageCursors({ 1: null });
+              setTotal(null);
+              await loadLogs(1);
+              setIsRefreshing(false);
+            }}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:opacity-60"
+          >
+            {isRefreshing ? <Spinner size="xs" variant="orbit" /> : null}
+            {isRefreshing ? t('refreshing') : t('refreshLogs')}
+          </button>
+          <a
+            href={`/api/v1/audit-logs/export${exportBase}&format=csv`}
+            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+          >
+            {t('exportCsv')}
+          </a>
+          <a
+            href={`/api/v1/audit-logs/export${exportBase}&format=pdf`}
+            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+          >
+            {t('exportPdf')}
+          </a>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <SmartSelect
-            value={filters.branchId}
-            onChange={(value) => setFilters({ ...filters, branchId: value })}
-            options={branches.map((branch) => ({
-              value: branch.id,
-              label: branch.name,
-            }))}
-            placeholder={t('allBranches')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            value={filters.userId}
-            onChange={(value) => setFilters({ ...filters, userId: value })}
-            options={userOptions}
-            placeholder={t('actorPlaceholder')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            value={activityFilter}
-            onChange={(value) => applyActivityFilter(value || '')}
-            options={activityOptions}
-            placeholder={t('activityType')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            value={filters.outcome}
-            onChange={(value) => setFilters({ ...filters, outcome: value })}
-            options={[
-              { value: 'SUCCESS', label: t('success') },
-              { value: 'FAILURE', label: t('failure') },
-            ]}
-            placeholder={t('allOutcomes')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <DatePickerInput
-            value={filters.from}
-            onChange={(value) => setFilters({ ...filters, from: value })}
-            placeholder={t('fromDate')}
-            className="rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-[color:var(--foreground)]"
-          />
-          <DatePickerInput
-            value={filters.to}
-            onChange={(value) => setFilters({ ...filters, to: value })}
-            placeholder={t('toDate')}
-            className="rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-[color:var(--foreground)]"
-          />
-          <SmartSelect
-            value={filters.offline}
-            onChange={(value) => setFilters({ ...filters, offline: value })}
-            options={[
-              { value: 'true', label: t('offlineOnly') },
-              { value: 'false', label: t('onlineOnly') },
-            ]}
-            placeholder={t('onlineOffline')}
-            isClearable
-            className="nvi-select-container"
-          />
-        </div>
+
+        {/* Advanced filters (toggle) */}
         {showAdvancedFilters ? (
-          <div className="rounded border border-gold-700/30 bg-black/40 p-4">
+          <div className="rounded-xl border border-gold-700/20 bg-black/30 p-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <SmartSelect
+                instanceId="audit-detail-1"
+                value={filters.branchId}
+                onChange={(value) => setFilters({ ...filters, branchId: value })}
+                options={branches.map((b) => ({ value: b.id, label: b.name }))}
+                placeholder={t('allBranches')}
+                isClearable
+                className="nvi-select-container"
+              />
+              <SmartSelect
+                instanceId="audit-detail-2"
                 value={filters.roleId}
                 onChange={(value) => setFilters({ ...filters, roleId: value })}
-                options={roles.map((role) => ({
-                  value: role.id,
-                  label: role.name,
-                }))}
+                options={roles.map((r) => ({ value: r.id, label: r.name }))}
                 placeholder={t('allRoles')}
                 isClearable
                 className="nvi-select-container"
               />
-              <div className="flex flex-col gap-1">
-                <input
-                  list="audit-user-options"
-                  value={userQuery}
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    const resolved =
-                      userLabelToId.get(raw.toLowerCase()) ??
-                      (userMap.has(raw) ? raw : raw);
-                    setUserQuery(raw);
-                    setFilters({ ...filters, userId: resolved });
-                  }}
-                  placeholder={t('actorPlaceholder')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                />
-                <datalist id="audit-user-options">
-                  {users.map((user) => (
-                    <option
-                      key={user.id}
-                      value={user.name?.trim() || user.email?.trim() || user.id}
-                    />
-                  ))}
-                </datalist>
-              </div>
+              <SmartSelect
+                instanceId="audit-detail-3"
+                value={filters.offline}
+                onChange={(value) => setFilters({ ...filters, offline: value })}
+                options={[
+                  { value: 'true', label: t('offlineOnly') },
+                  { value: 'false', label: t('onlineOnly') },
+                ]}
+                placeholder={t('onlineOffline')}
+                isClearable
+                className="nvi-select-container"
+              />
               <input
                 value={filters.action}
-                onChange={(event) =>
-                  setFilters({ ...filters, action: event.target.value })
-                }
+                onChange={(e) => setFilters({ ...filters, action: e.target.value })}
                 placeholder={t('actionPlaceholder')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
               />
               <input
                 value={filters.resourceType}
-                onChange={(event) =>
-                  setFilters({ ...filters, resourceType: event.target.value })
-                }
+                onChange={(e) => setFilters({ ...filters, resourceType: e.target.value })}
                 placeholder={t('resourceTypePlaceholder')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
               />
-              <div className="flex flex-col gap-1">
+              <div>
                 <input
                   list="audit-resource-options"
                   value={resourceQuery}
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    const resolved =
-                      resourceLabelToId.get(raw.toLowerCase()) ??
-                      (resourceLookup.has(raw) ? raw : raw);
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const resolved = resourceLabelToId.get(raw.toLowerCase()) ?? (resourceLookup.has(raw) ? raw : raw);
                     setResourceQuery(raw);
                     setFilters({ ...filters, resourceId: resolved });
                   }}
-                  placeholder={
-                    isLoadingResources ? t('loadingResources') : t('resourcePlaceholder')
-                  }
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                  placeholder={isLoadingResources ? t('loadingResources') : t('resourcePlaceholder')}
+                  className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
                 />
                 <datalist id="audit-resource-options">
-                  {resourceOptions.map((option) => (
-                    <option key={option.id} value={option.label} />
-                  ))}
+                  {resourceOptions.map((o) => <option key={o.id} value={o.label} />)}
                 </datalist>
               </div>
               <SmartSelect
+                instanceId="audit-detail-4"
                 value={filters.approvalStatus}
-                onChange={(value) =>
-                  setFilters({ ...filters, approvalStatus: value })
-                }
+                onChange={(value) => setFilters({ ...filters, approvalStatus: value })}
                 options={[
                   { value: 'REQUESTED', label: t('requested') },
                   { value: 'APPROVED', label: t('approved') },
@@ -869,594 +991,341 @@ export default function AuditLogsPage() {
               />
               <input
                 value={filters.correlationId}
-                onChange={(event) =>
-                  setFilters({ ...filters, correlationId: event.target.value })
-                }
+                onChange={(e) => setFilters({ ...filters, correlationId: e.target.value })}
                 placeholder={t('correlationId')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
               />
               <input
                 value={filters.requestId}
-                onChange={(event) =>
-                  setFilters({ ...filters, requestId: event.target.value })
-                }
+                onChange={(e) => setFilters({ ...filters, requestId: e.target.value })}
                 placeholder={t('requestId')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
               />
               <input
                 value={filters.sessionId}
-                onChange={(event) =>
-                  setFilters({ ...filters, sessionId: event.target.value })
-                }
+                onChange={(e) => setFilters({ ...filters, sessionId: e.target.value })}
                 placeholder={t('sessionId')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
               />
               <input
                 value={filters.deviceId}
-                onChange={(event) =>
-                  setFilters({ ...filters, deviceId: event.target.value })
-                }
+                onChange={(e) => setFilters({ ...filters, deviceId: e.target.value })}
                 placeholder={t('deviceId')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
               />
             </div>
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 text-xs text-gold-300">
+                <input type="checkbox" checked={showGuardChecks} onChange={(e) => setShowGuardChecks(e.target.checked)} className="h-3.5 w-3.5" />
+                {t('showGuardChecks')}
+              </label>
+              <label className="flex items-center gap-2 text-xs text-gold-300">
+                <input type="checkbox" checked={showAuthRefresh} onChange={(e) => setShowAuthRefresh(e.target.checked)} className="h-3.5 w-3.5" />
+                {t('showAuthRefresh')}
+              </label>
+              <label className="flex items-center gap-2 text-xs text-gold-300">
+                <input type="checkbox" checked={showDashboardReports} onChange={(e) => setShowDashboardReports(e.target.checked)} className="h-3.5 w-3.5" />
+                {t('showDashboardReports')}
+              </label>
+            </div>
           </div>
         ) : null}
-        <button
-          type="button"
-          onClick={async () => {
-            setIsRefreshing(true);
-            setNextCursor(null);
-            setPage(1);
-            setPageCursors({ 1: null });
-            setTotal(null);
-            await loadLogs(1);
-            setIsRefreshing(false);
-          }}
-          className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-          disabled={isRefreshing}
-        >
-          {isRefreshing ? <Spinner size="xs" variant="orbit" /> : null}
-          {isRefreshing ? t('refreshing') : t('refreshLogs')}
-        </button>
-        <label className="flex items-center gap-2 text-xs text-gold-200">
-          <input
-            type="checkbox"
-            checked={showGuardChecks}
-            onChange={(event) => setShowGuardChecks(event.target.checked)}
-            className="h-4 w-4"
-          />
-          {t('showGuardChecks')}
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gold-200">
-          <input
-            type="checkbox"
-            checked={showAuthRefresh}
-            onChange={(event) => setShowAuthRefresh(event.target.checked)}
-            className="h-4 w-4"
-          />
-          {t('showAuthRefresh')}
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gold-200">
-          <input
-            type="checkbox"
-            checked={showDashboardReports}
-            onChange={(event) => setShowDashboardReports(event.target.checked)}
-            className="h-4 w-4"
-          />
-          {t('showDashboardReports')}
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <a
-            href={`/api/v1/audit-logs/export${buildCursorQuery({
-              ...filters,
-              approvalStatus: filters.approvalStatus || undefined,
-              from: filters.from || undefined,
-              to: filters.to || undefined,
-              showGuardChecks: showGuardChecks ? '1' : undefined,
-              showAuthRefresh: showAuthRefresh ? '1' : undefined,
-              showDashboardReports: showDashboardReports ? '1' : undefined,
-              format: 'csv',
-            })}`}
-            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-          >
-            {t('exportCsv')}
-          </a>
-          <a
-            href={`/api/v1/audit-logs/export${buildCursorQuery({
-              ...filters,
-              approvalStatus: filters.approvalStatus || undefined,
-              from: filters.from || undefined,
-              to: filters.to || undefined,
-              showGuardChecks: showGuardChecks ? '1' : undefined,
-              showAuthRefresh: showAuthRefresh ? '1' : undefined,
-              showDashboardReports: showDashboardReports ? '1' : undefined,
-              format: 'pdf',
-            })}`}
-            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-          >
-            {t('exportPdf')}
-          </a>
-        </div>
       </div>
 
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-lg font-semibold text-gold-100">{t('recentEvents')}</h3>
-          <ViewToggle
-            value={viewMode}
-            onChange={setViewMode}
-            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+      {/* List + detail panel */}
+      <div className="min-w-0 flex gap-4 items-start nvi-reveal">
+
+        {/* Log list */}
+        <div className={selectedLog ? 'min-w-0 flex-1' : 'w-full'}>
+          <div className="command-card nvi-panel overflow-hidden">
+            {!filteredLogs.length ? (
+              <div className="p-6"><StatusBanner message={t('noLogs')} /></div>
+            ) : (
+              filteredLogs.map((log) => {
+                const narrative = summaryMap.get(log.id);
+                const isSelected = selectedLog?.id === log.id;
+                const actorName = log.userId
+                  ? userMap.get(log.userId) ?? log.userId.slice(0, 8)
+                  : common('unknown');
+                return (
+                  <button
+                    key={log.id}
+                    type="button"
+                    onClick={() => setSelectedLog(isSelected ? null : log)}
+                    className={`w-full flex items-center gap-3 border-b border-gold-700/10 px-4 py-3 text-left transition hover:bg-white/[0.025] ${isSelected ? 'bg-white/[0.04]' : ''}`}
+                  >
+                    <span
+                      className={`h-2 w-2 flex-shrink-0 rounded-full ${log.outcome === 'SUCCESS' ? 'bg-emerald-400' : 'bg-red-400'}`}
+                      aria-label={log.outcome}
+                    />
+                    <span className="min-w-0 flex-1 break-words text-sm text-gold-100">
+                      {narrative?.primary ?? log.action}
+                    </span>
+                    <span className="hidden flex-shrink-0 rounded-full border border-gold-700/30 bg-gold-500/5 px-2 py-0.5 text-[10px] text-gold-500 sm:inline-block">
+                      {log.resourceType}
+                    </span>
+                    <span className="hidden w-28 flex-shrink-0 truncate text-right text-xs text-gold-500 md:block">
+                      {actorName}
+                    </span>
+                    <span className="w-32 flex-shrink-0 text-right text-xs text-gold-600">
+                      {formatDateTime(log.createdAt)}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          {isPaging ? (
+            <div className="mt-2 flex items-center gap-2 text-xs text-gold-400">
+              <Spinner size="xs" variant="orbit" /> {t('loadingPage')}
+            </div>
+          ) : null}
+          <PaginationControls
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            itemCount={filteredLogs.length}
+            availablePages={Object.keys(pageCursors).map(Number)}
+            hasNext={Boolean(nextCursor)}
+            hasPrev={page > 1}
+            isLoading={isLoading}
+            onPageChange={(nextPage) => loadLogs(nextPage)}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+              setPageCursors({ 1: null });
+              setTotal(null);
+              loadLogs(1, size);
+            }}
           />
         </div>
-        {viewMode === 'table' ? (
-          !filteredLogs.length ? (
-            <StatusBanner message={t('noLogs')} />
-          ) : (
-            <div className="overflow-auto text-sm text-gold-200">
-              <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
-                <thead className="text-xs uppercase text-gold-400">
-                  <tr>
-                    <th className="px-3 py-2">{t('eventLabel')}</th>
-                    <th className="px-3 py-2">{t('resourceColumn')}</th>
-                    <th className="px-3 py-2">{t('actorColumn')}</th>
-                    <th className="px-3 py-2">{t('outcomeColumn')}</th>
-                    <th className="px-3 py-2">{t('createdAt')}</th>
-                    <th className="px-3 py-2">{t('actionsLabel')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredLogs.map((log) => {
-                    const narrative = summaryMap.get(log.id);
-                    const resolvedLabel = resolveResourceLabel(log);
-                    const resourceLabel = resolvedLabel
-                      ? `${log.resourceType} "${resolvedLabel}"`
-                      : narrative?.resource ?? log.resourceType;
-                    return (
-                      <tr key={log.id} className="border-t border-gold-700/20">
-                        <td className="px-3 py-2 font-semibold">
-                          {narrative?.primary ?? log.action}
-                        </td>
-                        <td className="px-3 py-2">{resourceLabel}</td>
-                        <td className="px-3 py-2">
-                          {log.userId
-                            ? formatEntityLabel(
-                                {
-                                  name: userMap.get(log.userId) ?? null,
-                                  id: log.userId,
-                                },
-                                common('unknown'),
-                              )
-                            : common('unknown')}
-                        </td>
-                        <td className="px-3 py-2">{log.outcome}</td>
-                        <td className="px-3 py-2">
-                          {new Date(log.createdAt).toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            onClick={() => loadChain(log)}
-                            className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
-                          >
-                            {t('viewChain')}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )
-        ) : !filteredLogs.length ? (
-          <StatusBanner message={t('noLogs')} />
-        ) : (
-          <div className="space-y-3 text-sm text-gold-200 nvi-stagger">
-            {filteredLogs.map((log) => {
-              const narrative = summaryMap.get(log.id);
-              const relatedLinks = buildRelatedLinks(log, t);
-              const resolvedLabel = resolveResourceLabel(log);
-              const resourceLabel = resolvedLabel
-                ? `${log.resourceType} "${resolvedLabel}"`
-                : narrative?.resource ?? log.resourceType;
-              const resolvedJson =
-                log.resolved ??
-                ({
-                  ...log,
-                  labels: {
-                    resource: resolvedLabel,
-                    user: log.userId ? userMap.get(log.userId) ?? log.userId : null,
-                    role: log.roleId ? roleMap.get(log.roleId) ?? log.roleId : null,
-                    branch: log.branchId
-                      ? branchMap.get(log.branchId) ?? log.branchId
-                      : null,
-                    device:
-                      typeof log.metadata?.deviceName === 'string'
-                        ? log.metadata.deviceName
-                        : log.deviceId ?? null,
-                    },
-                  } as Record<string, unknown>);
-              const resolvedDiff =
-                resolvedJson && typeof resolvedJson === 'object'
-                  ? ((resolvedJson as Record<string, unknown>).diff as
-                      | Record<string, unknown>
-                      | null
-                      | undefined)
-                  : null;
-              const diffHighlights = collectDiffHighlights(
-                resolvedDiff ?? null,
-              ).slice(0, 6);
-              return (
-                <div
-                  key={log.id}
-                  className="rounded border border-gold-700/40 bg-black/40 p-4 space-y-2"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-gold-100">{narrative?.primary}</p>
-                      <p className="text-xs text-gold-400">
-                        {resourceLabel} •{' '}
-                        {new Date(log.createdAt).toLocaleString()}
-                      </p>
-                      <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-gold-300">
-                        {narrative?.severity ? (
-                          <span className="rounded-full border border-gold-700/50 px-2 py-0.5">
-                            {narrative.severity}
-                          </span>
-                        ) : null}
-                        {narrative?.tags?.map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded-full border border-gold-700/30 px-2 py-0.5"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => loadChain(log)}
-                      className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
-                    >
-                      {t('viewChain')}
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpandedDetails((prev) => ({
-                          ...prev,
-                          [log.id]: !prev[log.id],
-                        }))
-                      }
-                      className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
-                    >
-                      {expandedDetails[log.id]
-                        ? t('hideDetails')
-                        : t('showDetails')}
-                    </button>
-                  </div>
-                  <div className="grid gap-1 text-xs text-gold-400 md:grid-cols-2">
-                    <p>
-                      {t('actorLabel')}{' '}
-                      {log.userId
-                        ? formatEntityLabel(
-                            {
-                              name: userMap.get(log.userId) ?? null,
-                              id: log.userId,
-                            },
-                            common('unknown'),
-                          )
-                        : common('unknown')}{' '}
-                      {log.roleId
-                        ? `(${formatEntityLabel(
-                            {
-                              name: roleMap.get(log.roleId) ?? null,
-                              id: log.roleId,
-                            },
-                            common('unknown'),
-                          )})`
-                        : ''}
-                    </p>
-                    <p>
-                      {log.branchId
-                        ? `${t('branchLabel')} ${formatEntityLabel(
-                            {
-                              name: branchMap.get(log.branchId) ?? null,
-                              id: log.branchId,
-                            },
-                            common('unknown'),
-                          )}`
-                        : `${t('branchLabel')} ${t('notAvailable')}`}
-                    </p>
-                  </div>
-                  {narrative?.reason ? (
-                    <p className="text-xs text-gold-300">{narrative.reason}</p>
-                  ) : null}
-                  {narrative?.details ? (
-                    <p className="text-xs text-gold-300">{narrative.details}</p>
-                  ) : null}
-                  {narrative?.approval ? (
-                    <p className="text-xs text-gold-300">{narrative.approval}</p>
-                  ) : null}
-                  {narrative?.approvalChain ? (
-                    <p className="text-xs text-gold-300">
-                      {narrative.approvalChain}
-                    </p>
-                  ) : null}
-                  {narrative?.approvalStatus ? (
-                    <p className="text-xs text-gold-300">
-                      {narrative.approvalStatus}
-                    </p>
-                  ) : null}
-                  {narrative?.offline ? (
-                    <p className="text-xs text-gold-300">{narrative.offline}</p>
-                  ) : null}
-                  {narrative?.failure ? (
-                    <p className="text-xs text-red-300">{narrative.failure}</p>
-                  ) : null}
-                  {narrative?.diffSummary ? (
-                    <p className="text-xs text-gold-300">
-                      {narrative.diffSummary}
-                    </p>
-                  ) : null}
-                  {narrative?.impact ? (
-                    <p className="text-xs text-gold-300">{narrative.impact}</p>
-                  ) : null}
-                  {expandedDetails[log.id] ? (
-                    <>
-                      <div className="grid gap-2 text-xs text-gold-400 md:grid-cols-3">
-                        <p>
-                          {t('userLabel')}{' '}
-                          {log.userId
-                            ? formatEntityLabel(
-                                {
-                                  name: userMap.get(log.userId) ?? null,
-                                  id: log.userId,
-                                },
-                                common('unknown'),
-                              )
-                            : common('unknown')}
-                        </p>
-                        <p>
-                          {t('roleLabel')}{' '}
-                          {formatEntityLabel(
-                            {
-                              name: roleMap.get(log.roleId ?? '') ?? null,
-                              id: log.roleId ?? null,
-                            },
-                            common('unknown'),
-                          )}
-                        </p>
-                        <p>
-                          {t('deviceLabel')}{' '}
-                          {formatEntityLabel(
-                            {
-                              name:
-                                typeof log.metadata?.deviceName === 'string'
-                                  ? log.metadata.deviceName
-                                  : null,
-                              id: log.deviceId ?? null,
-                            },
-                            t('notAvailable'),
-                          )}
-                        </p>
-                        <p>{t('outcomeLabel')} {log.outcome}</p>
-                        <p>
-                          {t('requestLabel')} {renderTraceId(log.requestId)}
-                        </p>
-                        <p>
-                          {t('sessionLabel')} {renderTraceId(log.sessionId)}
-                        </p>
-                        <p>
-                          {t('correlationLabel')} {renderTraceId(log.correlationId)}
-                        </p>
-                        <p>
-                          {t('hashLabel')} {renderHash(log.hash)}
-                        </p>
-                        <p>
-                          {t('previousHashLabel')} {renderHash(log.previousHash)}
-                        </p>
-                      </div>
-                      {relatedLinks.length ? (
-                        <div className="flex flex-wrap gap-2 text-xs text-gold-200">
-                          {relatedLinks.map((link) => (
-                            <a
-                              key={`${log.id}-${link.href}`}
-                              href={link.href}
-                              className="rounded border border-gold-700/40 px-2 py-1 text-gold-100"
-                            >
-                              {link.label}
-                            </a>
-                          ))}
-                        </div>
-                      ) : null}
-                      {resolvedDiff ? (
-                        <details className="rounded border border-gold-700/30 bg-black/30 p-3 text-xs text-gold-300">
-                          <summary className="cursor-pointer text-gold-100">
-                            {t('viewStructuredDiff')}
-                          </summary>
-                          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs text-gold-400">
-                            {JSON.stringify(resolvedDiff, null, 2)}
-                          </pre>
-                        </details>
-                      ) : null}
-                      <div className="rounded border border-gold-700/30 bg-black/30 p-3 text-xs text-gold-300 space-y-2">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gold-100">
-                          {t('evidenceSummary')}
-                        </p>
-                        <div className="grid gap-2 text-xs text-gold-300 md:grid-cols-2">
-                          <p>
-                            {t('actorLabel')}{' '}
-                            {narrative?.actor ?? common('unknown')}
-                          </p>
-                          <p>
-                            {t('branchLabel')}{' '}
-                            {narrative?.context ?? common('unknown')}
-                          </p>
-                          <p>
-                            {t('outcomeLabel')} {log.outcome}
-                          </p>
-                          <p>
-                            {t('reasonLabel', {
-                              reason: log.reason ?? common('unknown'),
-                            })}
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-gold-100">
-                            {t('evidenceDiffHighlights')}
-                          </p>
-                          {diffHighlights.length ? (
-                            <ul className="space-y-1 text-xs text-gold-300">
-                              {diffHighlights.map((entry) => (
-                                <li key={entry.field}>
-                                  {entry.field}:{' '}
-                                  {formatEvidenceValue(entry.from)} →{' '}
-                                  {formatEvidenceValue(entry.to)}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="text-xs text-gold-400">
-                              {t('evidenceNoDiff')}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <details className="rounded border border-gold-700/30 bg-black/30 p-3 text-xs text-gold-300">
-                        <summary className="cursor-pointer text-gold-100">
-                          {t('rawEventJson')}
-                        </summary>
-                        <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs text-gold-400">
-                          {JSON.stringify(log, null, 2)}
-                        </pre>
-                      </details>
-                      <details className="rounded border border-gold-700/30 bg-black/30 p-3 text-xs text-gold-300">
-                        <summary className="cursor-pointer text-gold-100">
-                          {t('resolvedEventJson')}
-                        </summary>
-                        <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs text-gold-400">
-                          {JSON.stringify(resolvedJson, null, 2)}
-                        </pre>
-                      </details>
-                    </>
+
+        {/* Detail panel */}
+        {selectedLog ? (
+          <div className="w-full lg:w-[420px] xl:w-[480px] flex-shrink-0 command-card nvi-panel sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto p-5 space-y-4">
+
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                      selectedLog.outcome === 'SUCCESS'
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                        : 'border-red-500/40 bg-red-500/10 text-red-300'
+                    }`}
+                  >
+                    {selectedLog.outcome}
+                  </span>
+                  <span className="rounded-full border border-gold-700/30 bg-gold-500/5 px-2 py-0.5 text-[10px] text-gold-500">
+                    {selectedLog.resourceType}
+                  </span>
+                  {detailNarrative?.severity ? (
+                    <span className="rounded-full border border-gold-700/30 px-2 py-0.5 text-[10px] text-gold-400">
+                      {detailNarrative.severity}
+                    </span>
                   ) : null}
                 </div>
-              );
-            })}
-            {!filteredLogs.length ? (
-              <StatusBanner message={t('noLogs')} />
-            ) : null}
-          </div>
-        )}
-        {isPaging ? (
-          <div className="flex items-center gap-2 text-xs text-gold-300">
-            <Spinner size="xs" variant="orbit" /> {t('loadingPage')}
-          </div>
-        ) : null}
-        <PaginationControls
-          page={page}
-          pageSize={pageSize}
-          total={total}
-          itemCount={filteredLogs.length}
-          availablePages={Object.keys(pageCursors).map(Number)}
-          hasNext={Boolean(nextCursor)}
-          hasPrev={page > 1}
-          isLoading={isLoading}
-          onPageChange={(nextPage) => loadLogs(nextPage)}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(1);
-            setPageCursors({ 1: null });
-            setTotal(null);
-            loadLogs(1, size);
-          }}
-        />
-      </div>
+                <p className="text-sm font-semibold leading-snug text-gold-100">
+                  {detailNarrative?.primary ?? selectedLog.action}
+                </p>
+                <p className="text-xs text-gold-500">
+                  {formatDateTime(selectedLog.createdAt)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedLog(null)}
+                className="flex-shrink-0 rounded border border-gold-700/40 px-2 py-1 text-xs text-gold-400 hover:text-gold-200"
+                aria-label={t('closeDetail')}
+              >
+                ✕
+              </button>
+            </div>
 
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">
-          {t('playbackTitle')}
-        </h3>
-        {!chainAnchor ? (
-          <p className="text-sm text-gold-400">
-            {t('playbackHint')}
-          </p>
-        ) : (
-          <div className="space-y-2 text-sm text-gold-200">
-            <p className="text-xs text-gold-400">
-              {t('chainAnchoredOn', {
-                action: chainAnchor.action,
-                resource: chainAnchor.resourceType,
-              })}
-            </p>
-            {chainAnchor.correlationId || chainAnchor.requestId ? (
-              <p className="text-xs text-gold-400">
-                {t('chainCorrelation')}{' '}
-                {renderTraceId(chainAnchor.correlationId || chainAnchor.requestId)}
-              </p>
-            ) : null}
-            {isLoadingChain ? (
-              <div className="flex items-center gap-2 text-gold-300">
-                <Spinner size="xs" variant="pulse" /> {t('loadingChain')}
+            {/* Narrative extras */}
+            {detailNarrative?.reason || detailNarrative?.details || detailNarrative?.failure ? (
+              <div className="space-y-1 rounded-lg border border-gold-700/20 bg-black/20 p-3 text-xs">
+                {detailNarrative.reason ? <p className="text-gold-300">{detailNarrative.reason}</p> : null}
+                {detailNarrative.details ? <p className="text-gold-300">{detailNarrative.details}</p> : null}
+                {detailNarrative.failure ? <p className="text-red-300">{detailNarrative.failure}</p> : null}
+                {detailNarrative.offline ? <p className="text-gold-400">{detailNarrative.offline}</p> : null}
+                {detailNarrative.diffSummary ? <p className="text-gold-400">{detailNarrative.diffSummary}</p> : null}
+                {detailNarrative.impact ? <p className="text-gold-400">{detailNarrative.impact}</p> : null}
               </div>
             ) : null}
-            {orderedChainLogs?.length ? (
-              <ol className="space-y-2">
-                {orderedChainLogs.map((log) => {
-                  const userName = log.userId ? userMap.get(log.userId) ?? null : null;
-                  const branchName = log.branchId
-                    ? branchMap.get(log.branchId) ?? null
-                    : null;
-                  const roleName = log.roleId ? roleMap.get(log.roleId) ?? null : null;
-                  const resourceLabel = resolveResourceLabel(log);
-                  const narrative = buildAuditNarrative(log, {
-                    userName,
-                    branchName,
-                    roleName,
-                    resourceLabel,
-                  });
-                  return (
-                    <li
-                      key={log.id}
-                      className="rounded border border-gold-700/40 bg-black/40 p-3"
-                    >
-                      <p className="text-gold-100">
-                        {narrative.primary}
-                      </p>
-                      <p className="text-xs text-gold-400">
-                        {new Date(log.createdAt).toLocaleString()} •{' '}
-                        {log.resourceType}
-                      </p>
-                      {log.reason ? (
-                        <p className="text-xs text-gold-300">
-                          {t('reasonLabel', { reason: log.reason })}
-                        </p>
-                      ) : null}
-                      <div className="mt-2 grid gap-1 text-[10px] text-gold-400 md:grid-cols-2">
-                        <p>
-                          {t('requestLabel')} {renderTraceId(log.requestId)}
-                        </p>
-                        <p>
-                          {t('correlationLabel')} {renderTraceId(log.correlationId)}
-                        </p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            ) : chainAnchor && !isLoadingChain ? (
-              <p className="text-sm text-gold-400">
-                {t('noRelatedEvents')}
-              </p>
+
+            {/* Who */}
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-[0.28em] text-gold-500">{t('sectionWho')}</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                <div>
+                  <span className="text-gold-500">{t('userLabel')} </span>
+                  <span className="text-gold-200">
+                    {selectedLog.userId
+                      ? formatEntityLabel({ name: userMap.get(selectedLog.userId) ?? null, id: selectedLog.userId }, common('unknown'))
+                      : common('unknown')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gold-500">{t('roleLabel')} </span>
+                  <span className="text-gold-200">
+                    {formatEntityLabel({ name: roleMap.get(selectedLog.roleId ?? '') ?? null, id: selectedLog.roleId ?? null }, common('unknown'))}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gold-500">{t('branchLabel')} </span>
+                  <span className="text-gold-200">
+                    {selectedLog.branchId
+                      ? formatEntityLabel({ name: branchMap.get(selectedLog.branchId) ?? null, id: selectedLog.branchId }, common('unknown'))
+                      : t('notAvailable')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gold-500">{t('deviceLabel')} </span>
+                  <span className="text-gold-200">
+                    {formatEntityLabel(
+                      { name: typeof selectedLog.metadata?.deviceName === 'string' ? selectedLog.metadata.deviceName : null, id: selectedLog.deviceId ?? null },
+                      t('notAvailable'),
+                    )}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Approval info */}
+            {detailNarrative?.approval || detailNarrative?.approvalChain || detailNarrative?.approvalStatus ? (
+              <div className="space-y-1 rounded-lg border border-gold-700/20 bg-black/20 p-3 text-xs">
+                {detailNarrative.approval ? <p className="text-gold-300">{detailNarrative.approval}</p> : null}
+                {detailNarrative.approvalChain ? <p className="text-gold-300">{detailNarrative.approvalChain}</p> : null}
+                {detailNarrative.approvalStatus ? <p className="text-gold-300">{detailNarrative.approvalStatus}</p> : null}
+              </div>
             ) : null}
+
+            {/* What changed */}
+            {detailDiffHighlights.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-[10px] uppercase tracking-[0.28em] text-gold-500">{t('sectionWhatChanged')}</p>
+                <ul className="space-y-1">
+                  {detailDiffHighlights.map((entry) => (
+                    <li key={entry.field} className="flex flex-wrap items-baseline gap-1 text-xs">
+                      <span className="text-gold-500">{formatFieldLabel(entry.field, fieldLabels)}</span>
+                      <span className="text-gold-600 line-through">{formatEvidenceValue(entry.from)}</span>
+                      <span className="text-gold-300">→ {formatEvidenceValue(entry.to)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {/* Actions: chain + related links */}
+            <div className="flex flex-wrap gap-2 border-t border-gold-700/15 pt-3">
+              <button
+                type="button"
+                onClick={() => loadChain(selectedLog)}
+                disabled={isLoadingChain}
+                className="inline-flex items-center gap-1.5 rounded border border-gold-700/50 px-3 py-1.5 text-xs text-gold-100 disabled:opacity-60"
+              >
+                {isLoadingChain ? <Spinner size="xs" variant="dots" /> : null}
+                {t('viewChain')}
+              </button>
+              {detailRelatedLinks.map((link) => (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  className="rounded border border-gold-700/40 px-3 py-1.5 text-xs text-gold-300"
+                >
+                  {link.label}
+                </a>
+              ))}
+            </div>
+
+            {/* Technical trace */}
+            <details className="rounded-lg border border-gold-700/20 bg-black/20">
+              <summary className="cursor-pointer px-3 py-2.5 text-xs font-medium text-gold-300">
+                {t('technicalTrace')}
+              </summary>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-3 pb-3 pt-1 text-xs">
+                <div><span className="text-gold-500">{t('requestLabel')} </span><span className="text-gold-400">{renderTraceId(selectedLog.requestId)}</span></div>
+                <div><span className="text-gold-500">{t('sessionLabel')} </span><span className="text-gold-400">{renderTraceId(selectedLog.sessionId)}</span></div>
+                <div><span className="text-gold-500">{t('correlationLabel')} </span><span className="text-gold-400">{renderTraceId(selectedLog.correlationId)}</span></div>
+                <div><span className="text-gold-500">{t('hashLabel')} </span><span className="text-gold-400">{renderHash(selectedLog.hash)}</span></div>
+                <div className="col-span-2"><span className="text-gold-500">{t('previousHashLabel')} </span><span className="text-gold-400">{renderHash(selectedLog.previousHash)}</span></div>
+              </div>
+            </details>
+
+            {/* Raw JSON */}
+            <details className="rounded-lg border border-gold-700/20 bg-black/20">
+              <summary className="cursor-pointer px-3 py-2.5 text-xs font-medium text-gold-300">
+                {t('rawEventJson')}
+              </summary>
+              <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all px-3 pb-3 pt-1 text-[11px] text-gold-500">
+                {JSON.stringify(selectedLog, null, 2)}
+              </pre>
+            </details>
+
           </div>
-        )}
+        ) : null}
       </div>
+
+      {/* Chain playback timeline */}
+      {chainAnchor ? (
+        <div ref={chainSectionRef} className="command-card nvi-panel p-5 space-y-3 nvi-reveal">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gold-400">
+                {t('playbackTitle')}
+              </p>
+              <p className="mt-0.5 text-xs text-gold-500">
+                {t('chainAnchoredOn', { action: chainAnchor.action, resource: chainAnchor.resourceType })}
+                {chainAnchor.correlationId || chainAnchor.requestId
+                  ? ` — ${renderTraceId(chainAnchor.correlationId || chainAnchor.requestId)}`
+                  : null}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setChainAnchor(null); setChainLogs(null); }}
+              className="rounded border border-gold-700/40 px-2 py-1 text-xs text-gold-400"
+            >
+              ✕
+            </button>
+          </div>
+          {isLoadingChain ? (
+            <div className="flex items-center gap-2 text-xs text-gold-400">
+              <Spinner size="xs" variant="pulse" /> {t('loadingChain')}
+            </div>
+          ) : null}
+          {orderedChainLogs?.length ? (
+            <ol className="space-y-2 border-l-2 border-gold-700/20 pl-4">
+              {orderedChainLogs.map((log) => {
+                const userName = log.userId ? userMap.get(log.userId) ?? null : null;
+                const branchName = log.branchId ? branchMap.get(log.branchId) ?? null : null;
+                const roleName = log.roleId ? roleMap.get(log.roleId) ?? null : null;
+                const resourceLabel = resolveResourceLabel(log);
+                const narrative = buildAuditNarrative(log, { userName, branchName, roleName, resourceLabel, locale });
+                return (
+                  <li key={log.id} className="relative">
+                    <span
+                      className={`absolute -left-[21px] top-1.5 h-2 w-2 rounded-full border-2 border-[color:var(--background)] ${log.outcome === 'SUCCESS' ? 'bg-emerald-400' : 'bg-red-400'}`}
+                    />
+                    <p className="text-sm text-gold-100">{narrative.primary}</p>
+                    <p className="text-xs text-gold-500">
+                      {formatDateTime(log.createdAt)} • {log.resourceType}
+                    </p>
+                    {log.reason ? (
+                      <p className="text-xs text-gold-400">{t('reasonLabel', { reason: log.reason })}</p>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
+          ) : !isLoadingChain ? (
+            <p className="text-sm text-gold-500">{t('noRelatedEvents')}</p>
+          ) : null}
+        </div>
+      ) : null}
+
     </section>
   );
 }

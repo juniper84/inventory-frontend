@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -17,6 +17,7 @@ import {
 } from '@/lib/pagination';
 import { getPermissionSet } from '@/lib/permissions';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { useFormatDate } from '@/lib/business-context';
 
 type Branch = { id: string; name: string };
 type Shift = {
@@ -35,9 +36,18 @@ type ShiftCloseResponse = {
 };
 
 export default function ShiftsPage() {
+  const locale = useLocale();
+  const { formatDateTime } = useFormatDate();
   const t = useTranslations('shiftsPage');
   const actions = useTranslations('actions');
   const noAccess = useTranslations('noAccess');
+  const common = useTranslations('common');
+
+  const shiftStatusLabels = useMemo<Record<string, string>>(
+    () => ({ OPEN: common('statusOpen'), CLOSED: common('statusClosed') }),
+    [common],
+  );
+
   const permissions = getPermissionSet();
   const canOpen = permissions.has('shifts.open');
   const canClose = permissions.has('shifts.close');
@@ -64,7 +74,7 @@ export default function ShiftsPage() {
   const openCount = shifts.filter((shift) => shift.status === 'OPEN').length;
   const closedCount = shifts.filter((shift) => shift.status === 'CLOSED').length;
 
-  const load = async (cursor?: string, append = false) => {
+  const load = useCallback(async (cursor?: string, append = false) => {
     if (append) {
       setIsLoadingMore(true);
     } else {
@@ -108,11 +118,11 @@ export default function ShiftsPage() {
         setIsLoading(false);
       }
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (activeBranch?.id && !openForm.branchId) {
@@ -196,32 +206,32 @@ export default function ShiftsPage() {
   return (
     <section className="nvi-page">
       <PremiumPageHeader
-        eyebrow="Shift control"
+        eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
           <>
-            <span className="status-chip">Cash desk</span>
-            <span className="status-chip">Live</span>
+            <span className="status-chip">{t('badgeCashDesk')}</span>
+            <span className="status-chip">{t('badgeLive')}</span>
           </>
         }
       />
       {message ? <StatusBanner message={message} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Shift records</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiShiftRecords')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{shifts.length}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Open</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiOpen')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{openCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Closed</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiClosed')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{closedCount}</p>
         </article>
         <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">Branches</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiBranches')}</p>
           <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
         </article>
       </div>
@@ -230,6 +240,7 @@ export default function ShiftsPage() {
         <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('openTitle')}</h3>
           <SmartSelect
+            instanceId="shift-open-branch"
             value={openForm.branchId}
             onChange={(value) =>
               setOpenForm({ ...openForm, branchId: value })
@@ -272,6 +283,7 @@ export default function ShiftsPage() {
         <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
           <h3 className="text-lg font-semibold text-gold-100">{t('closeTitle')}</h3>
           <SmartSelect
+            instanceId="shift-close-select"
             value={closeForm.shiftId}
             onChange={(value) =>
               setCloseForm({ ...closeForm, shiftId: value })
@@ -284,7 +296,7 @@ export default function ShiftsPage() {
                 label: `${
                   branches.find((branch) => branch.id === shift.branchId)?.name ??
                   t('branchFallback')
-                } · ${new Date(shift.openedAt).toLocaleString()}`,
+                } · ${formatDateTime(shift.openedAt)}`,
               }))}
           />
           <input
@@ -335,7 +347,7 @@ export default function ShiftsPage() {
                   </p>
                   <p className="text-xs text-gold-400">
                     {t('openedAt', {
-                      value: new Date(shift.openedAt).toLocaleString(),
+                      value: formatDateTime(shift.openedAt),
                     })}
                   </p>
                 </div>
@@ -344,7 +356,7 @@ export default function ShiftsPage() {
                     shift.status === 'OPEN' ? 'text-green-400' : 'text-gold-400'
                   }
                 >
-                  {shift.status}
+                  {shiftStatusLabels[shift.status] ?? shift.status}
                 </span>
               </div>
               <p className="text-xs text-gold-400">

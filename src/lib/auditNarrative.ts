@@ -56,7 +56,7 @@ const parseNumber = (value: unknown) => {
   return null;
 };
 
-const formatNumber = (value: number) => value.toLocaleString();
+const formatNumber = (value: number, locale?: string) => value.toLocaleString(locale);
 
 const formatValue = (value: unknown) => {
   if (value === null || value === undefined) {
@@ -86,7 +86,7 @@ const getText = (value: unknown) => {
   return trimmed ? trimmed : null;
 };
 
-const buildMetadataDetails = (metadata?: Record<string, unknown> | null) => {
+const buildMetadataDetails = (metadata?: Record<string, unknown> | null, locale?: string) => {
   if (!metadata) {
     return null;
   }
@@ -108,7 +108,7 @@ const buildMetadataDetails = (metadata?: Record<string, unknown> | null) => {
   const currency = getText(metadata.currency);
   if (counted !== null && expected !== null) {
     details.push(
-      `Counted vs expected: ${formatNumber(counted)} / ${formatNumber(expected)}${unit ? ` ${unit}` : ''}`,
+      `Counted vs expected: ${formatNumber(counted, locale)} / ${formatNumber(expected, locale)}${unit ? ` ${unit}` : ''}`,
     );
   } else {
     const quantity =
@@ -116,7 +116,7 @@ const buildMetadataDetails = (metadata?: Record<string, unknown> | null) => {
       (currency ? null : parseNumber(metadata.amount));
     if (quantity !== null) {
       details.push(
-        `Quantity: ${formatNumber(quantity)}${unit ? ` ${unit}` : ''}`,
+        `Quantity: ${formatNumber(quantity, locale)}${unit ? ` ${unit}` : ''}`,
       );
     }
   }
@@ -126,7 +126,7 @@ const buildMetadataDetails = (metadata?: Record<string, unknown> | null) => {
     (currency ? parseNumber(metadata.amount) : null);
   if (total !== null) {
     details.push(
-      `Amount: ${formatNumber(total)}${currency ? ` ${currency}` : ''}`,
+      `Amount: ${formatNumber(total, locale)}${currency ? ` ${currency}` : ''}`,
     );
   }
   const lossReason = getText(metadata.lossReason);
@@ -139,7 +139,7 @@ const buildMetadataDetails = (metadata?: Record<string, unknown> | null) => {
     const delta = stockAfter - stockBefore;
     const sign = delta >= 0 ? '+' : '';
     details.push(
-      `Stock level: ${formatNumber(stockBefore)} → ${formatNumber(stockAfter)} (${sign}${formatNumber(delta)})`,
+      `Stock level: ${formatNumber(stockBefore, locale)} → ${formatNumber(stockAfter, locale)} (${sign}${formatNumber(delta, locale)})`,
     );
   }
   const paymentMethod = getText(metadata.paymentMethod);
@@ -291,6 +291,59 @@ const ACTION_VERBS: Record<string, string> = {
   AUTH_LOGOUT: 'signed out',
   AUTH_REFRESH: 'refreshed a session',
   AUTH_REFRESH_REUSE: 'detected refresh reuse',
+  // Shifts
+  SHIFT_OPEN: 'opened a shift',
+  SHIFT_CLOSE: 'closed a shift',
+  // Notes
+  NOTE_CREATE: 'created a note',
+  NOTE_UPDATE: 'updated a note',
+  // Invitations
+  INVITATION_CREATE: 'sent an invitation',
+  INVITATION_ACCEPT: 'accepted an invitation',
+  // Branches
+  BRANCH_UPDATE: 'updated a branch',
+  // Reorder points
+  REORDER_POINT_UPSERT: 'set a reorder point',
+  // Approval policies
+  APPROVAL_POLICY_CREATE: 'created an approval policy',
+  APPROVAL_POLICY_UPDATE: 'updated an approval policy',
+  APPROVAL_POLICY_ARCHIVE: 'archived an approval policy',
+  // Offline
+  OFFLINE_DEVICE_REGISTER: 'registered an offline device',
+  OFFLINE_DEVICE_REVOKE: 'revoked an offline device',
+  OFFLINE_CONFLICT_RESOLVE: 'resolved an offline conflict',
+  OFFLINE_ENTRY: 'went offline',
+  OFFLINE_EXIT: 'came back online',
+  OFFLINE_SYNC: 'synced offline data',
+  OFFLINE_ACTION_INGESTED: 'ingested an offline action',
+  OFFLINE_DURATION_EXCEEDED: 'exceeded offline duration limit',
+  // Price list items
+  PRICE_LIST_ITEM_SET: 'set a price list item',
+  // Credits
+  CREDIT_OVERDUE_REMINDER: 'sent an overdue credit reminder',
+  // Business / platform admin actions
+  BUSINESS_STATUS_UPDATE: 'updated business status',
+  BUSINESS_FORCE_LOGOUT: 'force-logged out a business',
+  BUSINESS_PURGE: 'purged a business',
+  BUSINESS_REVIEW_UPDATE: 'updated a business review',
+  READ_ONLY_UPDATE: 'updated read-only mode',
+  RATE_LIMIT_OVERRIDE: 'overrode rate limit',
+  SUBSCRIPTION_UPDATE: 'updated a subscription',
+  SUBSCRIPTION_REQUEST_APPROVE: 'approved a subscription request',
+  SUBSCRIPTION_REQUEST_REJECT: 'rejected a subscription request',
+  ACCESS_REQUEST: 'requested support access',
+  EXPORT_ON_EXIT_REQUEST: 'requested an on-exit export',
+  EXPORT_CANCEL: 'cancelled an export',
+  EXPORT_RETRY: 'retried an export',
+  EXPORT_REQUEUE: 'requeued an export',
+  EXPORT_DELIVERED: 'delivered an export',
+  PLATFORM_INCIDENT_CREATE: 'created a platform incident',
+  PLATFORM_INCIDENT_UPDATE: 'updated a platform incident',
+  PLATFORM_INCIDENT_TRANSITION: 'transitioned a platform incident',
+  PLATFORM_INCIDENT_NOTE: 'added a note to a platform incident',
+  PLATFORM_ANNOUNCEMENT_CREATE: 'created a platform announcement',
+  PLATFORM_ANNOUNCEMENT_END: 'ended a platform announcement',
+  PLATFORM_ADMIN_PASSWORD_CHANGE: 'changed platform admin password',
 };
 
 export const buildAuditNarrative = (log: {
@@ -309,7 +362,9 @@ export const buildAuditNarrative = (log: {
   branchName?: string | null;
   roleName?: string | null;
   resourceLabel?: string | null;
+  locale?: string;
 }) => {
+  const locale = labels?.locale;
   let verb = ACTION_VERBS[log.action];
   if (!verb && log.action.startsWith('IMPORT_')) {
     verb = 'ran an import';
@@ -376,7 +431,7 @@ export const buildAuditNarrative = (log: {
     log.outcome === 'FAILURE' && log.metadata?.['error']
       ? `Failure: ${log.metadata['error']}`
       : null;
-  const details = buildMetadataDetails(log.metadata ?? null);
+  const details = buildMetadataDetails(log.metadata ?? null, locale);
   const severity = classifySeverity({
     action: log.action,
     outcome: log.outcome,

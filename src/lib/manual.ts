@@ -10,6 +10,7 @@ type ManualRelatedPage = {
   order: 'before' | 'after' | 'parallel';
 };
 
+// Legacy v1 fields
 type ManualError = {
   error_code: string;
   error_symptom: string;
@@ -30,21 +31,48 @@ type ManualWorkflowStep = {
   if_blocked?: string;
 };
 
+// v2 fields
+export type ManualElement = {
+  name: string;
+  type: 'button' | 'input' | 'dropdown' | 'toggle' | 'table' | 'card' | 'link' | 'search' | 'select';
+  description: string;
+  notes?: string;
+};
+
+export type ManualTask = {
+  task: string;
+  steps: string[];
+};
+
+export type ManualBeforeYouStart = {
+  text: string;
+  link?: string;
+};
+
 export type ManualEntry = {
   id: string;
   route: string;
   module: string;
   locale: ManualLocale;
   title: string;
-  purpose: string;
-  audience: string[];
-  prerequisites: ManualPrerequisite[];
-  workflow: ManualWorkflowStep[];
-  common_errors: ManualError[];
-  related_pages: ManualRelatedPage[];
   permissions_required: string[];
   last_reviewed_at: string;
   review_owner: string;
+  related_pages: ManualRelatedPage[];
+
+  // v2 fields
+  overview?: string;
+  elements?: ManualElement[];
+  before_you_start?: ManualBeforeYouStart[];
+  common_tasks?: ManualTask[];
+  warnings?: string[];
+
+  // v1 legacy fields
+  purpose?: string;
+  audience?: string[];
+  prerequisites?: ManualPrerequisite[];
+  workflow?: ManualWorkflowStep[];
+  common_errors?: ManualError[];
 };
 
 type ManualDataset = {

@@ -7,6 +7,7 @@ import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { StatusBanner } from '@/components/StatusBanner';
 
 export default function PasswordResetRequestPage() {
   const t = useTranslations('auth');
@@ -50,7 +51,7 @@ export default function PasswordResetRequestPage() {
         return;
       }
 
-      setMessage(t('resetRequestSuccess'));
+      setMessage({ action: 'auth', outcome: 'success', message: t('resetRequestSuccess') });
     } catch (err) {
       setMessage({
         action: 'auth',
@@ -65,29 +66,29 @@ export default function PasswordResetRequestPage() {
   return (
     <div className="space-y-6 nvi-reveal">
       <PremiumPageHeader
-        eyebrow="RECOVERY FLOW"
+        eyebrow={t('eyebrowRecovery')}
         title={t('passwordResetTitle')}
         subtitle={t('passwordResetSubtitle')}
         badges={
           <>
-            <span className="nvi-badge">MAIL HANDOFF</span>
-            <span className="nvi-badge">{businessOptions.length ? 'BUSINESS REQUIRED' : 'DIRECT'}</span>
+            <span className="nvi-badge">{t('badgeMailHandoff')}</span>
+            <span className="nvi-badge">{businessOptions.length ? t('badgeBusinessRequired') : t('badgeDirect')}</span>
           </>
         }
       />
 
       <div className="grid gap-3 sm:grid-cols-3 nvi-stagger">
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">EMAIL</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{email.trim() ? 'SET' : 'PENDING'}</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiEmail')}</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{email.trim() ? t('set') : t('pending')}</p>
         </article>
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">BUSINESS OPTIONS</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiBusinessOptions')}</p>
           <p className="mt-1 text-2xl font-semibold text-gold-100">{businessOptions.length}</p>
         </article>
         <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">STATUS</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('resetSending') : 'READY'}</p>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiStatus')}</p>
+          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('resetSending') : t('ready')}</p>
         </article>
       </div>
 
@@ -101,6 +102,7 @@ export default function PasswordResetRequestPage() {
         />
         {businessOptions.length ? (
           <SmartSelect
+            instanceId="password-reset-business"
             value={businessId}
             onChange={setBusinessId}
             options={businessOptions}
@@ -118,7 +120,7 @@ export default function PasswordResetRequestPage() {
             {isSubmitting ? t('resetSending') : t('resetSend')}
           </span>
         </button>
-        {message ? <p className="text-sm text-gold-300">{message}</p> : null}
+        {message ? <StatusBanner message={message} /> : null}
       </form>
     </div>
   );

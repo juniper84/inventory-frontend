@@ -123,7 +123,7 @@ type SeverityOption = { value: string; label: string };
 type BusinessOption = { id: string; label: string };
 type BusinessSelectOption = { value: string; label: string };
 
-type BusinessStatusFilter = 'ACTIVE' | 'UNDER_REVIEW' | 'ARCHIVED' | 'DELETED';
+type BusinessStatusFilter = 'ACTIVE' | 'UNDER_REVIEW' | 'SUSPENDED' | 'ARCHIVED' | 'DELETED';
 
 type WorkspaceTab =
   | 'SUMMARY'
