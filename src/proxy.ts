@@ -38,6 +38,30 @@ function isPublicPath(path: string, publicPaths: string[]): boolean {
 
 export function proxy(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
+
+  // ── Maintenance mode ────────────────────────────────────────────────────────
+  // Activated by setting NEXT_PUBLIC_MAINTENANCE_MODE=true in Vercel env vars.
+  // Platform admin routes remain accessible so you can manage the system.
+  // Update NEXT_PUBLIC_MAINTENANCE_END (ISO timestamp, EAT timezone) to show
+  // the expected return time on the maintenance page, e.g.:
+  //   NEXT_PUBLIC_MAINTENANCE_END=2026-03-11T06:00:00+03:00
+  if (process.env.NEXT_PUBLIC_MAINTENANCE_MODE === 'true') {
+    const isExempt =
+      pathname === '/maintenance' ||
+      pathname.includes('/platform') ||
+      pathname.startsWith('/_next') ||
+      pathname.startsWith('/api') ||
+      pathname === '/favicon.ico' ||
+      /\.(png|svg|jpg|webp|ico|json|txt|xml)$/.test(pathname);
+
+    if (!isExempt) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/maintenance';
+      return NextResponse.rewrite(url);
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
   const parsed = parseLocalePath(pathname);
 
   // No recognised locale prefix yet (e.g. bare `/`) — let next-intl redirect.
