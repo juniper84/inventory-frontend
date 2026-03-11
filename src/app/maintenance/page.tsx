@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
 
 export const metadata: Metadata = {
   title: 'Under Maintenance — New Vision Inventory',
@@ -32,17 +31,15 @@ export default function MaintenancePage() {
         ].join(', '),
       }}
     >
-      {/* Logo */}
-      <div className="mb-10">
-        <Image
-          src="/logo-email.png"
-          alt="New Vision Inventory"
-          width={180}
-          height={60}
-          priority
-          className="object-contain"
-          style={{ filter: 'brightness(1.1)' }}
-        />
+      {/* Wordmark */}
+      <div className="mb-10 text-center">
+        <p className="text-xs uppercase tracking-[0.22em] text-gold-400/70 mb-1">Powered by</p>
+        <h2
+          className="text-2xl font-semibold tracking-wide"
+          style={{ color: '#d7b05b', fontFamily: 'Georgia, serif', letterSpacing: '0.06em' }}
+        >
+          New Vision Inventory
+        </h2>
       </div>
 
       {/* Icon */}
