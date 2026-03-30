@@ -17,7 +17,7 @@ export function resolvePlatformDockContent(basePath: string, path: string): Dock
     tagKeys: ['dockTagGlobal', 'dockTagOperational'],
     actions: [
       { labelKey: 'dockActionOpenBusinesses', href: `${basePath}/businesses` },
-      { labelKey: 'dockActionOpenIncidents', href: `${basePath}/incidents` },
+      { labelKey: 'dockActionOpenOperations', href: `${basePath}/operations` },
     ],
   };
 
@@ -27,17 +27,8 @@ export function resolvePlatformDockContent(basePath: string, path: string): Dock
       descriptionKey: 'dockOverviewDescription',
       tagKeys: ['dockTagKpis', 'dockTagSecurity'],
       actions: [
-        { labelKey: 'dockActionOpenHealth', href: `${basePath}/health` },
-        { labelKey: 'dockActionOpenAudit', href: `${basePath}/audit` },
-      ],
-    },
-    health: {
-      titleKey: 'dockHealthTitle',
-      descriptionKey: 'dockHealthDescription',
-      tagKeys: ['dockTagRisk', 'dockTagDevices'],
-      actions: [
-        { labelKey: 'dockActionOpenBusinesses', href: `${basePath}/businesses` },
-        { labelKey: 'dockActionOpenIncidents', href: `${basePath}/incidents` },
+        { labelKey: 'dockActionOpenIntelligence', href: `${basePath}/intelligence` },
+        { labelKey: 'dockActionOpenOperations', href: `${basePath}/operations` },
       ],
     },
     businesses: {
@@ -45,26 +36,26 @@ export function resolvePlatformDockContent(basePath: string, path: string): Dock
       descriptionKey: 'dockBusinessesDescription',
       tagKeys: ['dockTagRegistry', 'dockTagLifecycle'],
       actions: [
-        { labelKey: 'dockActionOpenSupport', href: `${basePath}/support` },
-        { labelKey: 'dockActionOpenExports', href: `${basePath}/exports` },
+        { labelKey: 'dockActionOpenAccess', href: `${basePath}/access` },
+        { labelKey: 'dockActionOpenOperations', href: `${basePath}/operations` },
       ],
     },
-    support: {
-      titleKey: 'dockSupportTitle',
-      descriptionKey: 'dockSupportDescription',
+    operations: {
+      titleKey: 'dockOperationsTitle',
+      descriptionKey: 'dockOperationsDescription',
+      tagKeys: ['dockTagOperations', 'dockTagQueue'],
+      actions: [
+        { labelKey: 'dockActionOpenBusinesses', href: `${basePath}/businesses` },
+        { labelKey: 'dockActionOpenIntelligence', href: `${basePath}/intelligence` },
+      ],
+    },
+    access: {
+      titleKey: 'dockAccessTitle',
+      descriptionKey: 'dockAccessDescription',
       tagKeys: ['dockTagQueue', 'dockTagAccess'],
       actions: [
         { labelKey: 'dockActionOpenBusinesses', href: `${basePath}/businesses` },
-        { labelKey: 'dockActionOpenAudit', href: `${basePath}/audit` },
-      ],
-    },
-    exports: {
-      titleKey: 'dockExportsTitle',
-      descriptionKey: 'dockExportsDescription',
-      tagKeys: ['dockTagQueue', 'dockTagDelivery'],
-      actions: [
-        { labelKey: 'dockActionOpenBusinesses', href: `${basePath}/businesses` },
-        { labelKey: 'dockActionOpenSupport', href: `${basePath}/support` },
+        { labelKey: 'dockActionOpenIntelligence', href: `${basePath}/intelligence` },
       ],
     },
     announcements: {
@@ -73,25 +64,71 @@ export function resolvePlatformDockContent(basePath: string, path: string): Dock
       tagKeys: ['dockTagBroadcast', 'dockTagTargeting'],
       actions: [
         { labelKey: 'dockActionOpenOverview', href: `${basePath}/overview` },
-        { labelKey: 'dockActionOpenAudit', href: `${basePath}/audit` },
+        { labelKey: 'dockActionOpenIntelligence', href: `${basePath}/intelligence` },
+      ],
+    },
+    analytics: {
+      titleKey: 'dockAnalyticsTitle',
+      descriptionKey: 'dockAnalyticsDescription',
+      tagKeys: ['dockTagAnalytics', 'dockTagMetrics'],
+      actions: [
+        { labelKey: 'dockActionOpenOverview', href: `${basePath}/overview` },
+        { labelKey: 'dockActionOpenIntelligence', href: `${basePath}/intelligence` },
+      ],
+    },
+    intelligence: {
+      titleKey: 'dockIntelligenceTitle',
+      descriptionKey: 'dockIntelligenceDescription',
+      tagKeys: ['dockTagIntelligence', 'dockTagForensics'],
+      actions: [
+        { labelKey: 'dockActionOpenOperations', href: `${basePath}/operations` },
+        { labelKey: 'dockActionOpenOverview', href: `${basePath}/overview` },
+      ],
+    },
+    // Legacy paths kept for backwards compat
+    health: {
+      titleKey: 'dockIntelligenceTitle',
+      descriptionKey: 'dockIntelligenceDescription',
+      tagKeys: ['dockTagRisk', 'dockTagDevices'],
+      actions: [
+        { labelKey: 'dockActionOpenBusinesses', href: `${basePath}/businesses` },
+        { labelKey: 'dockActionOpenOperations', href: `${basePath}/operations` },
+      ],
+    },
+    support: {
+      titleKey: 'dockAccessTitle',
+      descriptionKey: 'dockAccessDescription',
+      tagKeys: ['dockTagQueue', 'dockTagAccess'],
+      actions: [
+        { labelKey: 'dockActionOpenBusinesses', href: `${basePath}/businesses` },
+        { labelKey: 'dockActionOpenIntelligence', href: `${basePath}/intelligence` },
+      ],
+    },
+    exports: {
+      titleKey: 'dockOperationsTitle',
+      descriptionKey: 'dockOperationsDescription',
+      tagKeys: ['dockTagQueue', 'dockTagDelivery'],
+      actions: [
+        { labelKey: 'dockActionOpenBusinesses', href: `${basePath}/businesses` },
+        { labelKey: 'dockActionOpenOperations', href: `${basePath}/operations` },
       ],
     },
     audit: {
-      titleKey: 'dockAuditTitle',
-      descriptionKey: 'dockAuditDescription',
+      titleKey: 'dockIntelligenceTitle',
+      descriptionKey: 'dockIntelligenceDescription',
       tagKeys: ['dockTagForensics', 'dockTagCompliance'],
       actions: [
-        { labelKey: 'dockActionOpenIncidents', href: `${basePath}/incidents` },
+        { labelKey: 'dockActionOpenOperations', href: `${basePath}/operations` },
         { labelKey: 'dockActionOpenOverview', href: `${basePath}/overview` },
       ],
     },
     incidents: {
-      titleKey: 'dockIncidentsTitle',
-      descriptionKey: 'dockIncidentsDescription',
+      titleKey: 'dockOperationsTitle',
+      descriptionKey: 'dockOperationsDescription',
       tagKeys: ['dockTagTriage', 'dockTagRisk'],
       actions: [
         { labelKey: 'dockActionOpenBusinesses', href: `${basePath}/businesses` },
-        { labelKey: 'dockActionOpenHealth', href: `${basePath}/health` },
+        { labelKey: 'dockActionOpenIntelligence', href: `${basePath}/intelligence` },
       ],
     },
   };

@@ -10,6 +10,7 @@ import { Spinner } from '@/components/Spinner';
 import { Skeleton } from '@/components/Skeleton';
 import { SmartSelect } from '@/components/SmartSelect';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { buildUnitLabel, loadUnits, Unit, UNIT_TYPES } from '@/lib/units';
 import { getPermissionSet } from '@/lib/permissions';
@@ -516,11 +517,11 @@ export default function BusinessSettingsPage() {
         token,
         method: 'POST',
       });
-      const updated = await apiFetch<SupportRequest[]>(
+      const updated = await apiFetch<SupportRequest[] | PaginatedResponse<SupportRequest>>(
         '/support-access/requests',
         { token },
       );
-      setSupportRequests(updated);
+      setSupportRequests(normalizePaginated(updated).items);
     } catch (err) {
       setMessage({
         action: 'save',
@@ -661,6 +662,16 @@ export default function BusinessSettingsPage() {
               {subscription.warnings.map((warning) => (
                 <p key={warning.type}>{warning.message}</p>
               ))}
+            </div>
+          ) : null}
+          {subscription.status === 'TRIAL' && subscription.trialEndsAt ? (
+            <div className="rounded border border-red-700/50 bg-red-900/20 p-3 text-sm text-red-200">
+              {t('trialDeleteNotice', {
+                trialEndsAt: formatDateLabel(subscription.trialEndsAt) ?? subscription.trialEndsAt,
+                deleteDate: formatDateLabel(
+                  new Date(new Date(subscription.trialEndsAt).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+                ) ?? '—',
+              })}
             </div>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
@@ -1008,22 +1019,17 @@ export default function BusinessSettingsPage() {
                   />
                   {t('approvalStockAdjust')}
                 </label>
-                <input
-                  value={
-                    draftSettings.approvalDefaults.stockAdjustThresholdAmount ??
-                    ''
-                  }
+                <CurrencyInput
+                  value={draftSettings.approvalDefaults.stockAdjustThresholdAmount}
                   disabled={
                     !isEditing || !draftSettings.approvalDefaults.stockAdjust
                   }
-                  onChange={(event) =>
+                  onChange={(value) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        stockAdjustThresholdAmount: event.target.value
-                          ? Number(event.target.value)
-                          : null,
+                        stockAdjustThresholdAmount: value ? Number(value) : null,
                       },
                     })
                   }
@@ -1048,17 +1054,15 @@ export default function BusinessSettingsPage() {
                   />
                   {t('approvalRefund')}
                 </label>
-                <input
-                  value={draftSettings.approvalDefaults.refundThresholdAmount ?? ''}
+                <CurrencyInput
+                  value={draftSettings.approvalDefaults.refundThresholdAmount}
                   disabled={!isEditing || !draftSettings.approvalDefaults.refund}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        refundThresholdAmount: event.target.value
-                          ? Number(event.target.value)
-                          : null,
+                        refundThresholdAmount: value ? Number(value) : null,
                       },
                     })
                   }
@@ -1083,21 +1087,17 @@ export default function BusinessSettingsPage() {
                   />
                   {t('approvalPurchase')}
                 </label>
-                <input
-                  value={
-                    draftSettings.approvalDefaults.purchaseThresholdAmount ?? ''
-                  }
+                <CurrencyInput
+                  value={draftSettings.approvalDefaults.purchaseThresholdAmount}
                   disabled={
                     !isEditing || !draftSettings.approvalDefaults.purchase
                   }
-                  onChange={(event) =>
+                  onChange={(value) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        purchaseThresholdAmount: event.target.value
-                          ? Number(event.target.value)
-                          : null,
+                        purchaseThresholdAmount: value ? Number(value) : null,
                       },
                     })
                   }
@@ -1122,21 +1122,17 @@ export default function BusinessSettingsPage() {
                   />
                   {t('approvalTransfer')}
                 </label>
-                <input
-                  value={
-                    draftSettings.approvalDefaults.transferThresholdAmount ?? ''
-                  }
+                <CurrencyInput
+                  value={draftSettings.approvalDefaults.transferThresholdAmount}
                   disabled={
                     !isEditing || !draftSettings.approvalDefaults.transfer
                   }
-                  onChange={(event) =>
+                  onChange={(value) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        transferThresholdAmount: event.target.value
-                          ? Number(event.target.value)
-                          : null,
+                        transferThresholdAmount: value ? Number(value) : null,
                       },
                     })
                   }
@@ -1161,21 +1157,17 @@ export default function BusinessSettingsPage() {
                   />
                   {t('approvalExpense')}
                 </label>
-                <input
-                  value={
-                    draftSettings.approvalDefaults.expenseThresholdAmount ?? ''
-                  }
+                <CurrencyInput
+                  value={draftSettings.approvalDefaults.expenseThresholdAmount}
                   disabled={
                     !isEditing || !draftSettings.approvalDefaults.expense
                   }
-                  onChange={(event) =>
+                  onChange={(value) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        expenseThresholdAmount: event.target.value
-                          ? Number(event.target.value)
-                          : null,
+                        expenseThresholdAmount: value ? Number(value) : null,
                       },
                     })
                   }
@@ -1204,19 +1196,15 @@ export default function BusinessSettingsPage() {
                   placeholder={t('discountThresholdPercent')}
                   className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                 />
-                <input
-                  value={
-                    draftSettings.approvalDefaults.discountThresholdAmount ?? ''
-                  }
+                <CurrencyInput
+                  value={draftSettings.approvalDefaults.discountThresholdAmount}
                   disabled={!isEditing}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     setDraftSettings({
                       ...draftSettings,
                       approvalDefaults: {
                         ...draftSettings.approvalDefaults,
-                        discountThresholdAmount: event.target.value
-                          ? Number(event.target.value)
-                          : null,
+                        discountThresholdAmount: value ? Number(value) : null,
                       },
                     })
                   }

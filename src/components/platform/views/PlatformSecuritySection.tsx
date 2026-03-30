@@ -44,10 +44,10 @@ export function PlatformSecuritySection({
     <section className="command-card p-6 space-y-4 nvi-reveal">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-xl font-semibold">{translate('securityTitle')}</h3>
-        <span className="text-xs text-gold-300">{translate('securityHint')}</span>
+        <span className="text-xs text-[color:var(--pt-text-2)]">{translate('securityHint')}</span>
       </div>
-      <div className="rounded border border-gold-700/40 bg-black/40 px-3 py-2 text-xs text-gold-100">
-        <span className="text-gold-300">{translate('platformAdminIdLabel')}</span>{' '}
+      <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card px-3 py-2 text-xs text-[color:var(--pt-text-1)]">
+        <span className="text-[color:var(--pt-text-2)]">{translate('platformAdminIdLabel')}</span>{' '}
         {platformAdminId || translate('platformAdminIdUnknown')}
       </div>
       <div className="grid gap-3 md:grid-cols-2">
@@ -65,7 +65,7 @@ export function PlatformSecuritySection({
             placeholder={translate('currentPassword')}
             autoComplete="current-password"
             required
-            className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 pr-12 text-gold-100"
+            className="w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 pr-12 text-[color:var(--pt-text-1)]"
           />
           <button
             type="button"
@@ -75,7 +75,7 @@ export function PlatformSecuritySection({
                 current: !prev.current,
               }))
             }
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gold-300"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[color:var(--pt-text-2)]"
           >
             {adminPasswordVisible.current
               ? translate('hidePassword')
@@ -96,7 +96,7 @@ export function PlatformSecuritySection({
             placeholder={translate('newPassword')}
             autoComplete="new-password"
             required
-            className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 pr-12 text-gold-100"
+            className="w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 pr-12 text-[color:var(--pt-text-1)]"
           />
           <button
             type="button"
@@ -106,7 +106,7 @@ export function PlatformSecuritySection({
                 next: !prev.next,
               }))
             }
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gold-300"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[color:var(--pt-text-2)]"
           >
             {adminPasswordVisible.next
               ? translate('hidePassword')
@@ -127,7 +127,7 @@ export function PlatformSecuritySection({
             placeholder={translate('confirmPassword')}
             autoComplete="new-password"
             required
-            className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 pr-12 text-gold-100"
+            className="w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 pr-12 text-[color:var(--pt-text-1)]"
           />
           <button
             type="button"
@@ -137,21 +137,21 @@ export function PlatformSecuritySection({
                 confirm: !prev.confirm,
               }))
             }
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gold-300"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[color:var(--pt-text-2)]"
           >
             {adminPasswordVisible.confirm
               ? translate('hidePassword')
               : translate('showPassword')}
           </button>
         </div>
-        <p className="text-xs text-gold-400 md:col-span-2">
+        <p className="text-xs text-[color:var(--pt-text-2)] md:col-span-2">
           {translate('passwordRequirements')}
         </p>
         <button
           type="button"
           onClick={updatePlatformPassword}
           disabled={adminPasswordBusy}
-          className="rounded bg-gold-500 px-3 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="rounded bg-[var(--pt-accent)] px-3 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
         >
           <span className="inline-flex items-center justify-center gap-2">
             {adminPasswordBusy ? <Spinner variant="dots" size="xs" /> : null}

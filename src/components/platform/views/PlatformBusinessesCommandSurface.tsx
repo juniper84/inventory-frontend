@@ -1,5 +1,4 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { Spinner } from '@/components/Spinner';
 import { PlatformBusinessActionModal } from '@/components/platform/views/PlatformBusinessActionModal';
 import { PlatformBusinessRegistryPanel } from '@/components/platform/views/PlatformBusinessRegistryPanel';
 import { PlatformBusinessWorkspacePanel } from '@/components/platform/views/PlatformBusinessWorkspacePanel';
@@ -25,6 +24,7 @@ type Business = {
     readOnlyReason?: string | null;
   } | null;
   counts?: { branches: number; users: number; offlineDevices: number };
+  systemOwner?: { name: string; email: string; phone: string | null } | null;
 };
 
 type BusinessWorkspace = {
@@ -126,12 +126,27 @@ type BusinessSelectOption = { value: string; label: string };
 type BusinessStatusFilter = 'ACTIVE' | 'UNDER_REVIEW' | 'SUSPENDED' | 'ARCHIVED' | 'DELETED';
 
 type WorkspaceTab =
-  | 'SUMMARY'
-  | 'SUBSCRIPTION'
-  | 'RISK_STATUS'
-  | 'ACCESS'
+  | 'OVERVIEW'
+  | 'MANAGE'
+  | 'NOTES'
   | 'DEVICES'
-  | 'DANGER';
+  | 'ACTIONS';
+
+type BusinessNote = {
+  id: string;
+  body: string;
+  createdAt: string;
+  platformAdmin: { id: string; email: string };
+};
+
+type ScheduledAction = {
+  id: string;
+  actionType: string;
+  payload: Record<string, unknown>;
+  scheduledFor: string;
+  createdAt: string;
+  platformAdmin: { id: string; email: string };
+};
 
 type SubscriptionEdit = {
   tier: string;
@@ -141,7 +156,23 @@ type SubscriptionEdit = {
   trialEndsAt: string;
   graceEndsAt: string;
   expiresAt: string;
-  durationDays?: string;
+  months?: string;
+  isPaid?: boolean;
+  amountDue?: string;
+};
+
+type PurchaseHistoryItem = {
+  id: string;
+  tier: string;
+  months: number;
+  durationDays: number;
+  startsAt: string;
+  expiresAt: string;
+  isPaid: boolean;
+  amountDue: number;
+  reason: string;
+  createdAt: string;
+  platformAdmin: { id: string; email: string };
 };
 
 type ReadOnlyEdit = { enabled: boolean; reason: string };
@@ -150,6 +181,15 @@ type ReviewEdit = { underReview: boolean; reason: string; severity: string };
 
 type TrendPoint = { label: string; offlineFailed: number; exportsPending: number };
 type Device = { id: string; deviceName?: string | null; status: string };
+
+type OnboardingResult = {
+  businessId: string;
+  milestones: { branches: boolean; products: boolean; sales: boolean; users: boolean; settings: boolean };
+  completedCount: number;
+  totalCount: number;
+  percentComplete: number;
+  generatedAt: string;
+};
 
 export function PlatformBusinessesCommandSurface({
   show,
@@ -175,8 +215,11 @@ export function PlatformBusinessesCommandSurface({
   pinnedBusinessIds,
   togglePinnedBusiness,
   updateReview,
-  nextBusinessCursor,
-  isLoadingMoreBusinesses,
+  totalBusinesses,
+  businessPage,
+  hasNextBusinessPage,
+  onBusinessNextPage,
+  onBusinessPrevPage,
   openedBusinessWorkspace,
   loadingBusinessWorkspace,
   businessDrawerTab,
@@ -194,9 +237,13 @@ export function PlatformBusinessesCommandSurface({
   updateSubscription,
   recordSubscriptionPurchase,
   resetSubscriptionLimits,
+  purchaseHistory,
+  loadingPurchaseHistory,
+  loadPurchaseHistory,
   statusEdits,
   setStatusEdits,
   updateStatus,
+  saveStatusAndAccess,
   reviewEdits,
   setReviewEdits,
   incidentSeverityOptions,
@@ -217,6 +264,23 @@ export function PlatformBusinessesCommandSurface({
   setBusinessActionModal,
   actionNeedsPreflight,
   executeBusinessActionModal,
+  businessOnboarding,
+  loadingOnboarding,
+  loadBusinessOnboarding,
+  businessNotes,
+  loadingNotes,
+  noteInput,
+  setNoteInput,
+  loadBusinessNotes,
+  createBusinessNote,
+  deleteBusinessNote,
+  scheduledActions,
+  loadingScheduledActions,
+  scheduledActionForm,
+  setScheduledActionForm,
+  createScheduledAction,
+  cancelScheduledAction,
+  platformAdminId,
 }: {
   show: boolean;
   showBusinessDetailPage: boolean;
@@ -224,7 +288,7 @@ export function PlatformBusinessesCommandSurface({
   locale: string;
   withAction: (key: string, task: () => void | Promise<void>) => Promise<void>;
   actionLoading: Record<string, boolean>;
-  loadBusinesses: (cursor?: string, append?: boolean) => Promise<void>;
+  loadBusinesses: (cursor?: string) => Promise<void>;
   businesses: Business[];
   openedBusiness: Business | null;
   businessSearch: string;
@@ -244,8 +308,11 @@ export function PlatformBusinessesCommandSurface({
     businessId: string,
     options?: { underReview: boolean; reason: string; severity: string },
   ) => Promise<void>;
-  nextBusinessCursor: string | null;
-  isLoadingMoreBusinesses: boolean;
+  totalBusinesses: number | null;
+  businessPage: number;
+  hasNextBusinessPage: boolean;
+  onBusinessNextPage: () => Promise<void>;
+  onBusinessPrevPage: () => Promise<void>;
   openedBusinessWorkspace: BusinessWorkspace | null;
   loadingBusinessWorkspace: Record<string, boolean>;
   businessDrawerTab: WorkspaceTab;
@@ -263,9 +330,13 @@ export function PlatformBusinessesCommandSurface({
   updateSubscription: (businessId: string) => Promise<void>;
   recordSubscriptionPurchase: (businessId: string) => Promise<void>;
   resetSubscriptionLimits: (businessId: string) => Promise<void>;
+  purchaseHistory: Record<string, PurchaseHistoryItem[]>;
+  loadingPurchaseHistory: Record<string, boolean>;
+  loadPurchaseHistory: (businessId: string) => Promise<void>;
   statusEdits: Record<string, StatusEdit>;
   setStatusEdits: Dispatch<SetStateAction<Record<string, StatusEdit>>>;
   updateStatus: (businessId: string) => Promise<void>;
+  saveStatusAndAccess: (businessId: string) => Promise<void>;
   reviewEdits: Record<string, ReviewEdit>;
   setReviewEdits: Dispatch<SetStateAction<Record<string, ReviewEdit>>>;
   incidentSeverityOptions: SeverityOption[];
@@ -296,6 +367,23 @@ export function PlatformBusinessesCommandSurface({
   setBusinessActionModal: Dispatch<SetStateAction<BusinessActionModalState | null>>;
   actionNeedsPreflight: (action: BusinessActionModalState['action']) => boolean;
   executeBusinessActionModal: () => Promise<void>;
+  businessOnboarding: Record<string, OnboardingResult>;
+  loadingOnboarding: Record<string, boolean>;
+  loadBusinessOnboarding: (businessId: string) => Promise<void>;
+  businessNotes: Record<string, BusinessNote[]>;
+  loadingNotes: Record<string, boolean>;
+  noteInput: Record<string, string>;
+  setNoteInput: Dispatch<SetStateAction<Record<string, string>>>;
+  loadBusinessNotes: (businessId: string) => Promise<void>;
+  createBusinessNote: (businessId: string) => Promise<void>;
+  deleteBusinessNote: (noteId: string, businessId: string) => Promise<void>;
+  scheduledActions: Record<string, ScheduledAction[]>;
+  loadingScheduledActions: Record<string, boolean>;
+  scheduledActionForm: Record<string, { actionType: string; payload: Record<string, unknown>; scheduledFor: string }>;
+  setScheduledActionForm: Dispatch<SetStateAction<Record<string, { actionType: string; payload: Record<string, unknown>; scheduledFor: string }>>>;
+  createScheduledAction: (businessId: string) => Promise<void>;
+  cancelScheduledAction: (actionId: string, businessId: string) => Promise<void>;
+  platformAdminId: string;
 }) {
   if (!show) {
     return null;
@@ -303,64 +391,15 @@ export function PlatformBusinessesCommandSurface({
 
   return (
     <section className="command-card p-6 space-y-5 nvi-reveal">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-gold-400">
-            {showBusinessDetailPage ? t('businessWorkspaceTag') : t('businessCommandCenterTag')}
-          </p>
-          <h3 className="text-xl font-semibold text-gold-100">
-            {showBusinessDetailPage
-              ? openedBusiness?.name ?? t('businessRegistryTitle')
-              : t('businessRegistryTitle')}
-          </h3>
-        </div>
-        <button
-          type="button"
-          onClick={() => withAction('businesses:load', () => loadBusinesses())}
-          className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
-        >
-          <span className="inline-flex items-center gap-2">
-            {actionLoading['businesses:load'] ? <Spinner size="xs" variant="grid" /> : null}
-            {t('loadBusinesses')}
-          </span>
-        </button>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <div className="nvi-tile p-3">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">{t('businessTileTotal')}</p>
-          <p className="mt-1 text-2xl font-semibold text-gold-100">{businesses.length}</p>
-        </div>
-        <div className="nvi-tile p-3">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">{t('businessTileActive')}</p>
-          <p className="mt-1 text-2xl font-semibold text-gold-100">
-            {businesses.filter((business) => business.status === 'ACTIVE').length}
-          </p>
-        </div>
-        <div className="nvi-tile p-3">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">{t('businessTileUnderReview')}</p>
-          <p className="mt-1 text-2xl font-semibold text-amber-200">
-            {businesses.filter((business) => business.underReview).length}
-          </p>
-        </div>
-        <div className="nvi-tile p-3">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">{t('businessTileArchived')}</p>
-          <p className="mt-1 text-2xl font-semibold text-gold-100">
-            {businesses.filter((business) => business.status === 'ARCHIVED').length}
-          </p>
-        </div>
-        <div className="nvi-tile p-3">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">{t('businessTileDeletedReady')}</p>
-          <p className="mt-1 text-2xl font-semibold text-red-200">
-            {businesses.filter((business) => business.status === 'DELETED').length}
-          </p>
-        </div>
-        <div className="nvi-tile p-3">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">{t('businessTileHighRisk')}</p>
-          <p className="mt-1 text-2xl font-semibold text-amber-200">
-            {businesses.filter((business) => getBusinessRiskScore(business) >= 60).length}
-          </p>
-        </div>
+      <div>
+        <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--pt-text-2)]">
+          {showBusinessDetailPage ? t('businessWorkspaceTag') : t('businessCommandCenterTag')}
+        </p>
+        <h3 className="text-xl font-semibold text-[color:var(--pt-text-1)]">
+          {showBusinessDetailPage
+            ? openedBusiness?.name ?? t('businessRegistryTitle')
+            : t('businessRegistryTitle')}
+        </h3>
       </div>
 
       <div className={`grid gap-4 ${showBusinessDetailPage ? 'grid-cols-1' : 'xl:grid-cols-1'}`}>
@@ -370,13 +409,9 @@ export function PlatformBusinessesCommandSurface({
           locale={locale}
           withAction={withAction}
           actionLoading={actionLoading}
+          loadBusinesses={loadBusinesses}
           businessSearch={businessSearch}
           setBusinessSearch={setBusinessSearch}
-          businessOptions={businessOptions}
-          selectedBusinessId={selectedBusinessId}
-          setSelectedBusinessId={setSelectedBusinessId}
-          businessSelectOptions={businessSelectOptions}
-          applySelectedBusiness={applySelectedBusiness}
           businessStatusFilter={businessStatusFilter}
           setBusinessStatusFilter={setBusinessStatusFilter}
           filteredBusinesses={filteredBusinesses}
@@ -385,9 +420,11 @@ export function PlatformBusinessesCommandSurface({
           pinnedBusinessIds={pinnedBusinessIds}
           togglePinnedBusiness={togglePinnedBusiness}
           updateReview={updateReview}
-          nextBusinessCursor={nextBusinessCursor}
-          loadBusinesses={loadBusinesses}
-          isLoadingMoreBusinesses={isLoadingMoreBusinesses}
+          totalBusinesses={totalBusinesses}
+          businessPage={businessPage}
+          hasNextBusinessPage={hasNextBusinessPage}
+          onBusinessNextPage={onBusinessNextPage}
+          onBusinessPrevPage={onBusinessPrevPage}
         />
 
         <PlatformBusinessWorkspacePanel
@@ -415,9 +452,13 @@ export function PlatformBusinessesCommandSurface({
           updateSubscription={updateSubscription}
           recordSubscriptionPurchase={recordSubscriptionPurchase}
           resetSubscriptionLimits={resetSubscriptionLimits}
+          purchaseHistory={purchaseHistory}
+          loadingPurchaseHistory={loadingPurchaseHistory}
+          loadPurchaseHistory={loadPurchaseHistory}
           statusEdits={statusEdits}
           setStatusEdits={setStatusEdits}
           updateStatus={updateStatus}
+          saveStatusAndAccess={saveStatusAndAccess}
           reviewEdits={reviewEdits}
           setReviewEdits={setReviewEdits}
           incidentSeverityOptions={incidentSeverityOptions}
@@ -435,6 +476,23 @@ export function PlatformBusinessesCommandSurface({
           devicesMap={devicesMap}
           loadingDevices={loadingDevices}
           revokeDevice={revokeDevice}
+          businessOnboarding={businessOnboarding}
+          loadingOnboarding={loadingOnboarding}
+          loadBusinessOnboarding={loadBusinessOnboarding}
+          businessNotes={businessNotes}
+          loadingNotes={loadingNotes}
+          noteInput={noteInput}
+          setNoteInput={setNoteInput}
+          loadBusinessNotes={loadBusinessNotes}
+          createBusinessNote={createBusinessNote}
+          deleteBusinessNote={deleteBusinessNote}
+          scheduledActions={scheduledActions}
+          loadingScheduledActions={loadingScheduledActions}
+          scheduledActionForm={scheduledActionForm}
+          setScheduledActionForm={setScheduledActionForm}
+          createScheduledAction={createScheduledAction}
+          cancelScheduledAction={cancelScheduledAction}
+          platformAdminId={platformAdminId}
         />
       </div>
 

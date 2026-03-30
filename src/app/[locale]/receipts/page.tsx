@@ -14,6 +14,7 @@ import { useVariantSearch } from '@/lib/use-variant-search';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import {
   buildCursorQuery,
   normalizePaginated,
@@ -851,12 +852,11 @@ export default function ReceiptsPage() {
               ]}
               className="nvi-select-container"
             />
-            <input
+            <CurrencyInput
               value={settlement.amount}
-              onChange={(event) =>
-                setSettlement({ ...settlement, amount: event.target.value })
+              onChange={(value) =>
+                setSettlement({ ...settlement, amount: value })
               }
-              type="number"
               placeholder={t('amount')}
               className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
             />

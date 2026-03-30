@@ -72,7 +72,6 @@ type ChatResponse = {
 type ChatIntent = 'explain_page' | 'troubleshoot_error' | 'how_to' | 'what_next';
 type ResponseDepth = 'simple' | 'standard' | 'detailed';
 type HelpTab = 'manual' | 'assistant';
-type ManualFilter = 'all' | 'workflow' | 'errors' | 'permissions';
 type ManualMode = 'guide' | 'elements';
 
 type ChatMessage =
@@ -116,12 +115,6 @@ type Copy = {
   recentErrorsNone: string;
   recentErrorsAskWithout: string;
   recentErrorsSelectPrompt: string;
-  manualSearchTitle: string;
-  manualSearchPlaceholder: string;
-  manualSearchAll: string;
-  manualSearchWorkflow: string;
-  manualSearchErrors: string;
-  manualSearchPermissions: string;
   pageGuide: string;
   oneLineSummary: string;
   whatFirst: string;
@@ -211,12 +204,6 @@ const COPY: Record<ManualLocale, Copy> = {
     recentErrorsAskWithout: 'Ask without error',
     recentErrorsSelectPrompt:
       'Multiple recent errors match this page. Select one before troubleshooting.',
-    manualSearchTitle: 'Manual Search',
-    manualSearchPlaceholder: 'Search guide content for this page...',
-    manualSearchAll: 'All',
-    manualSearchWorkflow: 'Workflow',
-    manualSearchErrors: 'Errors',
-    manualSearchPermissions: 'Permissions',
     pageGuide: 'Page Guide',
     oneLineSummary: 'One-line summary',
     whatFirst: 'What first?',
@@ -307,12 +294,6 @@ const COPY: Record<ManualLocale, Copy> = {
     recentErrorsAskWithout: 'Uliza bila kosa',
     recentErrorsSelectPrompt:
       'Kuna makosa mengi yanayolingana na ukurasa huu. Chagua moja kwanza.',
-    manualSearchTitle: 'Tafuta Mwongozo',
-    manualSearchPlaceholder: 'Tafuta maudhui ya mwongozo kwa ukurasa huu...',
-    manualSearchAll: 'Yote',
-    manualSearchWorkflow: 'Hatua za kazi',
-    manualSearchErrors: 'Makosa',
-    manualSearchPermissions: 'Ruhusa',
     pageGuide: 'Mwongozo wa ukurasa',
     oneLineSummary: 'Muhtasari mfupi',
     whatFirst: 'Nianze na nini?',
@@ -574,8 +555,6 @@ export function SupportChatWidget() {
   const activeBranch = useActiveBranch();
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<HelpTab>(() => readStoredTab());
-  const [manualQuery, setManualQuery] = useState('');
-  const [manualFilter, setManualFilter] = useState<ManualFilter>('all');
   const [question, setQuestion] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(() => readStoredMessages());
@@ -945,29 +924,6 @@ export function SupportChatWidget() {
     window.addEventListener('mouseup', onUp);
   };
 
-  const manualTextBlob = useMemo(() => {
-    if (!entry) {
-      return '';
-    }
-    return [
-      entry.title,
-      entry.purpose,
-      entry.overview,
-      entryAudience.join(' '),
-      ...entryWorkflow.map((item) => item.step),
-      ...(entry?.common_tasks ?? []).flatMap((task) => [task.task, ...task.steps]),
-      ...(entry?.elements ?? []).map((el) => `${el.name} ${el.description}`),
-      ...(entry?.before_you_start ?? []).map((item) => item.text),
-      ...(entry?.warnings ?? []),
-      ...entryCommonErrors.map(
-        (item) => `${item.error_code} ${item.error_symptom} ${item.likely_cause}`,
-      ),
-      ...permissionRows.map((item) => `${item.title} ${item.description}`),
-    ]
-      .join(' ')
-      .toLowerCase();
-  }, [entry, entryAudience, entryCommonErrors, entryWorkflow, permissionRows]);
-
   const filteredElements = useMemo(() => {
     if (!entry?.elements) return [];
     const q = elementSearch.toLowerCase().trim();
@@ -979,19 +935,6 @@ export function SupportChatWidget() {
         el.type.toLowerCase().includes(q),
     );
   }, [entry, elementSearch]);
-
-  const matchesQuery = (extraText?: string) => {
-    const query = manualQuery.trim().toLowerCase();
-    if (!query) {
-      return true;
-    }
-    return (extraText ?? manualTextBlob).includes(query);
-  };
-
-  const showWorkflow = (manualFilter === 'all' || manualFilter === 'workflow') && matchesQuery();
-  const showErrors = (manualFilter === 'all' || manualFilter === 'errors') && matchesQuery();
-  const showPermissions =
-    (manualFilter === 'all' || manualFilter === 'permissions') && matchesQuery();
 
   if (!inScope || !token) {
     return null;
@@ -1127,7 +1070,7 @@ export function SupportChatWidget() {
         ref={triggerRef}
         type="button"
         onClick={() => { if (hasValidToken()) setOpen(true); }}
-        className="fixed bottom-6 right-4 z-40 h-12 w-12 rounded-2xl border border-[color:var(--border)] bg-[color:var(--accent)] text-black shadow-[0_18px_34px_rgba(0,0,0,0.45)] md:h-14 md:w-14"
+        className="fixed bottom-20 right-4 z-40 h-12 w-12 rounded-2xl border border-[color:var(--border)] bg-[color:var(--accent)] text-black shadow-[0_18px_34px_rgba(0,0,0,0.45)] md:h-14 md:w-14"
         aria-label={copy.open}
       >
         ?

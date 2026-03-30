@@ -305,7 +305,11 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
 
   if (!response.ok) {
     if (response.status === 401 && resolvedToken && !_retried) {
-      const refreshed = await refreshAccessToken(resolvedToken);
+      const tokenScope = decodeJwt<{ scope?: string }>(resolvedToken)?.scope;
+      const refreshed =
+        tokenScope === 'platform'
+          ? await refreshPlatformAdminToken()
+          : await refreshAccessToken(resolvedToken);
       if (refreshed) {
         return apiFetch<T>(path, {
           ...options,
@@ -338,6 +342,15 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
       }
     } catch {
       message = fallback;
+    }
+    if (
+      response.status === 403 &&
+      payload?.errorCode === 'BUSINESS_SUSPENDED' &&
+      typeof window !== 'undefined'
+    ) {
+      const locale = window.location.pathname.split('/')[1] || 'en';
+      window.location.replace(`/${locale}/suspended`);
+      return new Promise<T>(() => undefined);
     }
     pushSupportChatRecentError({
       error_code: payload?.errorCode ?? deriveErrorCode(message),

@@ -3,12 +3,14 @@ import { useCallback, useState } from 'react';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { buildCursorQuery, normalizePaginated, type PaginatedResponse } from '@/lib/pagination';
 import { confirmAction, type ToastInput } from '@/lib/app-notifications';
+import { setSession } from '@/lib/auth';
 
 type Translate = (key: string, values?: Record<string, string | number | Date>) => string;
 
 type SupportRequest = {
   id: string;
   businessId: string;
+  business?: { name: string } | null;
   platformAdminId: string;
   reason: string;
   scope?: string[] | null;
@@ -31,6 +33,7 @@ type SupportSession = {
   id: string;
   requestId: string;
   businessId: string;
+  business?: { name: string } | null;
   platformAdminId: string;
   createdAt: string;
   expiresAt: string;
@@ -118,8 +121,10 @@ export function usePlatformSupportExports({
   t: Translate;
   setMessage: (value: ToastInput | null) => void;
 }) {
-  const [isLoadingMoreSupport, setIsLoadingMoreSupport] = useState(false);
-  const [isLoadingMoreSupportSessions, setIsLoadingMoreSupportSessions] = useState(false);
+  const [supportPage, setSupportPage] = useState(1);
+  const [supportCursorStack, setSupportCursorStack] = useState<(string | null)[]>([null]);
+  const [supportSessionPage, setSupportSessionPage] = useState(1);
+  const [supportSessionCursorStack, setSupportSessionCursorStack] = useState<(string | null)[]>([null]);
   const [requestingSupport, setRequestingSupport] = useState(false);
   const [activatingSupportId, setActivatingSupportId] = useState<string | null>(null);
   const [supportRequests, setSupportRequests] = useState<SupportRequest[]>([]);
@@ -148,6 +153,12 @@ export function usePlatformSupportExports({
   });
   const [supportSessionReasons, setSupportSessionReasons] = useState<Record<string, string>>({});
   const [revokingSupportSessionId, setRevokingSupportSessionId] = useState<string | null>(null);
+  const [pendingSupportLogin, setPendingSupportLogin] = useState<{
+    token: string;
+    businessId: string;
+    expiresAt: string;
+  } | null>(null);
+  const [loggingInAsSupport, setLoggingInAsSupport] = useState(false);
   const [exportDeliveryForm, setExportDeliveryForm] = useState<ExportDeliveryForm>({
     exportJobId: '',
     reason: '',
@@ -157,7 +168,8 @@ export function usePlatformSupportExports({
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
   const [exportQueueStats, setExportQueueStats] = useState<ExportQueueStats | null>(null);
   const [nextExportCursor, setNextExportCursor] = useState<string | null>(null);
-  const [isLoadingMoreExports, setIsLoadingMoreExports] = useState(false);
+  const [exportPage, setExportPage] = useState(1);
+  const [exportCursorStack, setExportCursorStack] = useState<(string | null)[]>([null]);
   const [isLoadingExports, setIsLoadingExports] = useState(false);
   const [isLoadingExportStats, setIsLoadingExportStats] = useState(false);
   const [exportFilters, setExportFilters] = useState<ExportFilters>({
@@ -166,9 +178,12 @@ export function usePlatformSupportExports({
     type: '',
   });
 
-  const loadSupportRequests = useCallback(async (cursor?: string, append = false) => {
+  const loadSupportRequests = useCallback(async (cursor?: string) => {
     if (!token) return;
-    if (append) setIsLoadingMoreSupport(true);
+    if (cursor === undefined) {
+      setSupportPage(1);
+      setSupportCursorStack([null]);
+    }
     try {
       const query = buildCursorQuery({
         limit: 20,
@@ -186,12 +201,10 @@ export function usePlatformSupportExports({
         { token },
       );
       const result = normalizePaginated(requests);
-      setSupportRequests((prev) => (append ? [...prev, ...result.items] : result.items));
+      setSupportRequests(result.items);
       setNextSupportCursor(result.nextCursor);
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('loadSupportRequestsFailed')));
-    } finally {
-      if (append) setIsLoadingMoreSupport(false);
     }
   }, [
     token,
@@ -206,9 +219,29 @@ export function usePlatformSupportExports({
     t,
   ]);
 
-  const loadSupportSessions = useCallback(async (cursor?: string, append = false) => {
+  const goToNextSupportPage = async () => {
+    if (!nextSupportCursor) return;
+    const cursor = nextSupportCursor;
+    setSupportPage((p) => p + 1);
+    setSupportCursorStack((prev) => [...prev, cursor]);
+    await loadSupportRequests(cursor);
+  };
+
+  const goToPrevSupportPage = async () => {
+    if (supportPage <= 1) return;
+    const newPage = supportPage - 1;
+    const cursor = supportCursorStack[newPage - 1];
+    setSupportPage(newPage);
+    setSupportCursorStack((prev) => prev.slice(0, newPage));
+    await loadSupportRequests(cursor ?? undefined);
+  };
+
+  const loadSupportSessions = useCallback(async (cursor?: string) => {
     if (!token) return;
-    if (append) setIsLoadingMoreSupportSessions(true);
+    if (cursor === undefined) {
+      setSupportSessionPage(1);
+      setSupportSessionCursorStack([null]);
+    }
     try {
       const query = buildCursorQuery({
         limit: 20,
@@ -222,12 +255,10 @@ export function usePlatformSupportExports({
         { token },
       );
       const result = normalizePaginated(sessions);
-      setSupportSessions((prev) => (append ? [...prev, ...result.items] : result.items));
+      setSupportSessions(result.items);
       setNextSupportSessionCursor(result.nextCursor);
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('loadSupportSessionsFailed')));
-    } finally {
-      if (append) setIsLoadingMoreSupportSessions(false);
     }
   }, [
     token,
@@ -237,6 +268,23 @@ export function usePlatformSupportExports({
     setMessage,
     t,
   ]);
+
+  const goToNextSupportSessionPage = async () => {
+    if (!nextSupportSessionCursor) return;
+    const cursor = nextSupportSessionCursor;
+    setSupportSessionPage((p) => p + 1);
+    setSupportSessionCursorStack((prev) => [...prev, cursor]);
+    await loadSupportSessions(cursor);
+  };
+
+  const goToPrevSupportSessionPage = async () => {
+    if (supportSessionPage <= 1) return;
+    const newPage = supportSessionPage - 1;
+    const cursor = supportSessionCursorStack[newPage - 1];
+    setSupportSessionPage(newPage);
+    setSupportSessionCursorStack((prev) => prev.slice(0, newPage));
+    await loadSupportSessions(cursor ?? undefined);
+  };
 
   const loadSubscriptionRequests = useCallback(async () => {
     if (!token) return;
@@ -265,7 +313,7 @@ export function usePlatformSupportExports({
         body: JSON.stringify({
           businessId: supportForm.businessId,
           reason: supportForm.reason,
-          scope: supportForm.scope,
+          scope: supportForm.scope.length ? supportForm.scope : undefined,
           durationHours: durationValue ? Number(durationValue) : undefined,
           severity: supportForm.severity,
           priority: supportForm.priority,
@@ -291,18 +339,18 @@ export function usePlatformSupportExports({
     if (!token) return;
     setActivatingSupportId(requestId);
     try {
-      const response = await apiFetch<{ businessId: string }>(
+      const response = await apiFetch<{ businessId: string; token: string; expiresAt: string }>(
         `/platform/support-access/requests/${requestId}/activate`,
         {
           token,
           method: 'POST',
         },
       );
-      setMessage(
-        t('supportTokenCreated', {
-          businessId: response.businessId,
-        }),
-      );
+      setPendingSupportLogin({
+        token: response.token,
+        businessId: response.businessId,
+        expiresAt: response.expiresAt,
+      });
       await Promise.all([loadSupportRequests(), loadSupportSessions(), loadSubscriptionRequests()]);
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('activateSupportFailed')));
@@ -310,6 +358,35 @@ export function usePlatformSupportExports({
       setActivatingSupportId(null);
     }
   };
+
+  const loginAsSupport = async (locale: string) => {
+    if (!token || !pendingSupportLogin) return;
+    setLoggingInAsSupport(true);
+    try {
+      const loginResponse = await apiFetch<{
+        accessToken: string;
+        businessId: string;
+        expiresAt: string;
+      }>('/platform/support-access/login', {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ token: pendingSupportLogin.token }),
+      });
+      setSession(loginResponse.accessToken, '', {
+        id: 'support',
+        email: 'support-access',
+        name: `Support: ${loginResponse.businessId}`,
+      });
+      setPendingSupportLogin(null);
+      window.open(`/${locale}`, '_blank');
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('activateSupportFailed')));
+    } finally {
+      setLoggingInAsSupport(false);
+    }
+  };
+
+  const clearPendingSupportLogin = () => setPendingSupportLogin(null);
 
   const applySupportFilters = async () => {
     await Promise.all([loadSupportRequests(), loadSupportSessions()]);
@@ -367,13 +444,9 @@ export function usePlatformSupportExports({
     }
   };
 
-  const loadExportJobs = useCallback(async (cursor?: string, append = false) => {
+  const loadExportJobs = useCallback(async (cursor?: string) => {
     if (!token) return;
-    if (append) {
-      setIsLoadingMoreExports(true);
-    } else {
-      setIsLoadingExports(true);
-    }
+    setIsLoadingExports(true);
     try {
       const query = buildCursorQuery({
         limit: 20,
@@ -387,16 +460,12 @@ export function usePlatformSupportExports({
         { token },
       );
       const result = normalizePaginated(jobs);
-      setExportJobs((prev) => (append ? [...prev, ...result.items] : result.items));
+      setExportJobs(result.items);
       setNextExportCursor(result.nextCursor);
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('loadExportJobsFailed')));
     } finally {
-      if (append) {
-        setIsLoadingMoreExports(false);
-      } else {
-        setIsLoadingExports(false);
-      }
+      setIsLoadingExports(false);
     }
   }, [
     token,
@@ -406,6 +475,23 @@ export function usePlatformSupportExports({
     setMessage,
     t,
   ]);
+
+  const goToNextExportPage = useCallback(async () => {
+    if (!nextExportCursor) return;
+    const cursor = nextExportCursor;
+    setExportPage((p) => p + 1);
+    setExportCursorStack((prev) => [...prev, cursor]);
+    await loadExportJobs(cursor);
+  }, [nextExportCursor, loadExportJobs]);
+
+  const goToPrevExportPage = useCallback(async () => {
+    if (exportPage <= 1) return;
+    const newPage = exportPage - 1;
+    const cursor = exportCursorStack[newPage - 1];
+    setExportPage(newPage);
+    setExportCursorStack((prev) => prev.slice(0, newPage));
+    await loadExportJobs(cursor ?? undefined);
+  }, [exportPage, exportCursorStack, loadExportJobs]);
 
   const loadExportQueueStats = useCallback(async () => {
     if (!token) return;
@@ -483,6 +569,8 @@ export function usePlatformSupportExports({
         body: JSON.stringify({ reason: 'Platform retry from queue board' }),
       });
       setMessage(t('exportRetrySuccess'));
+      setExportPage(1);
+      setExportCursorStack([null]);
       await Promise.all([loadExportJobs(), loadExportQueueStats()]);
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('exportRetryFailed')));
@@ -504,6 +592,8 @@ export function usePlatformSupportExports({
         body: JSON.stringify({ reason: 'Platform requeue from queue board' }),
       });
       setMessage(t('exportRequeueSuccess'));
+      setExportPage(1);
+      setExportCursorStack([null]);
       await Promise.all([loadExportJobs(), loadExportQueueStats()]);
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('exportRequeueFailed')));
@@ -525,6 +615,8 @@ export function usePlatformSupportExports({
         body: JSON.stringify({ reason: 'Platform cancel from queue board' }),
       });
       setMessage(t('exportCancelSuccess'));
+      setExportPage(1);
+      setExportCursorStack([null]);
       await Promise.all([loadExportJobs(), loadExportQueueStats()]);
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('exportCancelFailed')));
@@ -532,8 +624,10 @@ export function usePlatformSupportExports({
   };
 
   return {
-    isLoadingMoreSupport,
-    isLoadingMoreSupportSessions,
+    supportPage,
+    hasNextSupportPage: nextSupportCursor !== null,
+    supportSessionPage,
+    hasNextSupportSessionPage: nextSupportSessionCursor !== null,
     requestingSupport,
     activatingSupportId,
     supportRequests,
@@ -541,8 +635,6 @@ export function usePlatformSupportExports({
     subscriptionRequests,
     subscriptionResponseNotes,
     setSubscriptionResponseNotes,
-    nextSupportCursor,
-    nextSupportSessionCursor,
     supportForm,
     setSupportForm,
     supportFilters,
@@ -558,11 +650,16 @@ export function usePlatformSupportExports({
     exportJobs,
     exportQueueStats,
     nextExportCursor,
-    isLoadingMoreExports,
+    exportPage,
+    hasNextExportPage: nextExportCursor !== null,
     isLoadingExports,
     isLoadingExportStats,
     exportFilters,
     setExportFilters,
+    pendingSupportLogin,
+    loggingInAsSupport,
+    loginAsSupport,
+    clearPendingSupportLogin,
     loadSupportRequests,
     loadSupportSessions,
     loadSubscriptionRequests,
@@ -578,5 +675,11 @@ export function usePlatformSupportExports({
     retryExportJob,
     requeueExportJob,
     cancelExportJob,
+    goToNextExportPage,
+    goToPrevExportPage,
+    goToNextSupportPage,
+    goToPrevSupportPage,
+    goToNextSupportSessionPage,
+    goToPrevSupportSessionPage,
   };
 }

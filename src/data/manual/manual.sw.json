@@ -982,8 +982,8 @@
       "route": "/{locale}/catalog/variants",
       "module": "catalog",
       "locale": "sw",
-      "title": "Mabadiliko ya Bidhaa",
-      "overview": "Simamia rekodi za kiwango cha SKU kwa bidhaa zako. Kila mabadiliko yana bei yake, usanidi wa kitengo, barcodes, upatikanaji wa tawi, na picha. Ukurasa huu pia unashughulikia utafutaji wa barcode, uhamishaji, na uchapishaji wa lebo.",
+      "title": "Matoleo",
+      "overview": "Simamia rekodi za kiwango cha SKU kwa bidhaa zako. Kila toleo lina bei yake, usanidi wa kitengo, barcode, upatikanaji wa tawi, na picha. Ukurasa huu pia unashughulikia uskanaji wa barcode, uhamishaji wake, na uchapishaji wa lebo.",
       "elements": [
         {
           "name": "KPI – Mabadiliko",
@@ -1011,7 +1011,7 @@
           "type": "card"
         },
         {
-          "name": "Kisanduku cha Jina la Mabadiliko",
+          "name": "Kisanduku cha Jina la Toleo",
           "description": "Jina la kuonyesha linazohitajika kwa toleo kama linavyoonekana kwenye risiti na kwenye POS (k.m. '1 Litre', 'Nyekundu – Kubwa', '500ml'). Lifanye maalum ya kutosha ili wahasibu waweze kutofautisha kati ya matoleo ya bidhaa ile ile kwa haraka.",
           "type": "card"
         },
@@ -1026,7 +1026,7 @@
           "type": "card"
         },
         {
-          "name": "Kitufe cha Kuscan kwa Mabadiliko Mapya",
+          "name": "Kitufe cha Kuscan kwa Toleo Jipya",
           "description": "Huwasha kamera ya kifaa kusken msimbo wa bar na kujaza moja kwa moja kisanduku cha Ingizo la Msimbo wa Bar na nambari iliyoskenwa. Tumia hii badala ya kuandika msimbo wa bar kwa mkono ili kuepuka makosa ya uandishi.",
           "type": "card"
         },
@@ -1052,7 +1052,7 @@
         },
         {
           "name": "Kichaguzi cha Kitengo cha Kuuzia",
-          "description": "Kitengo ambacho mabadiliko yanauzwa nacho (mfano Pakiti, Sanduku). Inaweza kutofautiana na kitengo cha msingi.",
+          "description": "Kitengo ambacho toleo linauzwa nacho (mfano Pakiti, Sanduku). Inaweza kutofautiana na kitengo cha msingi.",
           "type": "card"
         },
         {
@@ -1061,7 +1061,7 @@
           "type": "card"
         },
         {
-          "name": "Kitufe cha Kuunda Mabadiliko",
+          "name": "Kitufe cha Kuunda Toleo",
           "description": "Huhifadhi toleo jipya na kuliongeza kwenye katalogi. Toleo linaanza bila hisa mkononi — fanya marekebisho ya hisa ya ufunguzi au pokea ununuzi kuongeza hisa za awali kabla ya kuuza.",
           "type": "card"
         },
@@ -1071,7 +1071,7 @@
           "type": "card"
         },
         {
-          "name": "Uhamishaji wa Barcode – Kichaguzi cha Mabadiliko Mapya",
+          "name": "Uhamishaji wa Barcode – Kichaguzi cha Toleo Jipya",
           "description": "Toleo ambalo litachukua umiliki wa msimbo wa bar baada ya ugawaji upya. Msimbo wa bar utafutwa kutoka kwa toleo lake la sasa na kuwekwa hapa. Toleo la awali halitakuwa na msimbo wa bar hadi moja iongezwe kwa mkono.",
           "type": "card"
         },
@@ -1097,12 +1097,12 @@
         },
         {
           "name": "Paneli ya Matokeo ya Scan",
-          "description": "Inaonyesha bidhaa, jina la mabadiliko, na SKU iliyopatikana kwa barcode iliyoscanwa hivi karibuni.",
+          "description": "Inaonyesha bidhaa, jina la toleo, na SKU iliyopatikana kwa barcode iliyoscanwa hivi karibuni.",
           "type": "card"
         },
         {
           "name": "Kitufe cha Kuchapisha Lebo A4",
-          "description": "Inaunda lebo za barcode kwa mabadiliko yaliyochaguliwa na kufungua mazungumzo ya kuchapisha A4.",
+          "description": "Inaunda lebo za barcode kwa matoleo yaliyochaguliwa na kufungua mazungumzo ya kuchapisha A4.",
           "type": "card"
         },
         {
@@ -1151,7 +1151,7 @@
           "text": "Bidhaa za mzazi lazima ziwepo — unda bidhaa kwanza katika /catalog/products."
         },
         {
-          "text": "Vitengo lazima visimamiwe katika mipangilio kabla hujaweka vitengo vya msingi/kuuzia kwa mabadiliko."
+          "text": "Vitengo lazima visimamiwe katika mipangilio kabla hujaweka vitengo vya msingi/kuuzia kwa matoleo."
         },
         {
           "text": "catalog.write inahitajika kwa shughuli zote za kuunda, kusasisha, barcode, na picha."
@@ -1159,42 +1159,42 @@
       ],
       "common_tasks": [
         {
-          "task": "Unda mabadiliko mapya",
+          "task": "Unda toleo jipya",
           "steps": [
             "Chagua bidhaa ya mzazi.",
-            "Ingiza jina la mabadiliko.",
+            "Ingiza jina la toleo.",
             "Weka kitengo cha msingi na cha kuuzia (na kipengele cha ubadilishaji ikiwa zinatofautiana).",
             "Ingiza bei na barcode kwa hiari.",
-            "Bonyeza Unda Mabadiliko."
+            "Bonyeza Unda Toleo."
           ]
         },
         {
           "task": "Chapisha lebo za barcode",
           "steps": [
-            "Weka alama kwenye kadi ya mabadiliko unayotaka kuteua.",
+            "Weka alama kwenye kadi ya toleo unalotaka kuteua.",
             "Bonyeza Chapisha Lebo A4 au Chapisha Lebo za Thermal.",
             "Mazungumzo ya kuchapisha ya kivinjari yanafunguka na lebo zilizoundwa."
           ]
         }
       ],
       "warnings": [
-        "Uhamishaji wa barcode unaweza kuhitaji idhini — paneli ya matokeo itaonyesha ikiwa idhini inahitajika kabla mabadiliko hayajafanywa.",
+        "Uhamishaji wa barcode unaweza kuhitaji idhini — paneli ya matokeo itaonyesha ikiwa idhini inahitajika kabla ya mabadiliko hayo kufanyika.",
         "Uhamishaji wa SKU pia unahitaji sababu na unaweza kusababisha mchakato wa idhini.",
         "Kipengele cha ubadilishaji lazima kiwe nambari chanya isiyokuwa sifuri wakati kitengo cha msingi kinatofautiana na cha kuuzia.",
         "Scan ya kamera inahitaji kivinjari kuwa na ruhusa ya kufikia kamera ya kifaa.",
-        "Uchapishaji wa lebo unajumuisha mabadiliko yote yaliyoandaliwa — futa maandilio kati ya kazi tofauti za kuchapisha."
+        "Uchapishaji wa lebo unajumuisha matoleo yote yaliyoandaliwa — futa uteuzi kati ya kazi tofauti za kuchapisha."
       ],
       "related_pages": [
         {
           "id": "catalog-catalog-products",
           "route": "/{locale}/catalog/products",
-          "reason": "Bidhaa lazima ziwepo kabla mabadiliko hazijaundwa.",
+          "reason": "Bidhaa lazima ziwepo kabla ya matoleo kuundwa.",
           "order": "before"
         },
         {
           "id": "stock-stock",
           "route": "/{locale}/stock",
-          "reason": "Angalia viwango vya stok baada ya kuweka mabadiliko.",
+          "reason": "Angalia viwango vya stok baada ya kuweka matoleo.",
           "order": "after"
         }
       ],
@@ -1729,15 +1729,9 @@
       ],
       "related_pages": [
         {
-          "id": "user-access-settings-users",
-          "route": "/{locale}/settings/users",
-          "reason": "Msimamizi anatuma mwaliko kutoka ukurasa wa Watumiaji wa Mipangilio.",
-          "order": "before"
-        },
-        {
           "id": "auth-login",
           "route": "/{locale}/login",
-          "reason": "Baada ya kukubali mwaliko, unaweza kurudi hapa kuingia wakati wowote.",
+          "reason": "Baada ya kuunda akaunti yako, ingia hapa.",
           "order": "after"
         }
       ],
@@ -2025,87 +2019,87 @@
       "route": "/{locale}/notifications",
       "module": "notifications-notes",
       "locale": "sw",
-      "title": "Arifa",
+      "title": "Taarifa",
       "permissions_required": [],
       "last_reviewed_at": "2026-03-06T00:00:00Z",
       "review_owner": "manual-content-sw-v2",
       "related_pages": [],
-      "overview": "Sanduku lako la barua kwa arifa zote zinazotolewa na mfumo. Ujumbe unafika wakati halisi kupitia mkondo wa matukio ya seva — hakuna haja ya kuburudisha ukurasa. Arifa zimepangwa katika viwango vinne: ACTION_REQUIRED (unahitajika kuchukua hatua), WARNING (kikomo au kanuni imevunjwa), INFO (masasisho ya kawaida), na SECURITY (matukio ya kuingia, mabadiliko ya ruhusa, au shughuli ya kutia shaka). Arifa za usalama zinaonyeshwa katika sehemu tofauti na mpaka mwekundu juu ya ukurasa ili zisipitiwe bila kuzingatiwa. Tumia vitendo vya wingi kuweka sanduku lako nadhifu.",
+      "overview": "Sanduku lako la barua kwa taarifa zote zinazotolewa na mfumo. Ujumbe unafika wakati halisi kupitia mkondo wa matukio ya seva — hakuna haja ya kuburudisha ukurasa. Taarifa zimepangwa katika viwango vinne: ACTION_REQUIRED (unahitajika kuchukua hatua), WARNING (kikomo au kanuni imevunjwa), INFO (masasisho ya kawaida), na SECURITY (matukio ya kuingia, mabadiliko ya ruhusa, au shughuli ya kutia shaka). Taarifa za usalama zinaonyeshwa katika sehemu tofauti na mpaka mwekundu juu ya ukurasa ili zisipitiwe bila kuzingatiwa. Tumia vitendo vya wingi kuweka sanduku lako nadhifu.",
       "elements": [
         {
           "name": "KPI — Ukubwa wa sanduku",
           "type": "card",
-          "description": "Inaonyesha idadi ya arifa zilizo katika sanduku lako sasa hivi. Hesabu hii inajumuisha zote — zilizosomwa na ambazo hazijakusomwa. Tumia KPI ya Hazijakusomwa kuzingatia zile bado zinahitaji umakini."
+          "description": "Inaonyesha idadi ya taarifa zilizo katika sanduku lako sasa hivi. Hesabu hii inajumuisha zote — zilizosomwa na ambazo hazijasomwa. Tumia KPI ya Hazijasomwa kuzingatia zile bado zinahitaji umakini."
         },
         {
-          "name": "KPI — Hazijakusomwa",
+          "name": "KPI — Hazijasomwa",
           "type": "card",
-          "description": "Idadi ya arifa ambazo bado hukufungua. Kiengo hiki kisipokuwa sifuri, kiashiria kwenye upau wa urambazaji kinaonyeshwa pia. Kusoma au kuchagua arifa nyingi kwa wakati mmoja hupunguza hesabu hii."
+          "description": "Idadi ya taarifa ambazo bado hujafungua. Kiengo hiki kisipokuwa sifuri, kiashiria kwenye upau wa urambazaji kinaonyeshwa pia. Kusoma au kuchagua taarifa nyingi kwa wakati mmoja hupunguza hesabu hii."
         },
         {
           "name": "KPI — Inahitaji hatua",
           "type": "card",
-          "description": "Idadi ya arifa zenye kipaumbele cha ACTION_REQUIRED — hizi zinawakilisha kazi zilizozuiwa hadi uchukue hatua, kama vile idhini inayosubiri uamuzi wako au mgongano wa usawazishaji unaohitaji kutatuliwa. Lenga kuifanya sifuri."
+          "description": "Idadi ya taarifa zenye kipaumbele cha ACTION_REQUIRED — hizi zinawakilisha kazi zilizozuiwa hadi uchukue hatua, kama vile idhini inayosubiri uamuzi wako au mgongano wa usawazishaji unaohitaji kutatuliwa. Lenga kuifanya sifuri."
         },
         {
           "name": "KPI — Zilizochaguliwa",
           "type": "card",
-          "description": "Inasasishwa papo hapo unapotia alama za arifa, ikionyesha ni ngapi zimechaguliwa kwa kitendo cha wingi. Inakusaidia kuthibitisha uteuzi wako kabla ya kubonyeza 'Tia alama zilizochaguliwa kuwa zimesomwa' au 'Hifadhi zilizochaguliwa'."
+          "description": "Inasasishwa papo hapo unapotia alama za taarifa, ikionyesha ni ngapi zimechaguliwa kwa kitendo cha wingi. Inakusaidia kuthibitisha uteuzi wako kabla ya kubonyeza 'Tia alama zilizochaguliwa kuwa zimesomwa' au 'Hifadhi zilizochaguliwa'."
         },
         {
           "name": "Kisanduku cha utafutaji",
           "type": "card",
-          "description": "Huchuja sanduku lako kwa neno kuu, ukitafuta kichwa na mwili wa arifa. Inafaa kupata arifa fulani ukikumbuka sehemu ya maneno lakini si tarehe."
+          "description": "Huchuja sanduku lako kwa neno kuu, ukitafuta kichwa na mwili wa taarifa. Inafaa kupata taarifa fulani ukikumbuka sehemu ya maneno lakini si tarehe."
         },
         {
           "name": "Kichujio cha hali",
           "type": "card",
-          "description": "Hupunguza orodha kuonyesha arifa HAZIJAKUSOMWA au ZIMESOMWA tu. Tumia HAZIJAKUSOMWA kuzingatia haraka vitu ambavyo bado hujaviona."
+          "description": "Hupunguza orodha kuonyesha taarifa HAZIJASOMWA au ZIMESOMWA tu. Tumia HAZIJASOMWA kuzingatia haraka vitu ambavyo bado hujaviona."
         },
         {
           "name": "Kichujio cha kipaumbele",
           "type": "card",
-          "description": "Hupunguza orodha kwa kiwango kimoja cha kipaumbele: ACTION_REQUIRED, WARNING, INFO, au SECURITY. Changanya na kichujio cha hali kupata, kwa mfano, arifa zote za SECURITY ambazo hazijakusomwa."
+          "description": "Hupunguza orodha kwa kiwango kimoja cha kipaumbele: ACTION_REQUIRED, WARNING, INFO, au SECURITY. Changanya na kichujio cha hali kupata, kwa mfano, taarifa zote za SECURITY ambazo hazijasomwa."
         },
         {
           "name": "Masafa ya tarehe (Kutoka / Hadi)",
           "type": "card",
-          "description": "Hupunguza matokeo kwa arifa zilizopokelewa ndani ya kipindi maalum. Inafaa wakati wa kuchunguza tukio — chuja tarehe ya tukio kuona kila kitu kilichoanzishwa."
+          "description": "Hupunguza matokeo kwa taarifa zilizopokelewa ndani ya kipindi maalum. Inafaa wakati wa kuchunguza tukio — chuja tarehe ya tukio kuona kila kitu kilichoanzishwa."
         },
         {
           "name": "Kisanduku cha kuchagua zote",
           "type": "card",
-          "description": "Hutia alama kila arifa inayoonekana sasa hivi kwenye orodha. Ikiwa vichujio vimewezeshwa, vitu vilivyochujwa tu ndivyo vinavyochaguliwa — si sanduku lako lote. Tumia kabla ya 'Tia alama zilizochaguliwa kuwa zimesomwa' au 'Hifadhi zilizochaguliwa'."
+          "description": "Hutia alama kila taarifa inayoonekana sasa hivi kwenye orodha. Ikiwa vichujio vimewezeshwa, vitu vilivyochujwa tu ndivyo vinavyochaguliwa — si sanduku lako lote. Tumia kabla ya 'Tia alama zilizochaguliwa kuwa zimesomwa' au 'Hifadhi zilizochaguliwa'."
         },
         {
           "name": "Kitufe cha Tia alama zilizochaguliwa kuwa zimesomwa",
           "type": "card",
-          "description": "Hutia alama arifa zote zilizotiwa alama kama zimesomwa kwa hatua moja. KPI ya Hazijakusomwa na kiengo cha urambazaji vinasasishwa mara moja. Haihifadhi — vitu vinabaki kwenye sanduku."
+          "description": "Hutia alama taarifa zote zilizotiwa alama kama zimesomwa kwa hatua moja. KPI ya Hazijasomwa na kiengo cha urambazaji vinasasishwa mara moja. Haihifadhi — vitu vinabaki kwenye sanduku."
         },
         {
           "name": "Kitufe cha Hifadhi zilizochaguliwa",
           "type": "card",
-          "description": "Huondoa arifa zote zilizotiwa alama kwenye muonekano wa sanduku lako. Arifa zilizohifadhiwa hazionyeshwi tena kwa chaguo-msingi. Tumia hii kusafisha baada ya kushughulikia kundi la arifa."
+          "description": "Huondoa taarifa zote zilizotiwa alama kwenye muonekano wa sanduku lako. Taarifa zilizohifadhiwa hazionyeshwi tena kwa chaguo-msingi. Tumia hii kusafisha baada ya kushughulikia kundi la taarifa."
         },
         {
           "name": "Kitufe cha Tia alama zote kuwa zimesomwa",
           "type": "card",
-          "description": "Hutia alama kila arifa katika sanduku lako kama zimesomwa — bila kujali vichujio vilivyowezeshwa. Hii husafisha KPI ya Hazijakusomwa na kiengo cha urambazaji kabisa. Tumia baada ya kukagua sanduku lenye shughuli nyingi ili kuanza upya."
+          "description": "Hutia alama kila taarifa katika sanduku lako kama zimesomwa — bila kujali vichujio vilivyowezeshwa. Hii husafisha KPI ya Hazijasomwa na kiengo cha urambazaji kabisa. Tumia baada ya kukagua sanduku lenye shughuli nyingi ili kuanza upya."
         },
         {
-          "name": "Sehemu ya arifa za usalama",
+          "name": "Sehemu ya taarifa za usalama",
           "type": "card",
-          "description": "Jopo tofauti na mpaka mwekundu linaloonyesha arifa za kipaumbele cha SECURITY peke yake. Linaonekana juu ya ukurasa kabla ya orodha kuu, kuhakikisha matukio ya usalama yanaonekana kila wakati hata sanduku likiwa limejaa. Arifa za usalama ni pamoja na kuingia kwa mara ya kwanza, mabadiliko ya ruhusa, na majaribio ya kuingia yaliyoshindwa."
+          "description": "Jopo tofauti na mpaka mwekundu linaloonyesha taarifa za kipaumbele cha SECURITY peke yake. Linaonekana juu ya ukurasa kabla ya orodha kuu, kuhakikisha matukio ya usalama yanaonekana kila wakati hata sanduku likiwa limejaa. Taarifa za usalama ni pamoja na kuingia kwa mara ya kwanza, mabadiliko ya ruhusa, na majaribio ya kuingia yaliyoshindwa."
         },
         {
-          "name": "Kipengele cha arifa",
+          "name": "Kipengele cha taarifa",
           "type": "card",
-          "description": "Kila arifa inaonyesha beji ya kipaumbele (rangi inayoonyesha kiwango), kichwa, mwili wa ujumbe, na muda wa jamaa (k.m. 'saa 2 zilizopita'). Vitu ambavyo havijakusomwa vinaonyeshwa kwa kipekee. Baadhi ya arifa zinajumuisha kiungo moja kwa rekodi inayohusika (k.m. ombi la idhini)."
+          "description": "Kila taarifa inaonyesha beji ya kipaumbele (rangi inayoonyesha kiwango), kichwa, mwili wa ujumbe, na muda wa jamaa (k.m. 'saa 2 zilizopita'). Vitu ambavyo havijasomwa vinaonyeshwa kwa kipekee. Baadhi ya taarifa zinajumuisha kiungo moja kwa rekodi inayohusika (k.m. ombi la idhini)."
         },
         {
           "name": "Kitufe cha Tia alama kuwa imesomwa (kwa kila kipengele)",
           "type": "card",
-          "description": "Hutia alama arifa moja kama imesomwa bila kuathiri vitu vingine. Kipengele hicho hupoteza mwangaza wake wa hazijakusomwa na KPI hupungua kwa moja."
+          "description": "Hutia alama taarifa moja kama imesomwa bila kuathiri vitu vingine. Kipengele hicho hupoteza mwangaza wake wa hazijasomwa na KPI hupungua kwa moja."
         },
         {
           "name": "Udhibiti wa kurasa",
@@ -2115,25 +2109,25 @@
       ],
       "before_you_start": [
         {
-          "text": "Hakuna ruhusa maalum zinazohitajika — kila mtumiaji ana sanduku lake la arifa."
+          "text": "Hakuna ruhusa maalum zinazohitajika — kila mtumiaji ana sanduku lake la taarifa."
         },
         {
-          "text": "Mkondo wa wakati halisi unaungana tena kiotomatiki ikiwa muunganisho utakatizwa. Arifa zilizotumwa wakati wa hiatus zitatumwa baada ya kuungana tena."
+          "text": "Mkondo wa wakati halisi unaungana tena kiotomatiki ikiwa muunganisho utakatizwa. Taarifa zilizotumwa wakati wa hiatus zitatumwa baada ya kuungana tena."
         },
         {
-          "text": "Arifa za usalama zinapaswa kukaguliwa haraka iwezekanavyo — zinaweza kuonyesha ufikiaji usioidhinishwa."
+          "text": "Taarifa za usalama zinapaswa kukaguliwa haraka iwezekanavyo — zinaweza kuonyesha ufikiaji usioidhinishwa."
         }
       ],
       "common_tasks": [
         {
-          "task": "Safisha arifa zote ambazo hazijakusomwa",
+          "task": "Safisha taarifa zote ambazo hazijasomwa",
           "steps": [
             "Bonyeza 'Tia alama zote kuwa zimesomwa' kusafisha sanduku lote mara moja.",
             "Au chuja kwa Hali = HAZIJAKUSOMWA, chagua zote kwa kisanduku cha Chagua Zote, kisha bonyeza 'Tia alama zilizochaguliwa kuwa zimesomwa'."
           ]
         },
         {
-          "task": "Tafuta na jibu arifa inayohitaji hatua",
+          "task": "Tafuta na jibu taarifa inayohitaji hatua",
           "steps": [
             "Tumia kichujio cha Kipaumbele na chagua ACTION_REQUIRED.",
             "Kagua kila kipengele — nyingi zinajumuisha kiungo cha moja kwa moja kwenye ukurasa unaohusika (k.m. idhini).",
@@ -2141,18 +2135,18 @@
           ]
         },
         {
-          "task": "Hifadhi arifa za zamani baada ya kipindi chenye shughuli nyingi",
+          "task": "Hifadhi taarifa za zamani baada ya kipindi chenye shughuli nyingi",
           "steps": [
-            "Weka masafa ya tarehe kutengwa kipindi unachotaka kusafisha.",
+            "Weka masafa ya tarehe kutenga kipindi unachotaka kusafisha.",
             "Bonyeza 'Chagua Zote' kutia alama vitu vyote vinavyoonekana.",
             "Bonyeza 'Hifadhi Zilizochaguliwa'."
           ]
         }
       ],
       "warnings": [
-        "Arifa za usalama zinaonekana katika sehemu maalum — usizipuuze bila uchunguzi, kwani zinaweza kuonyesha akaunti iliyoathiriwa.",
-        "Kuhifadhi haiwezi kutenduliwa kutoka kwa UI — arifa zilizohifadhiwa zinaondolewa kwenye muonekano wa chaguo-msingi wa sanduku.",
-        "Tia alama zote kuwa zimesomwa kunaathiri arifa zote, si muonekano ulioibiwa tu — tumia kwa uangalifu ikiwa unataka kuweka baadhi kuwa hazijakusomwa."
+        "Taarifa za usalama zinaonekana katika sehemu maalum — usizipuuze bila uchunguzi, kwani zinaweza kuonyesha akaunti iliyoathiriwa.",
+        "Kuhifadhi haiwezi kutenduliwa kutoka kwa UI — taarifa zilizohifadhiwa zinaondolewa kwenye muonekano wa chaguo-msingi wa sanduku.",
+        "Tia alama zote kuwa zimesomwa kunaathiri taarifa zote, si muonekano uliopunguzwa tu — tumia kwa uangalifu ikiwa unataka kuweka baadhi kuwa hazijasomwa."
       ]
     },
     {

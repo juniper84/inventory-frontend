@@ -133,6 +133,7 @@ export function PlatformActivitySection({
   withAction,
   loadActivityFeed,
   actionLoading,
+  noCard = false,
 }: {
   t: unknown;
   show: boolean;
@@ -141,6 +142,7 @@ export function PlatformActivitySection({
   withAction: (key: string, task: () => void | Promise<void>) => Promise<void>;
   loadActivityFeed: () => Promise<void>;
   actionLoading: Record<string, boolean>;
+  noCard?: boolean;
 }) {
   const translate = t as (
     key: string,
@@ -160,19 +162,19 @@ export function PlatformActivitySection({
     return null;
   }
 
-  return (
-    <section className="command-card p-6 space-y-4 nvi-reveal">
+  const inner = (
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-xl font-semibold">{translate('activityTitle')}</h3>
-          <p className="text-xs uppercase tracking-[0.2em] text-gold-500">
+          <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
             {translate('activitySubtitle')}
           </p>
         </div>
         <button
           type="button"
           onClick={() => withAction('activity:refresh', loadActivityFeed)}
-          className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
+          className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-1 text-xs text-[color:var(--pt-text-1)]"
         >
           <span className="inline-flex items-center gap-2">
             {actionLoading['activity:refresh'] ? (
@@ -184,13 +186,13 @@ export function PlatformActivitySection({
       </div>
 
       {totalCount ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gold-500">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[color:var(--pt-text-muted)]">
           <p>{translate('activityShowing', { shown: visibleCount, total: totalCount })}</p>
           {totalCount > MAX_VISIBLE ? (
             <button
               type="button"
               onClick={() => setExpanded((prev) => !prev)}
-              className="rounded border border-gold-700/50 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-gold-200"
+              className="rounded border border-[color:var(--pt-accent-border)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-1)]"
             >
               {expanded ? translate('activityShowLess') : translate('activityShowMore')}
             </button>
@@ -198,10 +200,10 @@ export function PlatformActivitySection({
         </div>
       ) : null}
 
-      <div className="space-y-4 text-xs text-gold-300 nvi-stagger">
+      <div className="space-y-4 text-xs text-[color:var(--pt-text-2)] nvi-stagger">
         {visibleGroups.map((group) => (
           <div key={group.key} className="space-y-2">
-            <p className="text-[11px] uppercase tracking-[0.25em] text-gold-500">{group.label}</p>
+            <p className="text-[11px] uppercase tracking-[0.25em] text-[color:var(--pt-text-muted)]">{group.label}</p>
             <div className="space-y-2">
               {group.items.map((log) => {
                 const tone = getEventTone(log.action);
@@ -212,7 +214,7 @@ export function PlatformActivitySection({
                       ? 'border-amber-400/40 bg-amber-500/15 text-amber-200'
                       : tone === 'positive'
                         ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
-                        : 'border-gold-700/60 bg-gold-500/10 text-gold-100';
+                        : 'border-[color:var(--pt-accent-border)] bg-[var(--pt-accent-dim)] text-[color:var(--pt-text-1)]';
                 const resourceName = readString(log.metadata, 'resourceName');
                 const status = readString(log.metadata, 'status');
                 const tier = readString(log.metadata, 'tier');
@@ -221,7 +223,7 @@ export function PlatformActivitySection({
                 return (
                   <div
                     key={log.id}
-                    className="rounded border border-gold-700/40 bg-black/40 p-3"
+                    className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex items-start gap-2">
@@ -229,16 +231,16 @@ export function PlatformActivitySection({
                           {getResourceGlyph(log.resourceType)}
                         </span>
                         <div>
-                          <p className="text-sm text-gold-100">
+                          <p className="text-sm text-[color:var(--pt-text-1)]">
                             {formatActionLabel(log.action)}
                           </p>
-                          <p className="text-[11px] text-gold-400">
+                          <p className="text-[11px] text-[color:var(--pt-text-2)]">
                             {formatResourceLabel(log.resourceType)}
                             {resourceName ? ` • ${resourceName}` : ''}
                           </p>
                         </div>
                       </div>
-                      <p className="text-[11px] text-gold-500">
+                      <p className="text-[11px] text-[color:var(--pt-text-muted)]">
                         {new Date(log.createdAt).toLocaleTimeString(locale, {
                           hour: '2-digit',
                           minute: '2-digit',
@@ -248,33 +250,33 @@ export function PlatformActivitySection({
 
                     <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
                       {log.resourceId ? (
-                        <span className="rounded border border-gold-700/50 px-2 py-0.5">
+                        <span className="rounded border border-[color:var(--pt-accent-border)] px-2 py-0.5">
                           {translate('activityResourceId', { value: log.resourceId })}
                         </span>
                       ) : null}
                       {businessId ? (
-                        <span className="rounded border border-gold-700/50 px-2 py-0.5">
+                        <span className="rounded border border-[color:var(--pt-accent-border)] px-2 py-0.5">
                           {translate('activityBusinessId', { value: businessId })}
                         </span>
                       ) : null}
                       {status ? (
-                        <span className="rounded border border-gold-700/50 px-2 py-0.5">
+                        <span className="rounded border border-[color:var(--pt-accent-border)] px-2 py-0.5">
                           {translate('activityStatus', { value: status })}
                         </span>
                       ) : null}
                       {tier ? (
-                        <span className="rounded border border-gold-700/50 px-2 py-0.5">
+                        <span className="rounded border border-[color:var(--pt-accent-border)] px-2 py-0.5">
                           {translate('activityTier', { value: tier })}
                         </span>
                       ) : null}
                       {log.platformAdminId ? (
-                        <span className="rounded border border-gold-700/50 px-2 py-0.5">
+                        <span className="rounded border border-[color:var(--pt-accent-border)] px-2 py-0.5">
                           {translate('activityOperator', { value: log.platformAdminId })}
                         </span>
                       ) : null}
                     </div>
 
-                    <p className="mt-2 text-[11px] text-gold-300">
+                    <p className="mt-2 text-[11px] text-[color:var(--pt-text-2)]">
                       {log.reason
                         ? translate('reasonLabel', { reason: log.reason })
                         : translate('activityReasonEmpty')}
@@ -286,9 +288,12 @@ export function PlatformActivitySection({
           </div>
         ))}
         {!visibleGroups.length ? (
-          <p className="text-gold-400">{translate('noActivity')}</p>
+          <p className="text-[color:var(--pt-text-2)]">{translate('noActivity')}</p>
         ) : null}
       </div>
-    </section>
+    </div>
   );
+
+  if (noCard) return inner;
+  return <section className="command-card p-6 nvi-reveal">{inner}</section>;
 }

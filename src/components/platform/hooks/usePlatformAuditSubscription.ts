@@ -50,12 +50,13 @@ export function usePlatformAuditSubscription({
   t: Translate;
   setMessage: (value: ToastInput | null) => void;
 }) {
-  const [isLoadingMoreAudit, setIsLoadingMoreAudit] = useState(false);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [auditInvestigations, setAuditInvestigations] = useState<AuditInvestigation[]>([]);
   const [nextAuditInvestigationCursor, setNextAuditInvestigationCursor] =
     useState<string | null>(null);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditCursorStack, setAuditCursorStack] = useState<(string | null)[]>([null]);
   const [auditBusinessId, setAuditBusinessId] = useState('');
   const [auditOutcome, setAuditOutcome] = useState('');
   const [auditAction, setAuditAction] = useState('');
@@ -77,7 +78,6 @@ export function usePlatformAuditSubscription({
   const fetchAuditLogs = async (
     event?: FormEvent,
     cursor?: string,
-    append = false,
   ) => {
     if (event) {
       event.preventDefault();
@@ -85,11 +85,11 @@ export function usePlatformAuditSubscription({
     if (!token) {
       return;
     }
-    if (append) {
-      setIsLoadingMoreAudit(true);
-    } else {
-      setLoadingLogs(true);
+    if (cursor === undefined) {
+      setAuditPage(1);
+      setAuditCursorStack([null]);
     }
+    setLoadingLogs(true);
     try {
       const query = buildCursorQuery({
         limit: 20,
@@ -104,9 +104,7 @@ export function usePlatformAuditSubscription({
         token,
       });
       const result = normalizePaginated(investigations);
-      setAuditInvestigations((prev) =>
-        append ? [...prev, ...result.items] : result.items,
-      );
+      setAuditInvestigations(result.items);
       setNextAuditInvestigationCursor(result.nextCursor);
       setAuditLogs(
         result.items.flatMap((item) =>
@@ -122,12 +120,25 @@ export function usePlatformAuditSubscription({
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('loadAuditLogsFailed')));
     } finally {
-      if (append) {
-        setIsLoadingMoreAudit(false);
-      } else {
-        setLoadingLogs(false);
-      }
+      setLoadingLogs(false);
     }
+  };
+
+  const goToNextAuditPage = async () => {
+    if (!nextAuditInvestigationCursor) return;
+    const cursor = nextAuditInvestigationCursor;
+    setAuditPage((p) => p + 1);
+    setAuditCursorStack((prev) => [...prev, cursor]);
+    await fetchAuditLogs(undefined, cursor);
+  };
+
+  const goToPrevAuditPage = async () => {
+    if (auditPage <= 1) return;
+    const newPage = auditPage - 1;
+    const cursor = auditCursorStack[newPage - 1];
+    setAuditPage(newPage);
+    setAuditCursorStack((prev) => prev.slice(0, newPage));
+    await fetchAuditLogs(undefined, cursor ?? undefined);
   };
 
   const loadSubscriptionHistory = async () => {
@@ -193,11 +204,11 @@ export function usePlatformAuditSubscription({
   }, [subscriptionHistory]);
 
   return {
-    isLoadingMoreAudit,
     loadingLogs,
     auditLogs,
     auditInvestigations,
-    nextAuditInvestigationCursor,
+    auditPage,
+    hasNextAuditPage: nextAuditInvestigationCursor !== null,
     auditBusinessId,
     setAuditBusinessId,
     auditOutcome,
@@ -205,6 +216,8 @@ export function usePlatformAuditSubscription({
     auditAction,
     setAuditAction,
     fetchAuditLogs,
+    goToNextAuditPage,
+    goToPrevAuditPage,
     historyBusinessId,
     setHistoryBusinessId,
     loadingHistory,

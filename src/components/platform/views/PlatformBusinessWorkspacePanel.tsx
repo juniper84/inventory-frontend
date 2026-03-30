@@ -2,16 +2,30 @@ import type { Dispatch, SetStateAction } from 'react';
 import Link from 'next/link';
 import { SmartSelect } from '@/components/SmartSelect';
 import { Spinner } from '@/components/Spinner';
-import { Doughnut, Line } from 'react-chartjs-2';
 import { formatEnum } from '@/lib/format-enum';
 
 type WorkspaceTab =
-  | 'SUMMARY'
-  | 'SUBSCRIPTION'
-  | 'RISK_STATUS'
-  | 'ACCESS'
+  | 'OVERVIEW'
+  | 'MANAGE'
+  | 'NOTES'
   | 'DEVICES'
-  | 'DANGER';
+  | 'ACTIONS';
+
+type BusinessNote = {
+  id: string;
+  body: string;
+  createdAt: string;
+  platformAdmin: { id: string; email: string };
+};
+
+type ScheduledAction = {
+  id: string;
+  actionType: string;
+  payload: Record<string, unknown>;
+  scheduledFor: string;
+  createdAt: string;
+  platformAdmin: { id: string; email: string };
+};
 
 type Business = {
   id: string;
@@ -26,6 +40,7 @@ type Business = {
     expiresAt?: string | null;
   } | null;
   counts?: { branches: number; users: number; offlineDevices: number };
+  systemOwner?: { name: string; email: string; phone: string | null } | null;
 };
 
 type BusinessWorkspace = {
@@ -56,7 +71,23 @@ type SubscriptionEdit = {
   trialEndsAt: string;
   graceEndsAt: string;
   expiresAt: string;
-  durationDays?: string;
+  months?: string;
+  isPaid?: boolean;
+  amountDue?: string;
+};
+
+type PurchaseHistoryItem = {
+  id: string;
+  tier: string;
+  months: number;
+  durationDays: number;
+  startsAt: string;
+  expiresAt: string;
+  isPaid: boolean;
+  amountDue: number;
+  reason: string;
+  createdAt: string;
+  platformAdmin: { id: string; email: string };
 };
 
 type ReadOnlyEdit = { enabled: boolean; reason: string };
@@ -68,6 +99,16 @@ type SeverityOption = { value: string; label: string };
 type TrendPoint = { label: string; offlineFailed: number; exportsPending: number };
 
 type Device = { id: string; deviceName?: string | null; status: string };
+
+type OnboardingResult = {
+  businessId: string;
+  milestones: { branches: boolean; products: boolean; sales: boolean; users: boolean; settings: boolean };
+  completedCount: number;
+  totalCount: number;
+  percentComplete: number;
+  generatedAt: string;
+};
+
 type BusinessAction =
   | 'SUSPEND'
   | 'READ_ONLY'
@@ -86,7 +127,9 @@ function defaultSubscriptionEdit(): SubscriptionEdit {
     trialEndsAt: '',
     graceEndsAt: '',
     expiresAt: '',
-    durationDays: '',
+    months: '',
+    isPaid: true,
+    amountDue: '',
   };
 }
 
@@ -117,9 +160,6 @@ export function PlatformBusinessWorkspacePanel({
   loadBusinessHealth,
   healthMap,
   getBusinessRiskScore,
-  businessTrendRange,
-  setBusinessTrendRange,
-  businessTrendSeries,
   formatDateLabel,
   getDaysRemaining,
   subscriptionEdits,
@@ -127,9 +167,13 @@ export function PlatformBusinessWorkspacePanel({
   updateSubscription,
   recordSubscriptionPurchase,
   resetSubscriptionLimits,
+  purchaseHistory,
+  loadingPurchaseHistory,
+  loadPurchaseHistory,
   statusEdits,
   setStatusEdits,
   updateStatus,
+  saveStatusAndAccess,
   reviewEdits,
   setReviewEdits,
   incidentSeverityOptions,
@@ -147,6 +191,23 @@ export function PlatformBusinessWorkspacePanel({
   devicesMap,
   loadingDevices,
   revokeDevice,
+  businessOnboarding,
+  loadingOnboarding,
+  loadBusinessOnboarding,
+  businessNotes,
+  loadingNotes,
+  noteInput,
+  setNoteInput,
+  loadBusinessNotes,
+  createBusinessNote,
+  deleteBusinessNote,
+  scheduledActions,
+  loadingScheduledActions,
+  scheduledActionForm,
+  setScheduledActionForm,
+  createScheduledAction,
+  cancelScheduledAction,
+  platformAdminId,
 }: {
   show: boolean;
   t: (key: string, values?: Record<string, string | number | Date>) => string;
@@ -172,9 +233,13 @@ export function PlatformBusinessWorkspacePanel({
   updateSubscription: (businessId: string) => Promise<void>;
   recordSubscriptionPurchase: (businessId: string) => Promise<void>;
   resetSubscriptionLimits: (businessId: string) => Promise<void>;
+  purchaseHistory: Record<string, PurchaseHistoryItem[]>;
+  loadingPurchaseHistory: Record<string, boolean>;
+  loadPurchaseHistory: (businessId: string) => Promise<void>;
   statusEdits: Record<string, StatusEdit>;
   setStatusEdits: Dispatch<SetStateAction<Record<string, StatusEdit>>>;
   updateStatus: (businessId: string) => Promise<void>;
+  saveStatusAndAccess: (businessId: string) => Promise<void>;
   reviewEdits: Record<string, ReviewEdit>;
   setReviewEdits: Dispatch<SetStateAction<Record<string, ReviewEdit>>>;
   incidentSeverityOptions: SeverityOption[];
@@ -195,6 +260,23 @@ export function PlatformBusinessWorkspacePanel({
   devicesMap: Record<string, Device[]>;
   loadingDevices: Record<string, boolean>;
   revokeDevice: (deviceId: string, businessId: string, reason?: string) => Promise<void>;
+  businessOnboarding: Record<string, OnboardingResult>;
+  loadingOnboarding: Record<string, boolean>;
+  loadBusinessOnboarding: (businessId: string) => Promise<void>;
+  businessNotes: Record<string, BusinessNote[]>;
+  loadingNotes: Record<string, boolean>;
+  noteInput: Record<string, string>;
+  setNoteInput: Dispatch<SetStateAction<Record<string, string>>>;
+  loadBusinessNotes: (businessId: string) => Promise<void>;
+  createBusinessNote: (businessId: string) => Promise<void>;
+  deleteBusinessNote: (noteId: string, businessId: string) => Promise<void>;
+  scheduledActions: Record<string, ScheduledAction[]>;
+  loadingScheduledActions: Record<string, boolean>;
+  scheduledActionForm: Record<string, { actionType: string; payload: Record<string, unknown>; scheduledFor: string }>;
+  setScheduledActionForm: Dispatch<SetStateAction<Record<string, { actionType: string; payload: Record<string, unknown>; scheduledFor: string }>>>;
+  createScheduledAction: (businessId: string) => Promise<void>;
+  cancelScheduledAction: (actionId: string, businessId: string) => Promise<void>;
+  platformAdminId: string;
 }) {
   const businessStatusLabels: Record<string, string> = {
     ACTIVE: t('statusActive'),
@@ -210,15 +292,15 @@ export function PlatformBusinessWorkspacePanel({
   }
 
   return (
-    <aside className="rounded border border-gold-700/40 bg-black/40 p-4 space-y-4">
+    <aside className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-4 space-y-4">
       {!openedBusiness ? (
-        <p className="text-sm text-gold-400">{t('selectBusinessDetails')}</p>
+        <p className="text-sm text-[color:var(--pt-text-2)]">{t('selectBusinessDetails')}</p>
       ) : (
         <>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-lg font-semibold text-gold-100">{openedBusiness.name}</p>
-              <p className="text-xs text-gold-500">{openedBusiness.id}</p>
+              <p className="text-lg font-semibold text-[color:var(--pt-text-1)]">{openedBusiness.name}</p>
+              <p className="text-xs text-[color:var(--pt-text-muted)]">{openedBusiness.id}</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -228,7 +310,7 @@ export function PlatformBusinessWorkspacePanel({
                     loadBusinessWorkspace(openedBusiness.id),
                   )
                 }
-                className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
+                className="rounded border border-[color:var(--pt-accent-border-hi)] px-2 py-1 text-xs text-[color:var(--pt-text-1)]"
               >
                 <span className="inline-flex items-center gap-2">
                   {actionLoading[`business:workspace:${openedBusiness.id}`] ? (
@@ -239,7 +321,7 @@ export function PlatformBusinessWorkspacePanel({
               </button>
               <Link
                 href={`/${locale}/platform/businesses`}
-                className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
+                className="rounded border border-[color:var(--pt-accent-border-hi)] px-2 py-1 text-xs text-[color:var(--pt-text-1)]"
               >
                 {t('backToRegistry')}
               </Link>
@@ -248,12 +330,11 @@ export function PlatformBusinessWorkspacePanel({
 
           <div className="flex flex-wrap gap-2 text-xs">
             {[
-              { value: 'SUMMARY', label: t('workspaceTabSummary') },
-              { value: 'SUBSCRIPTION', label: t('workspaceTabSubscription') },
-              { value: 'RISK_STATUS', label: t('workspaceTabRiskStatus') },
-              { value: 'ACCESS', label: t('workspaceTabAccess') },
+              { value: 'OVERVIEW', label: t('workspaceTabOverview') },
+              { value: 'MANAGE', label: t('workspaceTabManage') },
+              { value: 'NOTES', label: t('workspaceTabNotes') },
               { value: 'DEVICES', label: t('workspaceTabDevices') },
-              { value: 'DANGER', label: t('workspaceTabDanger') },
+              { value: 'ACTIONS', label: t('workspaceTabActions') },
             ].map((tab) => (
               <button
                 key={tab.value}
@@ -261,8 +342,8 @@ export function PlatformBusinessWorkspacePanel({
                 onClick={() => setBusinessDrawerTab(tab.value as WorkspaceTab)}
                 className={`rounded border px-2 py-1 text-[10px] uppercase tracking-[0.2em] transition ${
                   businessDrawerTab === tab.value
-                    ? 'border-gold-500 bg-gold-500/15 text-gold-100'
-                    : 'border-gold-700/50 text-gold-400'
+                    ? 'border-[color:var(--pt-accent)] bg-[var(--pt-accent-dim)] text-[color:var(--pt-text-1)]'
+                    : 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-muted)] hover:border-[color:var(--pt-accent-border-hi)] hover:text-[color:var(--pt-text-2)]'
                 }`}
               >
                 {tab.label}
@@ -270,77 +351,152 @@ export function PlatformBusinessWorkspacePanel({
             ))}
           </div>
 
-          {businessDrawerTab === 'SUMMARY' ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between rounded border border-gold-700/30 bg-black/20 px-3 py-2 text-[11px] text-gold-400">
+          {businessDrawerTab === 'OVERVIEW' ? (
+            <div className="space-y-4">
+              {/* Snapshot timestamp */}
+              <div className="flex items-center justify-between text-[11px] text-[color:var(--pt-text-muted)]">
                 <span>
                   {t('workspaceSnapshotAt', {
                     value: openedBusinessWorkspace?.generatedAt
-                      ? new Date(openedBusinessWorkspace.generatedAt).toLocaleString(
-                          locale,
-                        )
+                      ? new Date(openedBusinessWorkspace.generatedAt).toLocaleString(locale)
                       : t('notAvailable'),
                   })}
                 </span>
                 {loadingBusinessWorkspace[openedBusiness.id] ? (
-                  <span className="inline-flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1">
                     <Spinner size="xs" variant="grid" />
                     {t('loading')}
                   </span>
                 ) : null}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="nvi-tile p-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
-                    {t('tableStatus')}
-                  </p>
-                  <p className="mt-1 text-sm text-gold-100">
-                    {formatEnum(businessStatusLabels, openedBusinessWorkspace?.business.status ?? openedBusiness.status)}
-                  </p>
-                </div>
-                <div className="nvi-tile p-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
-                    {t('tableTier')}
-                  </p>
-                  <p className="mt-1 text-sm text-gold-100">
+
+              {/* Zone 1 — Identity bar */}
+              <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded border px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] ${
+                      ({
+                        ACTIVE: 'border-emerald-600/60 text-emerald-400',
+                        GRACE: 'border-amber-600/60 text-amber-400',
+                        TRIAL: 'border-sky-600/60 text-sky-400',
+                        SUSPENDED: 'border-orange-600/60 text-orange-400',
+                        ARCHIVED: 'border-red-700/60 text-red-400',
+                        DELETED: 'border-red-900/60 text-red-500',
+                        EXPIRED: 'border-red-600/60 text-red-400',
+                      } as Record<string, string>)[
+                        openedBusinessWorkspace?.business?.status ?? openedBusiness.status
+                      ] ?? 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-2)]'
+                    }`}
+                  >
+                    {formatEnum(
+                      businessStatusLabels,
+                      openedBusinessWorkspace?.business?.status ?? openedBusiness.status,
+                    )}
+                  </span>
+                  <span className="rounded border border-[color:var(--pt-accent-border)] px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-[color:var(--pt-text-2)]">
                     {openedBusinessWorkspace?.subscription?.tier ??
                       openedBusiness.subscription?.tier ??
                       t('notAvailable')}
-                  </p>
+                  </span>
+                  {openedBusiness.underReview ? (
+                    <span className="rounded border border-amber-600/60 bg-amber-900/20 px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-amber-400">
+                      {t('underReview')}
+                    </span>
+                  ) : null}
                 </div>
+                <div className="text-xs text-[color:var(--pt-text-2)]">
+                  {(() => {
+                    const endDate =
+                      openedBusiness.subscription?.expiresAt ??
+                      openedBusiness.subscription?.graceEndsAt ??
+                      openedBusiness.subscription?.trialEndsAt ??
+                      null;
+                    if (!endDate) {
+                      return (
+                        <span className="text-[color:var(--pt-text-muted)]">{t('notAvailable')}</span>
+                      );
+                    }
+                    const daysRemaining = getDaysRemaining(endDate);
+                    const daysColor =
+                      daysRemaining === null
+                        ? ''
+                        : daysRemaining <= 0
+                        ? 'text-red-400'
+                        : daysRemaining <= 14
+                        ? 'text-amber-400'
+                        : 'text-[color:var(--pt-text-2)]';
+                    return (
+                      <span>
+                        {openedBusiness.subscription?.status && (
+                          <span className="uppercase text-[color:var(--pt-text-muted)]">
+                            {openedBusiness.subscription.status}
+                            {' · '}
+                          </span>
+                        )}
+                        {formatDateLabel(endDate)}
+                        {daysRemaining !== null && (
+                          <span className={`ml-1 ${daysColor}`}>
+                            {'('}
+                            {t('daysRemainingValue', { value: daysRemaining })}
+                            {')'}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })()}
+                </div>
+                {openedBusinessWorkspace?.recentAdminActions?.[0] ? (
+                  <p className="text-[11px] text-[color:var(--pt-text-muted)]">
+                    {t('workspaceLastActivity')}:{' '}
+                    {new Date(
+                      openedBusinessWorkspace.recentAdminActions[0].createdAt,
+                    ).toLocaleString(locale)}
+                  </p>
+                ) : null}
+                {openedBusiness.systemOwner ? (
+                  <div className="mt-1 border-t border-[color:var(--pt-accent-border)] pt-2 space-y-0.5">
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-[color:var(--pt-text-muted)]">
+                      {t('systemOwner')}
+                    </p>
+                    <p className="text-xs font-medium text-[color:var(--pt-text-1)]">
+                      {openedBusiness.systemOwner.name}
+                    </p>
+                    <p className="text-[11px] text-[color:var(--pt-text-2)]">
+                      {openedBusiness.systemOwner.email}
+                    </p>
+                    {openedBusiness.systemOwner.phone ? (
+                      <p className="text-[11px] text-[color:var(--pt-text-2)]">
+                        {openedBusiness.systemOwner.phone}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded border border-gold-700/40 bg-black/30 p-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
+
+              {/* Zone 2 — Signal cards (2×3 grid) */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {/* Health Score */}
+                <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
                     {t('businessHealthScoreTitle')}
                   </p>
-                  <div className="mt-2 flex items-center gap-3">
-                    <div
-                      className="h-14 w-14 rounded-full"
-                      style={{
-                        background: `conic-gradient(#f59e0b ${Math.max(
-                          0,
-                          Math.min(
-                            100,
-                            openedBusinessWorkspace?.risk?.score ??
-                              healthMap[openedBusiness.id]?.score ??
-                              0,
-                          ),
-                        )}%, rgba(245,158,11,0.15) 0)`,
-                      }}
-                    >
-                      <div className="m-[4px] flex h-[48px] w-[48px] items-center justify-center rounded-full bg-black text-xs text-gold-100">
-                        {Math.max(
-                          0,
-                          Math.min(
-                            100,
-                            openedBusinessWorkspace?.risk?.score ??
-                              healthMap[openedBusiness.id]?.score ??
-                              0,
-                          ),
-                        )}
-                      </div>
-                    </div>
+                  <div className="mt-1.5 flex items-end justify-between gap-1">
+                    {(() => {
+                      const s = healthMap[openedBusiness.id]?.score;
+                      const colorClass =
+                        s === undefined
+                          ? 'text-[color:var(--pt-text-muted)]'
+                          : s >= 80
+                          ? 'text-emerald-400'
+                          : s >= 50
+                          ? 'text-amber-400'
+                          : 'text-red-400';
+                      return (
+                        <span className={`text-2xl font-semibold tabular-nums ${colorClass}`}>
+                          {s ?? '—'}
+                        </span>
+                      );
+                    })()}
                     <button
                       type="button"
                       onClick={() =>
@@ -348,214 +504,209 @@ export function PlatformBusinessWorkspacePanel({
                           loadBusinessHealth(openedBusiness.id),
                         )
                       }
-                      className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
+                      className="rounded border border-[color:var(--pt-accent-border)] px-1.5 py-0.5 text-[9px] text-[color:var(--pt-text-muted)]"
                     >
-                      {t('loadHealth')}
+                      {actionLoading[`business:health:${openedBusiness.id}`] ? (
+                        <Spinner size="xs" variant="orbit" />
+                      ) : (
+                        t('loadHealth')
+                      )}
                     </button>
                   </div>
                 </div>
-                <div className="rounded border border-gold-700/40 bg-black/30 p-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
+
+                {/* Risk Score */}
+                <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
                     {t('businessRiskScoreTitle')}
                   </p>
-                  <div className="mt-2 flex items-center gap-3">
-                    <div
-                      className="h-14 w-14 rounded-full"
-                      style={{
-                        background: `conic-gradient(#f97316 ${openedBusinessWorkspace?.risk?.score ?? getBusinessRiskScore(
-                          openedBusiness,
-                        )}%, rgba(249,115,22,0.15) 0)`,
-                      }}
-                    >
-                      <div className="m-[4px] flex h-[48px] w-[48px] items-center justify-center rounded-full bg-black text-xs text-gold-100">
-                        {openedBusinessWorkspace?.risk?.score ?? getBusinessRiskScore(openedBusiness)}
-                      </div>
-                    </div>
-                    <p className="text-xs text-gold-300">
-                      {openedBusiness.underReview ? t('businessRiskFlagged') : t('businessRiskClear')}
-                    </p>
+                  <div className="mt-1.5">
+                    {(() => {
+                      const score =
+                        openedBusinessWorkspace?.risk?.score ??
+                        getBusinessRiskScore(openedBusiness);
+                      const colorClass =
+                        score >= 60
+                          ? 'text-red-400'
+                          : score >= 30
+                          ? 'text-amber-400'
+                          : 'text-emerald-400';
+                      return (
+                        <span className={`text-2xl font-semibold tabular-nums ${colorClass}`}>
+                          {score}
+                        </span>
+                      );
+                    })()}
+                    {openedBusiness.underReview ? (
+                      <p className="mt-0.5 text-[10px] text-amber-400">{t('businessRiskFlagged')}</p>
+                    ) : null}
                   </div>
                 </div>
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded border border-gold-700/40 bg-black/30 p-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
+
+                {/* Pending Support */}
+                <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
                     {t('workspaceQueueSupport')}
                   </p>
-                  <p className="mt-1 text-xl font-semibold text-gold-100">
+                  <p
+                    className={`mt-1.5 text-2xl font-semibold tabular-nums ${
+                      (openedBusinessWorkspace?.queues?.pendingSupport ?? 0) > 0
+                        ? 'text-amber-400'
+                        : 'text-[color:var(--pt-text-1)]'
+                    }`}
+                  >
                     {openedBusinessWorkspace?.queues?.pendingSupport ?? 0}
                   </p>
                 </div>
-                <div className="rounded border border-gold-700/40 bg-black/30 p-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
+
+                {/* Pending Exports */}
+                <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
                     {t('workspaceQueueExports')}
                   </p>
-                  <p className="mt-1 text-xl font-semibold text-gold-100">
+                  <p
+                    className={`mt-1.5 text-2xl font-semibold tabular-nums ${
+                      (openedBusinessWorkspace?.queues?.pendingExports ?? 0) > 0
+                        ? 'text-amber-400'
+                        : 'text-[color:var(--pt-text-1)]'
+                    }`}
+                  >
                     {openedBusinessWorkspace?.queues?.pendingExports ?? 0}
                   </p>
                 </div>
-                <div className="rounded border border-gold-700/40 bg-black/30 p-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
-                    {t('workspaceQueueSubscriptions')}
+
+                {/* Offline Devices */}
+                <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
+                    {t('workspaceOfflineDevices')}
                   </p>
-                  <p className="mt-1 text-xl font-semibold text-gold-100">
-                    {openedBusinessWorkspace?.queues?.pendingSubscriptionRequests ?? 0}
+                  <p className="mt-1.5 text-2xl font-semibold tabular-nums text-[color:var(--pt-text-1)]">
+                    {openedBusinessWorkspace?.counts?.offlineDevices ??
+                      openedBusiness.counts?.offlineDevices ??
+                      0}
                   </p>
                 </div>
-              </div>
-              <div className="rounded border border-gold-700/40 bg-black/30 p-3">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
-                  {t('workspaceOperationalComposition')}
-                </p>
-                <div className="mt-2 max-w-[260px]">
-                  <Doughnut
-                    data={{
-                      labels: [
-                        t('workspaceBranches'),
-                        t('workspaceUsers'),
-                        t('workspaceOfflineDevices'),
-                      ],
-                      datasets: [
-                        {
-                          data: [
-                            openedBusinessWorkspace?.counts?.branches ??
-                              openedBusiness.counts?.branches ??
-                              0,
-                            openedBusinessWorkspace?.counts?.users ??
-                              openedBusiness.counts?.users ??
-                              0,
-                            openedBusinessWorkspace?.counts?.offlineDevices ??
-                              openedBusiness.counts?.offlineDevices ??
-                              0,
-                          ],
-                          backgroundColor: ['#f59e0b', '#f97316', '#78350f'],
-                          borderColor: ['#f59e0b', '#f97316', '#78350f'],
-                        },
-                      ],
-                    }}
-                    options={{
-                      plugins: { legend: { labels: { color: '#fcd34d' } } },
-                    }}
-                  />
+
+                {/* Onboarding Progress */}
+                <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
+                    {t('workspaceOnboardingTitle')}
+                  </p>
+                  <div className="mt-1.5 flex items-end justify-between gap-1">
+                    {businessOnboarding[openedBusiness.id] ? (
+                      <span
+                        className={`text-2xl font-semibold tabular-nums ${
+                          businessOnboarding[openedBusiness.id].completedCount ===
+                          businessOnboarding[openedBusiness.id].totalCount
+                            ? 'text-emerald-400'
+                            : 'text-amber-400'
+                        }`}
+                      >
+                        {businessOnboarding[openedBusiness.id].completedCount}/
+                        {businessOnboarding[openedBusiness.id].totalCount}
+                      </span>
+                    ) : (
+                      <span className="text-2xl font-semibold text-[color:var(--pt-text-muted)]">—</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        withAction(`business:onboarding:${openedBusiness.id}`, () =>
+                          loadBusinessOnboarding(openedBusiness.id),
+                        )
+                      }
+                      className="rounded border border-[color:var(--pt-accent-border)] px-1.5 py-0.5 text-[9px] text-[color:var(--pt-text-muted)]"
+                    >
+                      {loadingOnboarding[openedBusiness.id] ? (
+                        <Spinner size="xs" variant="orbit" />
+                      ) : (
+                        t('workspaceOnboardingLoad')
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
-              <div className="rounded border border-gold-700/40 bg-black/30 p-3">
+
+              {/* Zone 3 — Activity feed */}
+              <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-2)]">
                     {t('workspaceRecentAdminActions')}
                   </p>
-                  <span className="text-[11px] text-gold-500">
-                    {openedBusinessWorkspace?.recentAdminActions?.length ?? 0}
+                  <span className="text-[11px] text-[color:var(--pt-text-muted)]">
+                    {Math.min(openedBusinessWorkspace?.recentAdminActions?.length ?? 0, 10)}
                   </span>
                 </div>
                 {openedBusinessWorkspace?.recentAdminActions?.length ? (
-                  <div className="space-y-1">
-                    {openedBusinessWorkspace.recentAdminActions.slice(0, 5).map((entry) => (
-                      <p key={entry.id} className="text-[11px] text-gold-300">
-                        {entry.action} • {entry.outcome} •{' '}
-                        {new Date(entry.createdAt).toLocaleString(locale)}
-                      </p>
+                  <div className="space-y-2">
+                    {openedBusinessWorkspace.recentAdminActions.slice(0, 10).map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex flex-wrap items-center gap-x-2 text-[11px]"
+                      >
+                        <span className="font-medium text-[color:var(--pt-text-1)]">
+                          {entry.action}
+                        </span>
+                        <span className="text-[color:var(--pt-text-muted)]">·</span>
+                        <span
+                          className={
+                            entry.outcome === 'SUCCESS'
+                              ? 'text-emerald-400'
+                              : entry.outcome === 'FAILURE'
+                              ? 'text-red-400'
+                              : 'text-[color:var(--pt-text-2)]'
+                          }
+                        >
+                          {entry.outcome}
+                        </span>
+                        <span className="text-[color:var(--pt-text-muted)]">·</span>
+                        <span className="text-[color:var(--pt-text-muted)]">
+                          {new Date(entry.createdAt).toLocaleString(locale)}
+                        </span>
+                      </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-gold-500">{t('workspaceNoRecentActions')}</p>
-                )}
-              </div>
-              <div className="rounded border border-gold-700/40 bg-black/30 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-gold-400">
-                    {t('workspaceActivityTrend')}
+                  <p className="text-xs text-[color:var(--pt-text-muted)]">
+                    {t('workspaceNoRecentActions')}
                   </p>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setBusinessTrendRange('7d')}
-                      className={`rounded border px-2 py-0.5 text-[10px] ${
-                        businessTrendRange === '7d'
-                          ? 'border-gold-500 text-gold-100'
-                          : 'border-gold-700/50 text-gold-400'
-                      }`}
-                    >
-                      7d
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBusinessTrendRange('30d')}
-                      className={`rounded border px-2 py-0.5 text-[10px] ${
-                        businessTrendRange === '30d'
-                          ? 'border-gold-500 text-gold-100'
-                          : 'border-gold-700/50 text-gold-400'
-                      }`}
-                    >
-                      30d
-                    </button>
-                  </div>
-                </div>
-                {businessTrendSeries.length ? (
-                  <Line
-                    data={{
-                      labels: businessTrendSeries.map((point) => point.label),
-                      datasets: [
-                        {
-                          label: t('workspaceTrendOfflineFailures'),
-                          data: businessTrendSeries.map((point) => point.offlineFailed),
-                          borderColor: '#f97316',
-                          backgroundColor: 'rgba(249, 115, 22, 0.25)',
-                          fill: true,
-                          tension: 0.3,
-                        },
-                        {
-                          label: t('workspaceTrendPendingExports'),
-                          data: businessTrendSeries.map((point) => point.exportsPending),
-                          borderColor: '#f59e0b',
-                          backgroundColor: 'rgba(245, 158, 11, 0.2)',
-                          tension: 0.3,
-                        },
-                      ],
-                    }}
-                    options={{
-                      plugins: { legend: { labels: { color: '#facc15' } } },
-                      scales: {
-                        x: { ticks: { color: '#fcd34d' }, grid: { color: 'rgba(234,179,8,0.1)' } },
-                        y: { ticks: { color: '#fcd34d' }, grid: { color: 'rgba(234,179,8,0.1)' } },
-                      },
-                    }}
-                  />
-                ) : (
-                  <p className="text-xs text-gold-500">{t('workspaceNoTrendData')}</p>
                 )}
               </div>
             </div>
           ) : null}
 
-          {businessDrawerTab === 'SUBSCRIPTION' ? (
+          {businessDrawerTab === 'MANAGE' ? (
             <div className="space-y-3">
-              <div className="rounded border border-gold-700/40 bg-black/30 p-3">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-gold-500">
+              {/* Section: Subscription */}
+              <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-2)]">
+                {t('subscriptionCurrentState')}
+              </p>
+              <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
                   {t('subscriptionCurrentState')}
                 </p>
-                <p className="mt-1 text-sm text-gold-100">
+                <p className="mt-1 text-sm text-[color:var(--pt-text-1)]">
                   {t('subscriptionCurrentStateValue', {
                     tier: openedBusiness.subscription?.tier ?? t('notAvailable'),
                     status: openedBusiness.subscription?.status ?? t('notAvailable'),
                   })}
                 </p>
               </div>
-              <div className="grid gap-2 text-xs text-gold-300 md:grid-cols-2">
+              <div className="grid gap-2 text-xs text-[color:var(--pt-text-2)] md:grid-cols-2">
                 <div>
-                  <p className="uppercase tracking-[0.2em] text-gold-500">{t('trialEndsLabel')}</p>
+                  <p className="uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">{t('trialEndsLabel')}</p>
                   <p>{formatDateLabel(openedBusiness.subscription?.trialEndsAt)}</p>
                 </div>
                 <div>
-                  <p className="uppercase tracking-[0.2em] text-gold-500">{t('graceEndsLabel')}</p>
+                  <p className="uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">{t('graceEndsLabel')}</p>
                   <p>{formatDateLabel(openedBusiness.subscription?.graceEndsAt)}</p>
                 </div>
                 <div>
-                  <p className="uppercase tracking-[0.2em] text-gold-500">{t('expiresAtLabel')}</p>
+                  <p className="uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">{t('expiresAtLabel')}</p>
                   <p>{formatDateLabel(openedBusiness.subscription?.expiresAt)}</p>
                 </div>
                 <div>
-                  <p className="uppercase tracking-[0.2em] text-gold-500">{t('daysRemainingLabel')}</p>
+                  <p className="uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">{t('daysRemainingLabel')}</p>
                   <p>
                     {(() => {
                       const endDate =
@@ -572,79 +723,219 @@ export function PlatformBusinessWorkspacePanel({
                 </div>
               </div>
 
-              <div className="rounded border border-gold-700/40 bg-black/30 p-3 space-y-3">
+              {/* Record Subscription Purchase */}
+              <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 space-y-3">
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-gold-500">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
                     {t('recordPurchaseTitle')}
                   </p>
-                  <p className="text-xs text-gold-300">{t('recordPurchaseHint')}</p>
+                  <p className="text-xs text-[color:var(--pt-text-2)]">{t('recordPurchaseHint')}</p>
                 </div>
+
+                {/* Tier */}
+                <SmartSelect
+                  instanceId="platform-workspace-subscription-purchase-tier"
+                  value={subscriptionEdits[openedBusiness.id]?.tier ?? 'BUSINESS'}
+                  onChange={(value) =>
+                    setSubscriptionEdits((prev) => ({
+                      ...prev,
+                      [openedBusiness.id]: {
+                        ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
+                        tier: value,
+                      },
+                    }))
+                  }
+                  options={[
+                    { value: 'STARTER', label: t('tierStarter') },
+                    { value: 'BUSINESS', label: t('tierBusiness') },
+                    { value: 'ENTERPRISE', label: t('tierEnterprise') },
+                  ]}
+                />
+
+                {/* Duration pills */}
+                <div>
+                  <p className="mb-1.5 text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
+                    {t('subscriptionDurationLabel')}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(['1', '2', '3', '6', '12'] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() =>
+                          setSubscriptionEdits((prev) => ({
+                            ...prev,
+                            [openedBusiness.id]: {
+                              ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
+                              months: m,
+                            },
+                          }))
+                        }
+                        className={`rounded border px-2.5 py-1 text-[10px] uppercase tracking-[0.15em] transition-colors ${
+                          subscriptionEdits[openedBusiness.id]?.months === m
+                            ? 'border-[color:var(--pt-accent)] bg-[var(--pt-accent-dim)] text-[color:var(--pt-text-1)]'
+                            : 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-muted)] hover:border-[color:var(--pt-accent-border-hi)] hover:text-[color:var(--pt-text-2)]'
+                        }`}
+                      >
+                        {m} mo
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSubscriptionEdits((prev) => ({
+                          ...prev,
+                          [openedBusiness.id]: {
+                            ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
+                            months: (['1','2','3','6','12'] as string[]).includes(
+                              prev[openedBusiness.id]?.months ?? ''
+                            ) ? '' : (prev[openedBusiness.id]?.months ?? ''),
+                          },
+                        }))
+                      }
+                      className={`rounded border px-2.5 py-1 text-[10px] uppercase tracking-[0.15em] transition-colors ${
+                        !(['1','2','3','6','12'] as string[]).includes(
+                          subscriptionEdits[openedBusiness.id]?.months ?? ''
+                        ) && subscriptionEdits[openedBusiness.id]?.months !== ''
+                          ? 'border-[color:var(--pt-accent)] bg-[var(--pt-accent-dim)] text-[color:var(--pt-text-1)]'
+                          : 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-muted)] hover:border-[color:var(--pt-accent-border-hi)] hover:text-[color:var(--pt-text-2)]'
+                      }`}
+                    >
+                      {t('customMonths')}
+                    </button>
+                  </div>
+                  {/* Custom months input — shown when not a preset */}
+                  {!(['1','2','3','6','12'] as string[]).includes(
+                    subscriptionEdits[openedBusiness.id]?.months ?? ''
+                  ) && (
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={subscriptionEdits[openedBusiness.id]?.months ?? ''}
+                      onChange={(event) =>
+                        setSubscriptionEdits((prev) => ({
+                          ...prev,
+                          [openedBusiness.id]: {
+                            ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
+                            months: event.target.value,
+                          },
+                        }))
+                      }
+                      placeholder={t('customMonthsPlaceholder')}
+                      className="mt-2 w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
+                    />
+                  )}
+                </div>
+
+                {/* Start date + live expiry preview */}
                 <div className="grid gap-2 md:grid-cols-2">
-                  <SmartSelect
-                    instanceId="platform-workspace-subscription-purchase-tier"
-                    value={subscriptionEdits[openedBusiness.id]?.tier ?? 'BUSINESS'}
-                    onChange={(value) =>
-                      setSubscriptionEdits((prev) => ({
-                        ...prev,
-                        [openedBusiness.id]: {
-                          ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
-                          tier: value,
-                        },
-                      }))
-                    }
-                    options={[
-                      { value: 'STARTER', label: t('tierStarter') },
-                      { value: 'BUSINESS', label: t('tierBusiness') },
-                      { value: 'ENTERPRISE', label: t('tierEnterprise') },
-                    ]}
-                  />
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={subscriptionEdits[openedBusiness.id]?.durationDays ?? ''}
-                    onChange={(event) =>
-                      setSubscriptionEdits((prev) => ({
-                        ...prev,
-                        [openedBusiness.id]: {
-                          ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
-                          durationDays: event.target.value,
-                        },
-                      }))
-                    }
-                    placeholder={t('subscriptionDurationPlaceholder')}
-                    className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  />
-                  <input
-                    type="datetime-local"
-                    value={subscriptionEdits[openedBusiness.id]?.startsAt ?? ''}
-                    onChange={(event) =>
-                      setSubscriptionEdits((prev) => ({
-                        ...prev,
-                        [openedBusiness.id]: {
-                          ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
-                          startsAt: event.target.value,
-                        },
-                      }))
-                    }
-                    placeholder={t('purchaseStartsAtOptional')}
-                    className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  />
-                  <input
-                    value={subscriptionEdits[openedBusiness.id]?.reason ?? ''}
-                    onChange={(event) =>
-                      setSubscriptionEdits((prev) => ({
-                        ...prev,
-                        [openedBusiness.id]: {
-                          ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
-                          reason: event.target.value,
-                        },
-                      }))
-                    }
-                    placeholder={t('subscriptionReasonPlaceholder')}
-                    className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  />
+                  <div>
+                    <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
+                      {t('purchaseStartsAtOptional')}
+                    </p>
+                    <input
+                      type="datetime-local"
+                      value={subscriptionEdits[openedBusiness.id]?.startsAt ?? ''}
+                      onChange={(event) =>
+                        setSubscriptionEdits((prev) => ({
+                          ...prev,
+                          [openedBusiness.id]: {
+                            ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
+                            startsAt: event.target.value,
+                          },
+                        }))
+                      }
+                      className="w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
+                    />
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
+                      {t('expiryPreviewLabel')}
+                    </p>
+                    <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-xs text-[color:var(--pt-text-2)]">
+                      {(() => {
+                        const mo = Number(subscriptionEdits[openedBusiness.id]?.months ?? '');
+                        if (!mo || mo <= 0) return t('expiryPreviewEmpty');
+                        const base = subscriptionEdits[openedBusiness.id]?.startsAt
+                          ? new Date(subscriptionEdits[openedBusiness.id]!.startsAt!)
+                          : new Date();
+                        const exp = new Date(base);
+                        exp.setMonth(exp.getMonth() + mo);
+                        return exp.toLocaleDateString(locale);
+                      })()}
+                    </div>
+                  </div>
                 </div>
+
+                {/* Paid / Complimentary toggle */}
+                <div>
+                  <p className="mb-1.5 text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
+                    {t('purchaseTypeLabel')}
+                  </p>
+                  <div className="flex gap-1.5">
+                    {[
+                      { value: true, label: t('purchaseTypePaid') },
+                      { value: false, label: t('purchaseTypeComplimentary') },
+                    ].map((opt) => (
+                      <button
+                        key={String(opt.value)}
+                        type="button"
+                        onClick={() =>
+                          setSubscriptionEdits((prev) => ({
+                            ...prev,
+                            [openedBusiness.id]: {
+                              ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
+                              isPaid: opt.value,
+                            },
+                          }))
+                        }
+                        className={`rounded border px-3 py-1 text-[10px] uppercase tracking-[0.15em] transition-colors ${
+                          (subscriptionEdits[openedBusiness.id]?.isPaid ?? true) === opt.value
+                            ? 'border-[color:var(--pt-accent)] bg-[var(--pt-accent-dim)] text-[color:var(--pt-text-1)]'
+                            : 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-muted)] hover:border-[color:var(--pt-accent-border-hi)] hover:text-[color:var(--pt-text-2)]'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {(subscriptionEdits[openedBusiness.id]?.isPaid ?? true) && (
+                    <input
+                      type="number"
+                      min={0}
+                      step={1000}
+                      value={subscriptionEdits[openedBusiness.id]?.amountDue ?? ''}
+                      onChange={(event) =>
+                        setSubscriptionEdits((prev) => ({
+                          ...prev,
+                          [openedBusiness.id]: {
+                            ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
+                            amountDue: event.target.value,
+                          },
+                        }))
+                      }
+                      placeholder={t('amountDuePlaceholder')}
+                      className="mt-2 w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
+                    />
+                  )}
+                </div>
+
+                {/* Reason + submit */}
+                <input
+                  value={subscriptionEdits[openedBusiness.id]?.reason ?? ''}
+                  onChange={(event) =>
+                    setSubscriptionEdits((prev) => ({
+                      ...prev,
+                      [openedBusiness.id]: {
+                        ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
+                        reason: event.target.value,
+                      },
+                    }))
+                  }
+                  placeholder={t('subscriptionReasonPlaceholder')}
+                  className="w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
+                />
                 <button
                   type="button"
                   onClick={() =>
@@ -652,104 +943,122 @@ export function PlatformBusinessWorkspacePanel({
                       recordSubscriptionPurchase(openedBusiness.id),
                     )
                   }
-                  className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
+                  disabled={actionLoading[`subscription:purchase:${openedBusiness.id}`]}
+                  className="w-full rounded bg-[var(--pt-accent)] px-3 py-2 text-xs font-semibold text-black disabled:opacity-50"
                 >
-                  {t('recordPurchase')}
+                  <span className="inline-flex items-center justify-center gap-2">
+                    {actionLoading[`subscription:purchase:${openedBusiness.id}`] ? (
+                      <Spinner size="xs" variant="bars" />
+                    ) : null}
+                    {t('recordPurchase')}
+                  </span>
                 </button>
-              </div>
 
-              <details className="rounded border border-gold-700/40 bg-black/20 p-3">
-                <summary className="cursor-pointer text-xs uppercase tracking-[0.2em] text-gold-400">
-                  {t('advancedSubscriptionControls')}
-                </summary>
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  <SmartSelect
-                    instanceId="platform-workspace-subscription-advanced-status"
-                    value={subscriptionEdits[openedBusiness.id]?.status ?? 'TRIAL'}
-                    onChange={(value) =>
-                      setSubscriptionEdits((prev) => ({
-                        ...prev,
-                        [openedBusiness.id]: {
-                          ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
-                          status: value,
-                        },
-                      }))
-                    }
-                    options={[
-                      { value: 'TRIAL', label: t('statusTrial') },
-                      { value: 'ACTIVE', label: t('statusActive') },
-                      { value: 'GRACE', label: t('statusGrace') },
-                      { value: 'EXPIRED', label: t('statusExpired') },
-                      { value: 'SUSPENDED', label: t('statusSuspended') },
-                    ]}
-                  />
-                  <input
-                    value={subscriptionEdits[openedBusiness.id]?.reason ?? ''}
-                    onChange={(event) =>
-                      setSubscriptionEdits((prev) => ({
-                        ...prev,
-                        [openedBusiness.id]: {
-                          ...(prev[openedBusiness.id] ?? defaultSubscriptionEdit()),
-                          reason: event.target.value,
-                        },
-                      }))
-                    }
-                    placeholder={t('subscriptionReasonPlaceholder')}
-                    className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  />
-                  <div className="flex gap-2 md:col-span-2">
+                {/* Purchase history */}
+                <div className="border-t border-[color:var(--pt-accent-border)] pt-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
+                      {t('purchaseHistoryTitle')}
+                    </p>
                     <button
                       type="button"
                       onClick={() =>
-                        withAction(`subscription:update:${openedBusiness.id}`, () =>
-                          updateSubscription(openedBusiness.id),
+                        withAction(`subscription:history:${openedBusiness.id}`, () =>
+                          loadPurchaseHistory(openedBusiness.id),
                         )
                       }
-                      className="flex-1 rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
+                      className="rounded border border-[color:var(--pt-accent-border)] px-2 py-0.5 text-[10px] text-[color:var(--pt-text-2)]"
                     >
-                      {t('updateSubscription')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        withAction(`subscription:reset:${openedBusiness.id}`, () =>
-                          resetSubscriptionLimits(openedBusiness.id),
-                        )
-                      }
-                      className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                    >
-                      {t('resetSubscriptionLimits')}
+                      {loadingPurchaseHistory[openedBusiness.id] ? (
+                        <Spinner size="xs" variant="orbit" />
+                      ) : (
+                        t('purchaseHistoryLoad')
+                      )}
                     </button>
                   </div>
+                  {(purchaseHistory[openedBusiness.id] ?? []).length > 0 ? (
+                    <div className="space-y-1.5">
+                      {(purchaseHistory[openedBusiness.id] ?? []).map((p) => (
+                        <div
+                          key={p.id}
+                          className="flex items-center justify-between rounded border border-[color:var(--pt-accent-border)] p-bg-card px-2.5 py-2 text-[11px]"
+                        >
+                          <div>
+                            <p className="font-medium text-[color:var(--pt-text-1)]">
+                              {p.tier} · {p.months} mo
+                            </p>
+                            <p className="text-[color:var(--pt-text-muted)]">
+                              {new Date(p.createdAt).toLocaleDateString(locale)} · {p.platformAdmin.email}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span
+                              className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] ${
+                                p.isPaid
+                                  ? 'border-emerald-700/60 text-emerald-400'
+                                  : 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-muted)]'
+                              }`}
+                            >
+                              {p.isPaid ? t('purchaseTypePaid') : t('purchaseTypeComplimentary')}
+                            </span>
+                            {p.isPaid && p.amountDue > 0 && (
+                              <p className="mt-0.5 tabular-nums text-[color:var(--pt-text-2)]">
+                                TSh {p.amountDue.toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : purchaseHistory[openedBusiness.id] !== undefined ? (
+                    <p className="text-[11px] text-[color:var(--pt-text-muted)]">{t('purchaseHistoryEmpty')}</p>
+                  ) : null}
                 </div>
-              </details>
-            </div>
-          ) : null}
+              </div>
 
-          {businessDrawerTab === 'RISK_STATUS' ? (
-            <div className="space-y-3">
-              <div className="grid gap-2 md:grid-cols-2">
-                <SmartSelect
-                  instanceId="platform-workspace-business-status"
-                  value={statusEdits[openedBusiness.id]?.status ?? openedBusiness.status}
-                  onChange={(value) =>
-                    setStatusEdits((prev) => ({
-                      ...prev,
-                      [openedBusiness.id]: {
-                        ...(prev[openedBusiness.id] ?? defaultStatusEdit(openedBusiness.status)),
-                        status: value,
-                      },
-                    }))
-                  }
-                  options={[
-                    { value: 'ACTIVE', label: t('statusActive') },
-                    { value: 'GRACE', label: t('statusGrace') },
-                    { value: 'EXPIRED', label: t('statusExpired') },
-                    { value: 'SUSPENDED', label: t('statusSuspended') },
-                    { value: 'ARCHIVED', label: t('statusArchived') },
-                    { value: 'DELETED', label: t('statusDeleted') },
-                  ]}
-                />
+              {/* Group 2 — Status & Access */}
+              <div className="border-t border-[color:var(--pt-accent-border)] pt-3 space-y-3">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-2)]">
+                  {t('statusAccessTitle')}
+                </p>
+
+                {/* Status pills */}
+                <div>
+                  <p className="mb-1.5 text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
+                    {t('tableStatus')}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {([
+                      { value: 'ACTIVE', label: t('statusActive'), active: 'border-emerald-600 bg-emerald-900/30 text-emerald-300', inactive: 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-muted)] hover:border-emerald-700/60 hover:text-emerald-400' },
+                      { value: 'GRACE', label: t('statusGrace'), active: 'border-amber-600 bg-amber-900/30 text-amber-300', inactive: 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-muted)] hover:border-amber-700/60 hover:text-amber-400' },
+                      { value: 'SUSPENDED', label: t('statusSuspended'), active: 'border-orange-600 bg-orange-900/30 text-orange-300', inactive: 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-muted)] hover:border-orange-700/60 hover:text-orange-400' },
+                      { value: 'ARCHIVED', label: t('statusArchived'), active: 'border-red-700 bg-red-900/30 text-red-300', inactive: 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-muted)] hover:border-red-700/60 hover:text-red-400' },
+                      { value: 'DELETED', label: t('statusDeleted'), active: 'border-red-900 bg-red-900/40 text-red-400', inactive: 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-muted)] hover:border-red-800/60 hover:text-red-500' },
+                    ] as { value: string; label: string; active: string; inactive: string }[]).map((opt) => {
+                      const selected = (statusEdits[openedBusiness.id]?.status ?? openedBusiness.status) === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() =>
+                            setStatusEdits((prev) => ({
+                              ...prev,
+                              [openedBusiness.id]: {
+                                ...(prev[openedBusiness.id] ?? defaultStatusEdit(openedBusiness.status)),
+                                status: opt.value,
+                              },
+                            }))
+                          }
+                          className={`rounded border px-2.5 py-1 text-[10px] uppercase tracking-[0.15em] transition-colors ${selected ? opt.active : opt.inactive}`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Status reason */}
                 <input
                   value={statusEdits[openedBusiness.id]?.reason ?? ''}
                   onChange={(event) =>
@@ -762,9 +1071,11 @@ export function PlatformBusinessWorkspacePanel({
                     }))
                   }
                   placeholder={t('statusReasonPlaceholder')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                  className="w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
                 />
-                <div className="flex items-center gap-2 text-xs text-gold-300">
+
+                {/* Under Review toggle */}
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-[color:var(--pt-text-2)]">
                   <input
                     type="checkbox"
                     checked={reviewEdits[openedBusiness.id]?.underReview ?? false}
@@ -779,76 +1090,44 @@ export function PlatformBusinessWorkspacePanel({
                     }
                   />
                   {t('underReview')}
-                </div>
-                <SmartSelect
-                  instanceId="platform-workspace-review-severity"
-                  value={reviewEdits[openedBusiness.id]?.severity ?? 'MEDIUM'}
-                  onChange={(value) =>
-                    setReviewEdits((prev) => ({
-                      ...prev,
-                      [openedBusiness.id]: {
-                        ...(prev[openedBusiness.id] ?? defaultReviewEdit()),
-                        severity: value,
-                      },
-                    }))
-                  }
-                  options={incidentSeverityOptions}
-                />
-                <input
-                  value={reviewEdits[openedBusiness.id]?.reason ?? ''}
-                  onChange={(event) =>
-                    setReviewEdits((prev) => ({
-                      ...prev,
-                      [openedBusiness.id]: {
-                        ...(prev[openedBusiness.id] ?? defaultReviewEdit()),
-                        reason: event.target.value,
-                      },
-                    }))
-                  }
-                  placeholder={t('reviewReasonPlaceholder')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 md:col-span-2"
-                />
-                <button
-                  type="button"
-                  onClick={() =>
-                    withAction(`status:update:${openedBusiness.id}`, () =>
-                      updateStatus(openedBusiness.id),
-                    )
-                  }
-                  className="rounded bg-gold-500 px-3 py-2 text-xs font-semibold text-black"
-                >
-                  {t('updateStatus')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    withAction(`review:update:${openedBusiness.id}`, () =>
-                      updateReview(openedBusiness.id),
-                    )
-                  }
-                  className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                >
-                  {t('saveReviewFlag')}
-                </button>
-              </div>
-            </div>
-          ) : null}
+                </label>
 
-          {businessDrawerTab === 'ACCESS' ? (
-            <div className="space-y-3">
-              <textarea
-                value={supportNotes[openedBusiness.id] ?? ''}
-                onChange={(event) =>
-                  setSupportNotes((prev) => ({
-                    ...prev,
-                    [openedBusiness.id]: event.target.value,
-                  }))
-                }
-                placeholder={t('supportNotesPlaceholder')}
-                className="min-h-[100px] w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-              />
-              <div className="grid gap-2 md:grid-cols-2">
-                <label className="flex items-center gap-2 text-xs text-gold-300">
+                {/* Review fields — only visible when Under Review is on */}
+                {(reviewEdits[openedBusiness.id]?.underReview ?? false) && (
+                  <div className="space-y-2 border-l-2 border-amber-700/40 pl-3">
+                    <SmartSelect
+                      instanceId="platform-workspace-review-severity"
+                      value={reviewEdits[openedBusiness.id]?.severity ?? 'MEDIUM'}
+                      onChange={(value) =>
+                        setReviewEdits((prev) => ({
+                          ...prev,
+                          [openedBusiness.id]: {
+                            ...(prev[openedBusiness.id] ?? defaultReviewEdit()),
+                            severity: value,
+                          },
+                        }))
+                      }
+                      options={incidentSeverityOptions}
+                    />
+                    <input
+                      value={reviewEdits[openedBusiness.id]?.reason ?? ''}
+                      onChange={(event) =>
+                        setReviewEdits((prev) => ({
+                          ...prev,
+                          [openedBusiness.id]: {
+                            ...(prev[openedBusiness.id] ?? defaultReviewEdit()),
+                            reason: event.target.value,
+                          },
+                        }))
+                      }
+                      placeholder={t('reviewReasonPlaceholder')}
+                      className="w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
+                    />
+                  </div>
+                )}
+
+                {/* Read-only toggle */}
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-[color:var(--pt-text-2)]">
                   <input
                     type="checkbox"
                     checked={readOnlyEdits[openedBusiness.id]?.enabled ?? false}
@@ -864,51 +1143,101 @@ export function PlatformBusinessWorkspacePanel({
                   />
                   {t('enableReadOnly')}
                 </label>
-                <input
-                  value={readOnlyEdits[openedBusiness.id]?.reason ?? ''}
+
+                {/* Read-only reason — only visible when enabled */}
+                {(readOnlyEdits[openedBusiness.id]?.enabled ?? false) && (
+                  <div className="border-l-2 border-orange-700/40 pl-3">
+                    <input
+                      value={readOnlyEdits[openedBusiness.id]?.reason ?? ''}
+                      onChange={(event) =>
+                        setReadOnlyEdits((prev) => ({
+                          ...prev,
+                          [openedBusiness.id]: {
+                            ...(prev[openedBusiness.id] ?? defaultReadOnlyEdit()),
+                            reason: event.target.value,
+                          },
+                        }))
+                      }
+                      placeholder={t('readOnlyReasonPlaceholder')}
+                      className="w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
+                    />
+                  </div>
+                )}
+
+                {/* Support notes */}
+                <textarea
+                  value={supportNotes[openedBusiness.id] ?? ''}
                   onChange={(event) =>
-                    setReadOnlyEdits((prev) => ({
+                    setSupportNotes((prev) => ({
                       ...prev,
-                      [openedBusiness.id]: {
-                        ...(prev[openedBusiness.id] ?? defaultReadOnlyEdit()),
-                        reason: event.target.value,
-                      },
+                      [openedBusiness.id]: event.target.value,
                     }))
                   }
-                  placeholder={t('readOnlyReasonPlaceholder')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                  placeholder={t('supportNotesPlaceholder')}
+                  className="min-h-[80px] w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
                 />
+
+                {/* Save Changes */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    withAction(`status-access:save:${openedBusiness.id}`, () =>
+                      saveStatusAndAccess(openedBusiness.id),
+                    )
+                  }
+                  disabled={actionLoading[`status-access:save:${openedBusiness.id}`]}
+                  className="w-full rounded bg-[var(--pt-accent)] px-3 py-2 text-xs font-semibold text-black disabled:opacity-50"
+                >
+                  <span className="inline-flex items-center justify-center gap-2">
+                    {actionLoading[`status-access:save:${openedBusiness.id}`] ? (
+                      <Spinner size="xs" variant="bars" />
+                    ) : null}
+                    {t('saveChanges')}
+                  </span>
+                </button>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    withAction(`readonly:update:${openedBusiness.id}`, () =>
-                      updateReadOnly(openedBusiness.id),
-                    )
-                  }
-                  className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                >
-                  {t('applyReadOnly')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openBusinessActionModal(openedBusiness.id, 'FORCE_LOGOUT')}
-                  className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                >
-                  {t('forceLogout')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    withAction(`business:export:${openedBusiness.id}`, () =>
-                      exportOnExit(openedBusiness.id),
-                    )
-                  }
-                  className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
-                >
-                  {t('exportOnExit')}
-                </button>
+
+              {/* Scheduled Actions */}
+              <div className="border-t border-[color:var(--pt-accent-border)] pt-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-2)]">
+                    {t('scheduledActionsTitle')}
+                  </p>
+                  {loadingScheduledActions[openedBusiness.id] ? (
+                    <Spinner size="xs" variant="orbit" />
+                  ) : null}
+                </div>
+                {(scheduledActions[openedBusiness.id] ?? []).length ? (
+                  <div className="space-y-2">
+                    {(scheduledActions[openedBusiness.id] ?? []).map((action) => (
+                      <div
+                        key={action.id}
+                        className="flex items-start justify-between gap-2 rounded border border-[color:var(--pt-accent-border)] p-bg-card px-2 py-1.5 text-[11px]"
+                      >
+                        <div>
+                          <p className="font-medium text-[color:var(--pt-text-1)]">{action.actionType}</p>
+                          <p className="text-[color:var(--pt-text-muted)]">
+                            {new Date(action.scheduledFor).toLocaleString(locale)}
+                          </p>
+                          <p className="text-[color:var(--pt-text-muted)]">{action.platformAdmin.email}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            withAction(`action:cancel:${action.id}`, () =>
+                              cancelScheduledAction(action.id, openedBusiness.id),
+                            )
+                          }
+                          className="shrink-0 rounded border border-red-700/50 px-2 py-0.5 text-[10px] text-red-400"
+                        >
+                          {t('cancelAction')}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-[color:var(--pt-text-muted)]">{t('noScheduledActions')}</p>
+                )}
               </div>
             </div>
           ) : null}
@@ -920,7 +1249,7 @@ export function PlatformBusinessWorkspacePanel({
                   value={deviceRevokeReason}
                   onChange={(event) => setDeviceRevokeReason(event.target.value)}
                   placeholder={t('actionReasonPlaceholder')}
-                  className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                  className="flex-1 rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
                 />
                 <button
                   type="button"
@@ -929,7 +1258,7 @@ export function PlatformBusinessWorkspacePanel({
                       loadDevices(openedBusiness.id),
                     )
                   }
-                  className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
+                  className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-2 text-xs text-[color:var(--pt-text-1)]"
                 >
                   {t('loadDevices')}
                 </button>
@@ -939,9 +1268,9 @@ export function PlatformBusinessWorkspacePanel({
                   {(devicesMap[openedBusiness.id] ?? openedBusinessWorkspace?.devices ?? []).map((device) => (
                     <div
                       key={device.id}
-                      className="flex items-center justify-between rounded border border-gold-700/40 bg-black/30 px-3 py-2 text-xs"
+                      className="flex items-center justify-between rounded border border-[color:var(--pt-accent-border)] p-bg-card px-3 py-2 text-xs"
                     >
-                      <span className="text-gold-200">
+                      <span className="text-[color:var(--pt-text-1)]">
                         {device.deviceName ?? t('unnamedDeviceShort')} - {device.status}
                       </span>
                       {device.status !== 'REVOKED' ? (
@@ -952,7 +1281,7 @@ export function PlatformBusinessWorkspacePanel({
                               revokeDevice(device.id, openedBusiness.id, deviceRevokeReason),
                             )
                           }
-                          className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
+                          className="rounded border border-[color:var(--pt-accent-border-hi)] px-2 py-1 text-xs text-[color:var(--pt-text-1)]"
                         >
                           {t('revoke')}
                         </button>
@@ -961,19 +1290,137 @@ export function PlatformBusinessWorkspacePanel({
                   ))}
                 </div>
               ) : loadingDevices[openedBusiness.id] ? (
-                <div className="flex items-center gap-2 text-xs text-gold-300">
+                <div className="flex items-center gap-2 text-xs text-[color:var(--pt-text-2)]">
                   <Spinner size="xs" variant="grid" /> {t('loadingDevices')}
                 </div>
               ) : (
-                <p className="text-xs text-gold-500">{t('workspaceNoDevicesLoaded')}</p>
+                <p className="text-xs text-[color:var(--pt-text-muted)]">{t('workspaceNoDevicesLoaded')}</p>
               )}
             </div>
           ) : null}
 
-          {businessDrawerTab === 'DANGER' ? (
+          {businessDrawerTab === 'NOTES' ? (
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <textarea
+                  value={noteInput[openedBusiness.id] ?? ''}
+                  onChange={(event) =>
+                    setNoteInput((prev) => ({ ...prev, [openedBusiness.id]: event.target.value }))
+                  }
+                  placeholder={t('noteInputPlaceholder')}
+                  rows={3}
+                  className="flex-1 rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-xs text-[color:var(--pt-text-1)]"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    withAction(`note:create:${openedBusiness.id}`, () =>
+                      createBusinessNote(openedBusiness.id),
+                    )
+                  }
+                  className="self-end rounded bg-[var(--pt-accent)] px-3 py-2 text-xs font-semibold text-black"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {actionLoading[`note:create:${openedBusiness.id}`] ? (
+                      <Spinner size="xs" variant="ring" />
+                    ) : null}
+                    {t('addNote')}
+                  </span>
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-2)]">
+                  {t('notesListTitle')}
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    withAction(`notes:load:${openedBusiness.id}`, () =>
+                      loadBusinessNotes(openedBusiness.id),
+                    )
+                  }
+                  className="text-[10px] text-[color:var(--pt-text-muted)] underline"
+                >
+                  {loadingNotes[openedBusiness.id] ? (
+                    <Spinner size="xs" variant="orbit" />
+                  ) : (
+                    t('refresh')
+                  )}
+                </button>
+              </div>
+              {(businessNotes[openedBusiness.id] ?? []).length ? (
+                <div className="space-y-2">
+                  {(businessNotes[openedBusiness.id] ?? []).map((note) => (
+                    <div
+                      key={note.id}
+                      className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 text-xs"
+                    >
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-[color:var(--pt-text-muted)]">{note.platformAdmin.email}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-[color:var(--pt-text-muted)]">
+                            {new Date(note.createdAt).toLocaleString(locale)}
+                          </span>
+                          {note.platformAdmin.id === platformAdminId ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                withAction(`note:delete:${note.id}`, () =>
+                                  deleteBusinessNote(note.id, openedBusiness.id),
+                                )
+                              }
+                              className="text-[10px] text-red-500 hover:text-red-300"
+                            >
+                              {t('deleteNote')}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                      <p className="whitespace-pre-wrap text-[color:var(--pt-text-1)]">{note.body}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-[color:var(--pt-text-muted)]">{t('noNotes')}</p>
+              )}
+            </div>
+          ) : null}
+
+          {businessDrawerTab === 'ACTIONS' ? (
             <div className="space-y-2">
-              <p className="text-xs text-gold-400">{t('dangerZoneHint')}</p>
+              <p className="text-xs text-[color:var(--pt-text-2)]">{t('dangerZoneHint')}</p>
               <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    withAction(`business:export:${openedBusiness.id}`, () =>
+                      exportOnExit(openedBusiness.id),
+                    )
+                  }
+                  className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-2 text-xs text-[color:var(--pt-text-1)]"
+                >
+                  {t('exportOnExit')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    withAction(`subscription:reset:${openedBusiness.id}`, () =>
+                      resetSubscriptionLimits(openedBusiness.id),
+                    )
+                  }
+                  className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-2 text-xs text-[color:var(--pt-text-1)]"
+                >
+                  {t('resetSubscriptionLimits')}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => openBusinessActionModal(openedBusiness.id, 'FORCE_LOGOUT')}
+                  className="rounded border border-amber-500/60 px-3 py-2 text-xs text-amber-200"
+                >
+                  {t('forceLogout')}
+                </button>
                 <button
                   type="button"
                   onClick={() => openBusinessActionModal(openedBusiness.id, 'SUSPEND')}
@@ -998,7 +1445,7 @@ export function PlatformBusinessWorkspacePanel({
                 <button
                   type="button"
                   onClick={() => openBusinessActionModal(openedBusiness.id, 'RESTORE')}
-                  className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-100"
+                  className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-2 text-xs text-[color:var(--pt-text-1)]"
                 >
                   {t('restore')}
                 </button>

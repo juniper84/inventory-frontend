@@ -12,6 +12,7 @@ import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { useVariantSearch } from '@/lib/use-variant-search';
@@ -349,20 +350,15 @@ export default function TransferWizardPage() {
               placeholder={t('selectDestination')}
               className="nvi-select-container"
             />
-            <input
-              value={form.feeAmount}
-              onChange={(event) => setForm((prev) => ({ ...prev, feeAmount: event.target.value }))}
-              placeholder={t('feeAmount')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-            />
-            <input
-              value={form.feeCurrency}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, feeCurrency: event.target.value.toUpperCase() }))
-              }
-              placeholder={t('feeCurrency')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-            />
+            <div className="flex items-center gap-2">
+              <CurrencyInput
+                value={form.feeAmount}
+                onChange={(value) => setForm((prev) => ({ ...prev, feeAmount: value }))}
+                placeholder={t('feeAmount')}
+                className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
+              />
+              <span className="shrink-0 text-xs font-medium text-gold-400">{form.feeCurrency || 'TZS'}</span>
+            </div>
             <input
               value={form.feeCarrier}
               onChange={(event) => setForm((prev) => ({ ...prev, feeCarrier: event.target.value }))}

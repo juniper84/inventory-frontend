@@ -13,6 +13,7 @@ import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { useVariantSearch } from '@/lib/use-variant-search';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import {
   buildCursorQuery,
@@ -614,10 +615,10 @@ export default function SupplierReturnsPage() {
                 isClearable
                 className="nvi-select-container"
               />
-              <input
+              <CurrencyInput
                 value={line.unitCost}
-                onChange={(event) =>
-                  updateLine(line.id, { unitCost: event.target.value })
+                onChange={(value) =>
+                  updateLine(line.id, { unitCost: value })
                 }
                 placeholder={t('unitCost')}
                 className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"

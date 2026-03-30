@@ -9,7 +9,7 @@ export function PlatformSectionCard({
 }) {
   return (
     <div
-      className={`rounded border border-gold-700/40 bg-black/60 px-6 py-4 ${className}`.trim()}
+      className={`rounded border border-[color:var(--pt-accent-border)] p-bg-card px-6 py-4 ${className}`.trim()}
     >
       {children}
     </div>

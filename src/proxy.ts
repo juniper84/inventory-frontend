@@ -15,6 +15,7 @@ const BUSINESS_PUBLIC_PATHS = [
   '/verify-email',
   '/password-reset',
   '/password-reset/confirm',
+  '/suspended',
 ];
 
 /**

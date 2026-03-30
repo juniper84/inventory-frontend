@@ -55,10 +55,10 @@ export function PlatformSubscriptionIntelligenceSurface({
   return (
     <section className="command-card p-6 space-y-5 nvi-reveal">
       <div>
-        <p className="text-xs uppercase tracking-[0.3em] text-gold-400">
+        <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--pt-text-2)]">
           {t('subscriptionIntelligenceTag')}
         </p>
-        <h3 className="text-xl font-semibold text-gold-100">{t('subscriptionHistoryTitle')}</h3>
+        <h3 className="text-xl font-semibold text-[color:var(--pt-text-1)]">{t('subscriptionHistoryTitle')}</h3>
       </div>
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-3">
@@ -74,12 +74,12 @@ export function PlatformSubscriptionIntelligenceSurface({
               value={historyBusinessId}
               onChange={(event) => setHistoryBusinessId(event.target.value)}
               placeholder={t('historyBusinessIdPlaceholder')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+              className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
             />
             <button
               type="button"
               onClick={() => withAction('subscription:history', loadSubscriptionHistory)}
-              className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
+              className="rounded bg-[var(--pt-accent)] px-3 py-2 text-sm font-semibold text-black"
             >
               <span className="inline-flex items-center gap-2">
                 {loadingHistory ? <Spinner size="xs" variant="ring" /> : null}
@@ -87,13 +87,13 @@ export function PlatformSubscriptionIntelligenceSurface({
               </span>
             </button>
           </div>
-          <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
+          <div className="space-y-2 text-xs text-[color:var(--pt-text-2)] nvi-stagger">
             {subscriptionHistory.map((entry, index) => (
               <div
                 key={`${entry.createdAt}-${index}`}
-                className="rounded border border-gold-700/40 bg-black/40 p-3"
+                className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3"
               >
-                <p className="text-gold-100">
+                <p className="text-[color:var(--pt-text-1)]">
                   {entry.previousStatus ?? t('notAvailable')} → {entry.newStatus ?? t('notAvailable')} •{' '}
                   {entry.previousTier ?? t('notAvailable')} → {entry.newTier ?? t('notAvailable')}
                 </p>
@@ -104,14 +104,14 @@ export function PlatformSubscriptionIntelligenceSurface({
                 {entry.reason ? <p>{t('reasonLabel', { reason: entry.reason })}</p> : null}
               </div>
             ))}
-            {!subscriptionHistory.length ? <p className="text-gold-400">{t('noHistory')}</p> : null}
+            {!subscriptionHistory.length ? <p className="text-[color:var(--pt-text-2)]">{t('noHistory')}</p> : null}
           </div>
         </div>
-        <div className="rounded border border-gold-700/40 bg-black/30 p-3">
-          <p className="text-xs uppercase tracking-[0.2em] text-gold-500">
+        <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+          <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
             {t('subscriptionChangeMixTitle')}
           </p>
-          <p className="mt-1 text-xs text-gold-400">{t('subscriptionChangeMixSubtitle')}</p>
+          <p className="mt-1 text-xs text-[color:var(--pt-text-2)]">{t('subscriptionChangeMixSubtitle')}</p>
           <div className="mt-3">
             <Doughnut
               data={{
@@ -135,7 +135,7 @@ export function PlatformSubscriptionIntelligenceSurface({
               options={{ plugins: { legend: { labels: { color: '#fcd34d' } } } }}
             />
           </div>
-          <div className="mt-3 space-y-1 text-xs text-gold-300">
+          <div className="mt-3 space-y-1 text-xs text-[color:var(--pt-text-2)]">
             <p>
               {t('subscriptionChangeStatusSummary', {
                 value: subscriptionHistoryStats.statusChanges,
@@ -154,7 +154,7 @@ export function PlatformSubscriptionIntelligenceSurface({
               })}{' '}
               ({subscriptionHistoryStats.unchangedPct}%)
             </p>
-            <p className="text-gold-500">
+            <p className="text-[color:var(--pt-text-muted)]">
               {t('subscriptionChangeTotalSummary', { value: subscriptionHistory.length })}
             </p>
           </div>

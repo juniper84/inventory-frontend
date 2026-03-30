@@ -41,8 +41,9 @@ export function usePlatformIncidents({
 }) {
   const [incidents, setIncidents] = useState<PlatformIncident[]>([]);
   const [nextIncidentCursor, setNextIncidentCursor] = useState<string | null>(null);
+  const [incidentPage, setIncidentPage] = useState(1);
+  const [incidentCursorStack, setIncidentCursorStack] = useState<(string | null)[]>([null]);
   const [isLoadingIncidents, setIsLoadingIncidents] = useState(false);
-  const [isLoadingMoreIncidents, setIsLoadingMoreIncidents] = useState(false);
   const [incidentFilters, setIncidentFilters] = useState({
     businessId: '',
     status: '',
@@ -58,15 +59,11 @@ export function usePlatformIncidents({
     Record<string, PlatformIncident['severity']>
   >({});
 
-  const loadIncidents = useCallback(async (cursor?: string, append = false) => {
+  const loadIncidents = useCallback(async (cursor?: string) => {
     if (!token) {
       return;
     }
-    if (append) {
-      setIsLoadingMoreIncidents(true);
-    } else {
-      setIsLoadingIncidents(true);
-    }
+    setIsLoadingIncidents(true);
     try {
       const query = buildCursorQuery({
         limit: 20,
@@ -79,25 +76,19 @@ export function usePlatformIncidents({
         PaginatedResponse<PlatformIncident> | PlatformIncident[]
       >(`/platform/incidents${query}`, { token });
       const result = normalizePaginated(response);
-      setIncidents((prev) => (append ? [...prev, ...result.items] : result.items));
+      setIncidents(result.items);
       setNextIncidentCursor(result.nextCursor);
       setIncidentSeverityEdits((prev) => {
-        const next = append ? { ...prev } : {};
+        const next: Record<string, PlatformIncident['severity']> = {};
         result.items.forEach((incident) => {
-          if (!next[incident.id]) {
-            next[incident.id] = incident.severity;
-          }
+          next[incident.id] = prev[incident.id] ?? incident.severity;
         });
         return next;
       });
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('loadIncidentsFailed')));
     } finally {
-      if (append) {
-        setIsLoadingMoreIncidents(false);
-      } else {
-        setIsLoadingIncidents(false);
-      }
+      setIsLoadingIncidents(false);
     }
   }, [
     token,
@@ -108,7 +99,32 @@ export function usePlatformIncidents({
     t,
   ]);
 
+  const resetAndLoadIncidents = useCallback(async () => {
+    setIncidentPage(1);
+    setIncidentCursorStack([null]);
+    await loadIncidents();
+  }, [loadIncidents]);
+
+  const goToNextIncidentPage = useCallback(async () => {
+    if (!nextIncidentCursor) return;
+    const cursor = nextIncidentCursor;
+    setIncidentPage((p) => p + 1);
+    setIncidentCursorStack((prev) => [...prev, cursor]);
+    await loadIncidents(cursor);
+  }, [nextIncidentCursor, loadIncidents]);
+
+  const goToPrevIncidentPage = useCallback(async () => {
+    if (incidentPage <= 1) return;
+    const newPage = incidentPage - 1;
+    const cursor = incidentCursorStack[newPage - 1];
+    setIncidentPage(newPage);
+    setIncidentCursorStack((prev) => prev.slice(0, newPage));
+    await loadIncidents(cursor ?? undefined);
+  }, [incidentPage, incidentCursorStack, loadIncidents]);
+
   const applyIncidentFilters = async () => {
+    setIncidentPage(1);
+    setIncidentCursorStack([null]);
     await loadIncidents();
   };
 
@@ -128,7 +144,7 @@ export function usePlatformIncidents({
         }),
       });
       setIncidentForm({ businessId: '', reason: '', severity: 'MEDIUM' });
-      await loadIncidents();
+      await resetAndLoadIncidents();
       setMessage(t('incidentCreated'));
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('incidentCreateFailed')));
@@ -151,7 +167,7 @@ export function usePlatformIncidents({
           note: incidentNotes[incidentId] || undefined,
         }),
       });
-      await loadIncidents();
+      await resetAndLoadIncidents();
       setMessage(t('incidentTransitionSaved'));
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('incidentTransitionFailed')));
@@ -174,7 +190,7 @@ export function usePlatformIncidents({
         body: JSON.stringify({ note }),
       });
       setIncidentNotes((prev) => ({ ...prev, [incidentId]: '' }));
-      await loadIncidents();
+      await resetAndLoadIncidents();
       setMessage(t('incidentNoteAdded'));
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('incidentNoteFailed')));
@@ -199,7 +215,7 @@ export function usePlatformIncidents({
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
-      await loadIncidents();
+      await resetAndLoadIncidents();
       setMessage(t('incidentUpdated'));
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('incidentUpdateFailed')));
@@ -223,8 +239,9 @@ export function usePlatformIncidents({
   return {
     incidents,
     nextIncidentCursor,
+    incidentPage,
+    hasNextIncidentPage: nextIncidentCursor !== null,
     isLoadingIncidents,
-    isLoadingMoreIncidents,
     incidentFilters,
     setIncidentFilters,
     incidentForm,
@@ -240,5 +257,7 @@ export function usePlatformIncidents({
     addIncidentNoteRecord,
     updateIncidentRecord,
     incidentLaneMap,
+    goToNextIncidentPage,
+    goToPrevIncidentPage,
   };
 }

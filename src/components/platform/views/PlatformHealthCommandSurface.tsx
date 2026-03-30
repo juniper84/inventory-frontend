@@ -124,7 +124,7 @@ export function PlatformHealthCommandSurface({
               onClick={() =>
                 withAction('health:refreshMatrix', () => loadHealthMatrix())
               }
-              className="rounded border border-gold-700/60 px-3 py-1 text-gold-100"
+              className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-1 text-[color:var(--pt-text-1)]"
             >
               <span className="inline-flex items-center gap-2">
                 {actionLoading['health:refreshMatrix'] ? (
@@ -136,7 +136,7 @@ export function PlatformHealthCommandSurface({
             <button
               type="button"
               onClick={loadHealthForSelected}
-              className="rounded border border-gold-700/60 px-3 py-1 text-gold-100"
+              className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-1 text-[color:var(--pt-text-1)]"
               disabled={healthLoading}
             >
               <span className="inline-flex items-center gap-2">
@@ -147,7 +147,7 @@ export function PlatformHealthCommandSurface({
             <button
               type="button"
               onClick={loadHealthForPinned}
-              className="rounded border border-gold-700/60 px-3 py-1 text-gold-100"
+              className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-1 text-[color:var(--pt-text-1)]"
               disabled={healthLoading}
             >
               <span className="inline-flex items-center gap-2">
@@ -158,21 +158,21 @@ export function PlatformHealthCommandSurface({
           </div>
         </div>
         <div className="grid gap-3 md:grid-cols-4">
-          <div className="rounded border border-gold-700/40 bg-black/35 p-3 text-xs text-gold-300">
-            <p className="text-gold-100">{t('healthOverallStatus')}</p>
-            <p className="mt-1 text-sm font-semibold text-gold-200">
+          <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 text-xs text-[color:var(--pt-text-2)]">
+            <p className="text-[color:var(--pt-text-1)]">{t('healthOverallStatus')}</p>
+            <p className="mt-1 text-sm font-semibold text-[color:var(--pt-text-1)]">
               {healthMatrix?.rollups
                 ? healthStatusLabel(healthMatrix.rollups.overallStatus)
                 : t('notAvailable')}
             </p>
-            <p className="text-[11px] text-gold-500">
+            <p className="text-[11px] text-[color:var(--pt-text-muted)]">
               {healthMatrix?.generatedAt
                 ? new Date(healthMatrix.generatedAt).toLocaleString(locale)
                 : t('notAvailable')}
             </p>
           </div>
-          <div className="rounded border border-gold-700/40 bg-black/35 p-3 text-xs text-gold-300">
-            <p className="text-gold-100">{t('healthDependencyRollup')}</p>
+          <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 text-xs text-[color:var(--pt-text-2)]">
+            <p className="text-[color:var(--pt-text-1)]">{t('healthDependencyRollup')}</p>
             <p className="mt-1 text-[11px]">
               {t('healthRollupHealthy', {
                 value: healthMatrix?.rollups?.healthy ?? 0,
@@ -189,32 +189,32 @@ export function PlatformHealthCommandSurface({
               })}
             </p>
           </div>
-          <div className="rounded border border-gold-700/40 bg-black/35 p-3 text-xs text-gold-300">
-            <p className="text-gold-100">{t('healthSyncRisk')}</p>
-            <p className="mt-1 text-sm font-semibold text-gold-200">
+          <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 text-xs text-[color:var(--pt-text-2)]">
+            <p className="text-[color:var(--pt-text-1)]">{t('healthSyncRisk')}</p>
+            <p className="mt-1 text-sm font-semibold text-[color:var(--pt-text-1)]">
               {healthMatrix?.telemetry?.syncRisk
                 ? `${healthMatrix.telemetry.syncRisk.score}/100 • ${healthStatusLabel(
                     healthMatrix.telemetry.syncRisk.status,
                   )}`
                 : t('notAvailable')}
             </p>
-            <p className="text-[11px] text-gold-500">
+            <p className="text-[11px] text-[color:var(--pt-text-muted)]">
               {t('healthSyncRiskBreakdown', {
                 failed24h: healthMatrix?.telemetry?.syncRisk?.failedActions24h ?? 0,
                 stale: healthMatrix?.telemetry?.syncRisk?.staleActiveDevices ?? 0,
               })}
             </p>
           </div>
-          <div className="rounded border border-gold-700/40 bg-black/35 p-3 text-xs text-gold-300">
-            <p className="text-gold-100">{t('healthQueuePressure')}</p>
-            <p className="mt-1 text-sm font-semibold text-gold-200">
+          <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 text-xs text-[color:var(--pt-text-2)]">
+            <p className="text-[color:var(--pt-text-1)]">{t('healthQueuePressure')}</p>
+            <p className="mt-1 text-sm font-semibold text-[color:var(--pt-text-1)]">
               {healthMatrix?.telemetry?.queuePressure
                 ? `${healthMatrix.telemetry.queuePressure.score}/100 • ${healthStatusLabel(
                     healthMatrix.telemetry.queuePressure.status,
                   )}`
                 : t('notAvailable')}
             </p>
-            <p className="text-[11px] text-gold-500">
+            <p className="text-[11px] text-[color:var(--pt-text-muted)]">
               {t('healthQueuePressureBreakdown', {
                 pending: healthMatrix?.telemetry?.queuePressure?.totalPending ?? 0,
                 failed: healthMatrix?.telemetry?.queuePressure?.exportsFailed ?? 0,
@@ -222,40 +222,40 @@ export function PlatformHealthCommandSurface({
             </p>
           </div>
         </div>
-        <div className="rounded border border-gold-700/40 bg-black/30 p-3 text-xs text-gold-300">
-          <p className="mb-2 text-gold-100">{t('healthDependenciesTitle')}</p>
+        <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 text-xs text-[color:var(--pt-text-2)]">
+          <p className="mb-2 text-[color:var(--pt-text-1)]">{t('healthDependenciesTitle')}</p>
           <div className="space-y-2">
             {(healthMatrix?.dependencies ?? []).map((dependency) => (
               <div
                 key={dependency.key}
-                className="flex flex-wrap items-center justify-between gap-3 rounded border border-gold-700/30 bg-black/40 p-2"
+                className="flex flex-wrap items-center justify-between gap-3 rounded border border-[color:var(--pt-accent-border)] p-bg-card p-2"
               >
                 <div>
-                  <p className="text-gold-100">{dependency.label}</p>
-                  <p className="text-[11px] text-gold-500">
+                  <p className="text-[color:var(--pt-text-1)]">{dependency.label}</p>
+                  <p className="text-[11px] text-[color:var(--pt-text-muted)]">
                     {JSON.stringify(dependency.detail)}
                   </p>
                 </div>
-                <span className="rounded border border-gold-700/50 px-2 py-1 text-[11px] text-gold-200">
+                <span className="rounded border border-[color:var(--pt-accent-border)] px-2 py-1 text-[11px] text-[color:var(--pt-text-1)]">
                   {healthStatusLabel(dependency.status)}
                 </span>
               </div>
             ))}
             {!healthMatrix?.dependencies?.length ? (
-              <p className="text-gold-500">{t('healthMatrixUnavailable')}</p>
+              <p className="text-[color:var(--pt-text-muted)]">{t('healthMatrixUnavailable')}</p>
             ) : null}
           </div>
         </div>
-        <div className="rounded border border-gold-700/40 bg-black/30 p-3 text-xs text-gold-300">
-          <p className="mb-2 text-gold-100">{t('healthLatencyLeadersTitle')}</p>
+        <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 text-xs text-[color:var(--pt-text-2)]">
+          <p className="mb-2 text-[color:var(--pt-text-1)]">{t('healthLatencyLeadersTitle')}</p>
           <div className="space-y-2">
             {(healthMatrix?.telemetry?.api?.leaders ?? []).map((leader) => (
               <div
                 key={leader.path}
-                className="rounded border border-gold-700/30 bg-black/40 p-2"
+                className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-2"
               >
-                <p className="text-gold-100">{leader.path}</p>
-                <p className="text-[11px] text-gold-500">
+                <p className="text-[color:var(--pt-text-1)]">{leader.path}</p>
+                <p className="text-[11px] text-[color:var(--pt-text-muted)]">
                   {t('healthLatencyLeaderLine', {
                     avg: leader.avgDurationMs,
                     p95: leader.p95DurationMs,
@@ -267,7 +267,7 @@ export function PlatformHealthCommandSurface({
               </div>
             ))}
             {!healthMatrix?.telemetry?.api?.leaders?.length ? (
-              <p className="text-gold-500">{t('healthNoLeaders')}</p>
+              <p className="text-[color:var(--pt-text-muted)]">{t('healthNoLeaders')}</p>
             ) : null}
           </div>
         </div>
@@ -280,15 +280,15 @@ export function PlatformHealthCommandSurface({
             placeholder={t('selectBusiness')}
           />
         </div>
-        <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
+        <div className="space-y-2 text-xs text-[color:var(--pt-text-2)] nvi-stagger">
           {Object.entries(healthMap).map(([businessId, health]) => {
             const business = businessLookup.get(businessId);
             return (
               <div
                 key={businessId}
-                className="rounded border border-gold-700/40 bg-black/40 p-3"
+                className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3"
               >
-                <p className="text-gold-100">
+                <p className="text-[color:var(--pt-text-1)]">
                   {business?.name ?? t('businessLabel')} • {businessId}
                 </p>
                 <p>
@@ -307,7 +307,7 @@ export function PlatformHealthCommandSurface({
             );
           })}
           {!Object.keys(healthMap).length ? (
-            <p className="text-gold-400">{t('noHealthChecks')}</p>
+            <p className="text-[color:var(--pt-text-2)]">{t('noHealthChecks')}</p>
           ) : null}
         </div>
       </section>
@@ -324,7 +324,7 @@ export function PlatformHealthCommandSurface({
               }
               loadDevices(deviceFleetBusinessId);
             }}
-            className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
+            className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-1 text-xs text-[color:var(--pt-text-1)]"
           >
             {t('loadDevices')}
           </button>
@@ -341,7 +341,7 @@ export function PlatformHealthCommandSurface({
             value={deviceRevokeReason}
             onChange={(event) => setDeviceRevokeReason(event.target.value)}
             placeholder={t('revokeReasonPlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
           />
           <button
             type="button"
@@ -354,7 +354,7 @@ export function PlatformHealthCommandSurface({
                 loadDevices(deviceFleetBusinessId),
               );
             }}
-            className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
+            className="rounded bg-[var(--pt-accent)] px-3 py-2 text-sm font-semibold text-black"
           >
             <span className="inline-flex items-center gap-2">
               {actionLoading[`devices:refresh:${deviceFleetBusinessId}`] ? (
@@ -364,13 +364,13 @@ export function PlatformHealthCommandSurface({
             </span>
           </button>
         </div>
-        <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
+        <div className="space-y-2 text-xs text-[color:var(--pt-text-2)] nvi-stagger">
           {(devicesMap[deviceFleetBusinessId] ?? []).map((device) => (
             <div
               key={device.id}
-              className="rounded border border-gold-700/40 bg-black/40 p-3"
+              className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3"
             >
-              <p className="text-gold-100">
+              <p className="text-[color:var(--pt-text-1)]">
                 {device.deviceName ?? t('unnamedDevice')} • {device.status}
               </p>
               {device.status !== 'REVOKED' ? (
@@ -387,7 +387,7 @@ export function PlatformHealthCommandSurface({
                         )
                       : setMessage(t('revokeReasonRequired'))
                   }
-                  className="mt-2 rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
+                  className="mt-2 rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-1 text-xs text-[color:var(--pt-text-1)]"
                 >
                   <span className="inline-flex items-center gap-2">
                     {actionLoading[`device:revoke:${device.id}`] ? (
@@ -400,13 +400,13 @@ export function PlatformHealthCommandSurface({
             </div>
           ))}
           {loadingDevices[deviceFleetBusinessId] ? (
-            <div className="flex items-center gap-2 text-xs text-gold-300">
+            <div className="flex items-center gap-2 text-xs text-[color:var(--pt-text-2)]">
               <Spinner size="xs" variant="grid" /> {t('loadingDevices')}
             </div>
           ) : null}
           {!loadingDevices[deviceFleetBusinessId] &&
           (devicesMap[deviceFleetBusinessId] ?? []).length === 0 ? (
-            <p className="text-gold-400">{t('noDevices')}</p>
+            <p className="text-[color:var(--pt-text-2)]">{t('noDevices')}</p>
           ) : null}
         </div>
       </section>

@@ -12,6 +12,7 @@ import { SmartSelect } from '@/components/SmartSelect';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import { getPermissionSet } from '@/lib/permissions';
 import {
   buildCursorQuery,
@@ -36,6 +37,12 @@ type Expense = {
   receiptRef?: string | null;
   expenseDate: string;
   branch?: Branch | null;
+  transferId?: string | null;
+  transfer?: {
+    id: string;
+    sourceBranch?: Branch | null;
+    destinationBranch?: Branch | null;
+  } | null;
 };
 
 type SettingsResponse = {
@@ -390,20 +397,15 @@ export default function ExpensesPage() {
             isClearable
             className="nvi-select-container"
           />
-          <input
-            value={form.amount}
-            onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))}
-            placeholder={t('amount')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={form.currency}
-            onChange={(event) =>
-              setForm((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))
-            }
-            placeholder={t('currency')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
+          <div className="flex items-center gap-2">
+            <CurrencyInput
+              value={form.amount}
+              onChange={(value) => setForm((prev) => ({ ...prev, amount: value }))}
+              placeholder={t('amount')}
+              className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            />
+            <span className="shrink-0 text-xs font-medium text-gold-400">{form.currency || 'TZS'}</span>
+          </div>
           <DatePickerInput
             value={form.expenseDate}
             onChange={(value) => setForm((prev) => ({ ...prev, expenseDate: value }))}
@@ -458,7 +460,13 @@ export default function ExpensesPage() {
                   {expense.amount} {expense.currency}
                 </div>
               </div>
-              {expense.note ? <p className="text-xs text-gold-300">{expense.note}</p> : null}
+              {expense.category === 'TRANSFER_FEE' && expense.transfer ? (
+                <p className="text-xs text-gold-300">
+                  {t('categoryTransferFee')}: {expense.transfer.sourceBranch?.name ?? common('unknown')} → {expense.transfer.destinationBranch?.name ?? common('unknown')}
+                </p>
+              ) : expense.note ? (
+                <p className="text-xs text-gold-300">{expense.note}</p>
+              ) : null}
               {expense.receiptRef ? (
                 <p className="text-xs text-gold-400">
                   {t('receiptRef')}: {expense.receiptRef}

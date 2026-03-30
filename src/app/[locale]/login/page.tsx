@@ -187,7 +187,10 @@ export default function LoginPage() {
             onChange={setSelectedBusinessId}
             options={availableBusinesses.map((biz) => ({
               value: biz.businessId,
-              label: biz.businessName,
+              label: biz.status === 'SUSPENDED'
+                ? `${biz.businessName} (${t('businessSuspended')})`
+                : biz.businessName,
+              isDisabled: biz.status === 'SUSPENDED',
             }))}
             className="text-sm"
           />

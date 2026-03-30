@@ -36,6 +36,7 @@ import {
   CategoryScale,
   Chart as ChartJS,
   type ChartOptions,
+  Filler,
   Legend,
   LineElement,
   LinearScale,
@@ -51,6 +52,7 @@ ChartJS.register(
   LineElement,
   BarElement,
   ArcElement,
+  Filler,
   Tooltip,
   Legend,
 );
@@ -102,7 +104,11 @@ type PnlTotals = {
   revenue: number;
   cost: number;
   grossProfit: number;
+  refunds: number;
   losses: number;
+  adjustmentGains: number;
+  stockCountShortages: number;
+  stockCountSurpluses: number;
   expenses: number;
   transferFees: number;
   netProfit: number;
@@ -115,7 +121,11 @@ type PnlReport = {
     revenue: number;
     cost: number;
     grossProfit: number;
+    refunds: number;
     losses: number;
+    adjustmentGains: number;
+    stockCountShortages: number;
+    stockCountSurpluses: number;
     expenses: number;
     transferFees: number;
     netProfit: number;
@@ -159,6 +169,9 @@ type StockCountVariance = {
   reason: string | null;
   createdAt: string;
   userId: string | null;
+  unitCost: number | null;
+  totalCost: number | null;
+  varianceType: 'SHORTAGE' | 'SURPLUS' | null;
 };
 
 type StaffPerformance = {
@@ -858,17 +871,21 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
   };
 
   const pnlBreakdownChartData = {
-    labels: [t('grossProfit'), t('losses'), t('expenses'), t('transferFees')],
+    labels: [t('grossProfit'), t('refunds'), t('losses'), t('adjustmentGains'), t('stockCountShortages'), t('stockCountSurpluses'), t('expenses'), t('transferFees')],
     datasets: [
       {
         label: t('pnlBreakdown'),
         data: [
           pnl?.totals.grossProfit ?? 0,
+          pnl?.totals.refunds ?? 0,
           pnl?.totals.losses ?? 0,
+          pnl?.totals.adjustmentGains ?? 0,
+          pnl?.totals.stockCountShortages ?? 0,
+          pnl?.totals.stockCountSurpluses ?? 0,
           pnl?.totals.expenses ?? 0,
           pnl?.totals.transferFees ?? 0,
         ],
-        backgroundColor: ['#50b980', '#c35151', '#c58c3f', '#6e7a8c'],
+        backgroundColor: ['#50b980', '#ef5350', '#c35151', '#4caf82', '#e57373', '#66bb6a', '#c58c3f', '#6e7a8c'],
         borderRadius: 8,
         maxBarThickness: 80,
       },
@@ -1274,6 +1291,14 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
           </div>
           <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
             <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--muted)]">
+              {t('refunds')}
+            </p>
+            <p className="mt-2 text-lg font-semibold text-[#c35151]">
+              {pnl ? `-${pnl.totals.refunds.toLocaleString(locale)}` : '—'}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
+            <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--muted)]">
               {t('grossProfit')}
             </p>
             <p className="mt-2 text-lg font-semibold text-[color:var(--foreground)]">
@@ -1286,6 +1311,30 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
             </p>
             <p className="mt-2 text-lg font-semibold text-[color:var(--foreground)]">
               {pnl ? pnl.totals.losses.toLocaleString(locale) : '—'}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
+            <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--muted)]">
+              {t('adjustmentGains')}
+            </p>
+            <p className="mt-2 text-lg font-semibold text-[#50b980]">
+              {pnl ? `+${pnl.totals.adjustmentGains.toLocaleString(locale)}` : '—'}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
+            <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--muted)]">
+              {t('stockCountShortages')}
+            </p>
+            <p className="mt-2 text-lg font-semibold text-[#c35151]">
+              {pnl ? `-${pnl.totals.stockCountShortages.toLocaleString(locale)}` : '—'}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
+            <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--muted)]">
+              {t('stockCountSurpluses')}
+            </p>
+            <p className="mt-2 text-lg font-semibold text-[#50b980]">
+              {pnl ? `+${pnl.totals.stockCountSurpluses.toLocaleString(locale)}` : '—'}
             </p>
           </div>
           <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/40 p-4">
@@ -1897,7 +1946,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
           <StatusBanner message={t('noStockCountVariance')} />
         ) : (
           <div className="overflow-x-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/20">
-            <table className="w-full min-w-[640px] text-left text-sm">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="border-b border-[color:var(--border)] text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">
                 <tr>
                   <th className="px-4 py-3">{t('branch')}</th>
@@ -1905,6 +1954,9 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
                   <th className="px-4 py-3 text-right">{t('expectedQty')}</th>
                   <th className="px-4 py-3 text-right">{t('countedQty')}</th>
                   <th className="px-4 py-3 text-right">{t('variance')}</th>
+                  <th className="px-4 py-3 text-right">{t('unitCost')}</th>
+                  <th className="px-4 py-3 text-right">{t('totalCost')}</th>
+                  <th className="px-4 py-3">{t('varianceType')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1912,6 +1964,7 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
                   const v = Number(row.variance ?? 0);
                   const vColor = v < 0 ? '#c35151' : v > 0 ? '#4caf82' : 'var(--muted)';
                   const vPrefix = v > 0 ? '+' : '';
+                  const typeColor = row.varianceType === 'SHORTAGE' ? '#c35151' : row.varianceType === 'SURPLUS' ? '#4caf82' : 'var(--muted)';
                   return (
                     <tr
                       key={row.id}
@@ -1934,6 +1987,27 @@ export function ReportsWorkspace({ section }: { section: ReportSection }) {
                         {row.reason ? (
                           <span className="ml-1 text-xs text-[color:var(--muted)]/60">({row.reason})</span>
                         ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-right text-[color:var(--muted)]">
+                        {row.unitCost != null ? row.unitCost.toLocaleString(locale) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span style={{ color: typeColor, fontWeight: 600 }}>
+                          {row.totalCost != null ? row.totalCost.toLocaleString(locale) : '—'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {row.varianceType ? (
+                          <span
+                            className="inline-block rounded-full px-2 py-0.5 text-xs font-medium"
+                            style={{
+                              color: typeColor,
+                              backgroundColor: row.varianceType === 'SHORTAGE' ? 'rgba(195,81,81,0.12)' : 'rgba(76,175,130,0.12)',
+                            }}
+                          >
+                            {row.varianceType === 'SHORTAGE' ? t('stockCountShortages') : t('stockCountSurpluses')}
+                          </span>
+                        ) : '—'}
                       </td>
                     </tr>
                   );

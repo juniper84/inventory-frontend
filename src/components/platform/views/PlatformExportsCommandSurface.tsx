@@ -46,8 +46,10 @@ export function PlatformExportsCommandSurface({
   exportLaneJobs,
   isLoadingExportStats,
   exportJobs,
-  nextExportCursor,
-  isLoadingMoreExports,
+  exportPage,
+  hasNextExportPage,
+  onExportNextPage,
+  onExportPrevPage,
   retryExportJob,
   requeueExportJob,
   cancelExportJob,
@@ -59,6 +61,7 @@ export function PlatformExportsCommandSurface({
   setExportDeliveryForm,
   markExportDelivered,
   isMarkingExportDelivered,
+  showDelivery,
   locale,
 }: {
   show: boolean;
@@ -77,8 +80,10 @@ export function PlatformExportsCommandSurface({
   exportLaneJobs: Record<string, ExportJob[]>;
   isLoadingExportStats: boolean;
   exportJobs: ExportJob[];
-  nextExportCursor: string | null;
-  isLoadingMoreExports: boolean;
+  exportPage: number;
+  hasNextExportPage: boolean;
+  onExportNextPage: () => Promise<void>;
+  onExportPrevPage: () => Promise<void>;
   retryExportJob: (jobId: string) => Promise<void>;
   requeueExportJob: (jobId: string) => Promise<void>;
   cancelExportJob: (jobId: string) => Promise<void>;
@@ -90,6 +95,7 @@ export function PlatformExportsCommandSurface({
   setExportDeliveryForm: Dispatch<SetStateAction<ExportDeliveryFormState>>;
   markExportDelivered: () => Promise<void>;
   isMarkingExportDelivered: boolean;
+  showDelivery?: boolean;
 }) {
   if (!show) {
     return null;
@@ -109,7 +115,7 @@ export function PlatformExportsCommandSurface({
                 ),
               )
             }
-            className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
+            className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-1 text-xs text-[color:var(--pt-text-1)]"
             disabled={isLoadingExports}
           >
             <span className="inline-flex items-center gap-2">
@@ -175,7 +181,7 @@ export function PlatformExportsCommandSurface({
                 ),
               )
             }
-            className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
+            className="rounded bg-[var(--pt-accent)] px-3 py-2 text-sm font-semibold text-black"
           >
             <span className="inline-flex items-center gap-2">
               {actionLoading['exports:apply'] ? (
@@ -185,15 +191,15 @@ export function PlatformExportsCommandSurface({
             </span>
           </button>
         </div>
-        <div className="rounded border border-gold-700/40 bg-black/30 p-3 text-xs text-gold-300">
-          <p className="text-gold-100">
+        <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep p-3 text-xs text-[color:var(--pt-text-2)]">
+          <p className="text-[color:var(--pt-text-1)]">
             {t('exportQueueTotal', { value: exportQueueStats?.total ?? 0 })}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             {exportLaneDefs.map((lane) => (
               <span
                 key={lane.key}
-                className="rounded border border-gold-700/50 px-2 py-1 text-[11px]"
+                className="rounded border border-[color:var(--pt-accent-border)] px-2 py-1 text-[11px]"
               >
                 {lane.label}: {exportQueueStats?.byStatus[lane.key] ?? 0}
               </span>
@@ -201,25 +207,26 @@ export function PlatformExportsCommandSurface({
             {isLoadingExportStats ? <Spinner size="xs" variant="grid" /> : null}
           </div>
         </div>
-        <div className="grid gap-3 xl:grid-cols-5">
+        <div className="overflow-x-auto">
+        <div className="grid gap-3 grid-cols-5 min-w-[680px]">
           {exportLaneDefs.map((lane) => (
             <div
               key={lane.key}
-              className="rounded border border-gold-700/40 bg-black/25 p-3 text-xs text-gold-300"
+              className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep p-3 text-xs text-[color:var(--pt-text-2)]"
             >
-              <p className="mb-2 font-semibold text-gold-100">
+              <p className="mb-2 font-semibold text-[color:var(--pt-text-1)]">
                 {lane.label} ({exportLaneJobs[lane.key]?.length ?? 0})
               </p>
               <div className="space-y-2">
                 {(exportLaneJobs[lane.key] ?? []).map((job) => (
                   <div
                     key={job.id}
-                    className="rounded border border-gold-700/40 bg-black/40 p-2"
+                    className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-2"
                   >
-                    <p className="text-gold-100">{job.business?.name ?? t('businessLabel')}</p>
+                    <p className="text-[color:var(--pt-text-1)]">{job.business?.name ?? t('businessLabel')}</p>
                     <p className="text-[11px]">{job.type}</p>
-                    <p className="text-[11px] text-gold-500">{job.businessId}</p>
-                    <p className="text-[11px] text-gold-500">
+                    <p className="text-[11px] text-[color:var(--pt-text-muted)]">{job.businessId}</p>
+                    <p className="text-[11px] text-[color:var(--pt-text-muted)]">
                       {t('exportCreated', {
                         value: new Date(job.createdAt).toLocaleString(locale),
                       })}
@@ -238,7 +245,7 @@ export function PlatformExportsCommandSurface({
                               retryExportJob(job.id),
                             )
                           }
-                          className="rounded border border-gold-700/50 px-2 py-1 text-[11px]"
+                          className="rounded border border-[color:var(--pt-accent-border)] px-2 py-1 text-[11px]"
                         >
                           {t('exportRetryAction')}
                         </button>
@@ -251,7 +258,7 @@ export function PlatformExportsCommandSurface({
                               requeueExportJob(job.id),
                             )
                           }
-                          className="rounded border border-gold-700/50 px-2 py-1 text-[11px]"
+                          className="rounded border border-[color:var(--pt-accent-border)] px-2 py-1 text-[11px]"
                         >
                           {t('exportRequeueAction')}
                         </button>
@@ -264,7 +271,7 @@ export function PlatformExportsCommandSurface({
                               cancelExportJob(job.id),
                             )
                           }
-                          className="rounded border border-gold-700/50 px-2 py-1 text-[11px]"
+                          className="rounded border border-[color:var(--pt-accent-border)] px-2 py-1 text-[11px]"
                         >
                           {t('exportCancelAction')}
                         </button>
@@ -273,30 +280,40 @@ export function PlatformExportsCommandSurface({
                   </div>
                 ))}
                 {!exportLaneJobs[lane.key]?.length ? (
-                  <p className="text-[11px] text-gold-500">{t('laneEmpty')}</p>
+                  <p className="text-[11px] text-[color:var(--pt-text-muted)]">{t('laneEmpty')}</p>
                 ) : null}
               </div>
             </div>
           ))}
         </div>
-        <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
-          {!exportJobs.length ? <p className="text-gold-400">{t('noExportJobs')}</p> : null}
-          {nextExportCursor ? (
-            <button
-              type="button"
-              onClick={() =>
-                withAction('exports:loadMore', () => loadExportJobs(nextExportCursor, true))
-              }
-              className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
-              disabled={isLoadingMoreExports}
-            >
-              {isLoadingMoreExports ? <Spinner size="xs" variant="grid" /> : null}
-              {t('loadMore')}
-            </button>
+        </div>
+        <div className="space-y-2 text-xs text-[color:var(--pt-text-2)] nvi-stagger">
+          {!exportJobs.length ? <p className="text-[color:var(--pt-text-2)]">{t('noExportJobs')}</p> : null}
+          {(exportPage > 1 || hasNextExportPage) ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => withAction('exports:prev', () => onExportPrevPage())}
+                className="inline-flex items-center gap-1 rounded border border-[color:var(--pt-accent-border)] px-3 py-1 text-xs text-[color:var(--pt-text-1)] disabled:opacity-40"
+                disabled={exportPage <= 1 || isLoadingExports}
+              >
+                {t('prevPage')}
+              </button>
+              <span className="text-[color:var(--pt-text-muted)]">{t('pageLabel', { page: exportPage })}</span>
+              <button
+                type="button"
+                onClick={() => withAction('exports:next', () => onExportNextPage())}
+                className="inline-flex items-center gap-1 rounded border border-[color:var(--pt-accent-border)] px-3 py-1 text-xs text-[color:var(--pt-text-1)] disabled:opacity-40"
+                disabled={!hasNextExportPage || isLoadingExports}
+              >
+                {t('nextPage')}
+              </button>
+            </div>
           ) : null}
         </div>
       </section>
 
+      {showDelivery !== false && (
       <section className="command-card p-6 space-y-4 nvi-reveal">
         <h3 className="text-xl font-semibold">{t('exportDeliveryTitle')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
@@ -318,7 +335,7 @@ export function PlatformExportsCommandSurface({
                 exportOnExit(exportDeliveryBusinessId),
               );
             }}
-            className="rounded border border-gold-700/50 px-3 py-2 text-sm font-semibold text-gold-100"
+            className="rounded border border-[color:var(--pt-accent-border)] px-3 py-2 text-sm font-semibold text-[color:var(--pt-text-1)]"
           >
             <span className="inline-flex items-center gap-2">
               {actionLoading[`exports:request:${exportDeliveryBusinessId}`] ? (
@@ -336,7 +353,7 @@ export function PlatformExportsCommandSurface({
               }))
             }
             placeholder={t('exportJobIdPlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
           />
           <input
             value={exportDeliveryForm.reason}
@@ -347,12 +364,12 @@ export function PlatformExportsCommandSurface({
               }))
             }
             placeholder={t('deliveryReasonPlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
           />
           <button
             type="button"
             onClick={markExportDelivered}
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+            className="inline-flex items-center gap-2 rounded bg-[var(--pt-accent)] px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isMarkingExportDelivered}
           >
             {isMarkingExportDelivered ? <Spinner size="xs" variant="orbit" /> : null}
@@ -360,6 +377,7 @@ export function PlatformExportsCommandSurface({
           </button>
         </div>
       </section>
+      )}
     </>
   );
 }

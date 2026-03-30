@@ -10,6 +10,7 @@ import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
@@ -302,9 +303,9 @@ export default function PriceListWizardPage() {
               placeholder={t('selectMode')}
               className="nvi-select-container"
             />
-            <input
+            <CurrencyInput
               value={form.value}
-              onChange={(event) => setForm((prev) => ({ ...prev, value: event.target.value }))}
+              onChange={(value) => setForm((prev) => ({ ...prev, value }))}
               placeholder={t('value')}
               className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
             />

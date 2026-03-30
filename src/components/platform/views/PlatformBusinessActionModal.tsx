@@ -59,21 +59,21 @@ export function PlatformBusinessActionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/70 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-end p-bg-surface p-4">
       <div
-        className="w-full max-w-lg rounded border border-gold-700/60 bg-[#080b10] p-4 shadow-2xl"
+        className="w-full max-w-lg rounded border border-[color:var(--pt-accent-border-hi)] p-bg-deep p-4 shadow-2xl"
         role="dialog"
         aria-modal="true"
         onKeyDown={(e) => { if (e.key === 'Escape') setModal(null); }}
       >
         <div className="mb-3 flex items-center justify-between">
-          <h4 className="text-lg font-semibold text-gold-100">
+          <h4 className="text-lg font-semibold text-[color:var(--pt-text-1)]">
             {t('actionGuardTitle', { action: modal.action })}
           </h4>
           <button
             type="button"
             onClick={() => setModal(null)}
-            className="rounded border border-gold-700/60 px-2 py-1 text-xs text-gold-100"
+            className="rounded border border-[color:var(--pt-accent-border-hi)] px-2 py-1 text-xs text-[color:var(--pt-text-1)]"
           >
             {t('closeDetails')}
           </button>
@@ -81,21 +81,21 @@ export function PlatformBusinessActionModal({
 
         {modal.step === 1 ? (
           <div className="space-y-3">
-            <p className="text-sm text-gold-300">{t('actionGuardReviewImpact')}</p>
-            <ul className="list-disc space-y-1 pl-5 text-xs text-gold-400">
+            <p className="text-sm text-[color:var(--pt-text-2)]">{t('actionGuardReviewImpact')}</p>
+            <ul className="list-disc space-y-1 pl-5 text-xs text-[color:var(--pt-text-2)]">
               <li>{t('actionGuardBusinessLine', { value: modal.businessId })}</li>
               <li>{t('actionGuardActionLine', { value: modal.action })}</li>
               <li>{t('actionGuardImmediateEffect')}</li>
             </ul>
             {modal.preflightLoading ? (
-              <p className="inline-flex items-center gap-2 text-xs text-gold-300">
+              <p className="inline-flex items-center gap-2 text-xs text-[color:var(--pt-text-2)]">
                 {t('loadingBusinessPreflight')}
               </p>
             ) : null}
             {modal.preflightError ? <p className="text-xs text-red-300">{modal.preflightError}</p> : null}
             {modal.preflight ? (
-              <div className="rounded border border-gold-700/40 bg-black/30 p-3 text-xs text-gold-300">
-                <p className="text-gold-100">{t('actionGuardPreflightImpact')}</p>
+              <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 text-xs text-[color:var(--pt-text-2)]">
+                <p className="text-[color:var(--pt-text-1)]">{t('actionGuardPreflightImpact')}</p>
                 <p>{t('actionGuardImpactUsers', { value: modal.preflight.impact.users })}</p>
                 <p>
                   {t('actionGuardImpactExports', {
@@ -129,7 +129,7 @@ export function PlatformBusinessActionModal({
 
         {modal.step >= 2 ? (
           <div className="space-y-3">
-            <label className="block text-xs uppercase tracking-[0.2em] text-gold-400">
+            <label className="block text-xs uppercase tracking-[0.2em] text-[color:var(--pt-text-2)]">
               {t('reasonRequiredLabel')}
             </label>
             <textarea
@@ -137,7 +137,7 @@ export function PlatformBusinessActionModal({
               onChange={(event) =>
                 setModal((prev) => (prev ? { ...prev, reason: event.target.value } : prev))
               }
-              className="min-h-[90px] w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+              className="min-h-[90px] w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
               placeholder={t('actionReasonPlaceholder')}
             />
           </div>
@@ -153,7 +153,7 @@ export function PlatformBusinessActionModal({
                 )
               }
               placeholder={t('purgeBusinessIdPlaceholder')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+              className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
             />
             <input
               value={modal.confirmText}
@@ -163,7 +163,7 @@ export function PlatformBusinessActionModal({
                 )
               }
               placeholder={t('purgeConfirmPlaceholder')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+              className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
             />
           </div>
         ) : null}
@@ -177,7 +177,7 @@ export function PlatformBusinessActionModal({
               )
             }
             disabled={modal.step === 1}
-            className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100 disabled:opacity-50"
+            className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-1 text-xs text-[color:var(--pt-text-1)] disabled:opacity-50"
           >
             {t('backToRegistryAction')}
           </button>
@@ -194,7 +194,7 @@ export function PlatformBusinessActionModal({
                   prev ? { ...prev, step: (Math.min(3, prev.step + 1) as 1 | 2 | 3) } : prev,
                 )
               }
-              className="rounded bg-gold-500 px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded bg-[var(--pt-accent)] px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
             >
               {t('nextAction')}
             </button>

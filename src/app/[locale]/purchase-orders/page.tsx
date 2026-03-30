@@ -719,10 +719,9 @@ export default function PurchaseOrdersPage() {
             isClearable
             className="nvi-select-container"
           />
-          <input
-            type="date"
+          <DatePickerInput
             value={form.expectedAt}
-            onChange={(event) => setForm({ ...form, expectedAt: event.target.value })}
+            onChange={(value) => setForm({ ...form, expectedAt: value })}
             placeholder={t('expectedAt')}
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
@@ -865,11 +864,10 @@ export default function PurchaseOrdersPage() {
             isClearable
             className="nvi-select-container"
           />
-          <input
-            type="date"
+          <DatePickerInput
             value={updateForm.expectedAt}
-            onChange={(event) =>
-              setUpdateForm({ ...updateForm, expectedAt: event.target.value })
+            onChange={(value) =>
+              setUpdateForm({ ...updateForm, expectedAt: value })
             }
             placeholder={t('expectedAt')}
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"

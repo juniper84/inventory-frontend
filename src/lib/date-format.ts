@@ -117,3 +117,51 @@ export function formatTimeWithTz(
     return '—';
   }
 }
+
+/**
+ * Converts a naive local datetime string (e.g. "2026-04-15T14:30") to a UTC
+ * ISO string, interpreting the input as being in the given IANA timezone.
+ *
+ * Uses Intl.DateTimeFormat to determine the timezone offset at the given date,
+ * then shifts the time to UTC accordingly.
+ *
+ * Returns the original value unchanged if parsing fails.
+ */
+export function localToUtcIso(
+  naiveDatetime: string,
+  timezone: string = DEFAULT_TIMEZONE,
+): string {
+  if (!naiveDatetime) return naiveDatetime;
+  try {
+    // Parse as UTC first to get a stable reference point
+    const asUtc = new Date(naiveDatetime + (naiveDatetime.includes('Z') ? '' : 'Z'));
+    if (isNaN(asUtc.getTime())) return naiveDatetime;
+
+    // Find what the local time would be in the target timezone at this UTC instant
+    const parts = new Intl.DateTimeFormat('en', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(asUtc);
+
+    const map: Record<string, string> = {};
+    for (const p of parts) map[p.type] = p.value;
+    const localAtUtc = new Date(
+      `${map['year']}-${map['month']}-${map['day']}T${map['hour']}:${map['minute']}:${map['second']}Z`,
+    );
+
+    // The offset is the difference between the UTC instant and the local representation
+    const offsetMs = localAtUtc.getTime() - asUtc.getTime();
+
+    // Shift the user's intended local time back by the offset to get true UTC
+    const utc = new Date(asUtc.getTime() - offsetMs);
+    return utc.toISOString();
+  } catch {
+    return naiveDatetime;
+  }
+}

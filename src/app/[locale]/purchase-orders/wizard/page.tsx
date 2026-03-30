@@ -13,6 +13,7 @@ import { SmartSelect } from '@/components/SmartSelect';
 import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
 import { useVariantSearch } from '@/lib/use-variant-search';
@@ -468,9 +469,9 @@ export default function PurchaseOrderWizardPage() {
                 placeholder={t('quantity')}
                 className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
               />
-              <input
+              <CurrencyInput
                 value={line.unitCost}
-                onChange={(event) => updateLine(line.id, { unitCost: event.target.value })}
+                onChange={(value) => updateLine(line.id, { unitCost: value })}
                 placeholder={t('unitCost')}
                 className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
               />
@@ -617,9 +618,9 @@ export default function PurchaseOrderWizardPage() {
                         placeholder={t('quantity')}
                         className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
                       />
-                      <input
+                      <CurrencyInput
                         value={line.unitCost}
-                        onChange={(event) => updateReceivingLine(line.id, { unitCost: event.target.value })}
+                        onChange={(value) => updateReceivingLine(line.id, { unitCost: value })}
                         placeholder={t('unitCost')}
                         className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
                       />

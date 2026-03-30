@@ -17,7 +17,8 @@ import { getPermissionSet } from '@/lib/permissions';
 import { useBranchScope } from '@/lib/use-branch-scope';
 import { PremiumPageHeader } from '@/components/PremiumPageHeader';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
-import { useFormatDate } from '@/lib/business-context';
+import { useFormatDate, useTimezone } from '@/lib/business-context';
+import { localToUtcIso } from '@/lib/date-format';
 
 type NoteLink = {
   id?: string;
@@ -68,6 +69,7 @@ export default function NotesPage() {
   const common = useTranslations('common');
   const locale = useLocale();
   const { formatDateTime } = useFormatDate();
+  const timezone = useTimezone();
   const LINK_TYPES = [
     { value: 'Product', label: t('linkTypeProduct') },
     { value: 'Variant', label: t('linkTypeVariant') },
@@ -452,7 +454,7 @@ export default function NotesPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          scheduledAt: formState.scheduledAt,
+          scheduledAt: localToUtcIso(formState.scheduledAt, timezone),
           channels: selected,
         }),
       });

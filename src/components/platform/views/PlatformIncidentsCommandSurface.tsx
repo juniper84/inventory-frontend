@@ -45,8 +45,11 @@ export function PlatformIncidentsCommandSurface({
   transitionIncidentRecord,
   incidentStatusLabel,
   incidents,
-  nextIncidentCursor,
-  isLoadingMoreIncidents,
+  incidentPage,
+  hasNextIncidentPage,
+  onIncidentNextPage,
+  onIncidentPrevPage,
+  onOpenSupportSession,
 }: {
   show: boolean;
   t: (key: string, values?: Record<string, string | number | Date>) => string;
@@ -93,8 +96,11 @@ export function PlatformIncidentsCommandSurface({
   ) => Promise<void>;
   incidentStatusLabel: (status: Incident['status']) => string;
   incidents: Incident[];
-  nextIncidentCursor: string | null;
-  isLoadingMoreIncidents: boolean;
+  incidentPage: number;
+  hasNextIncidentPage: boolean;
+  onIncidentNextPage: () => Promise<void>;
+  onIncidentPrevPage: () => Promise<void>;
+  onOpenSupportSession?: (businessId: string, severity: string, reason: string) => void;
 }) {
   const severityLabels: Record<string, string> = {
     LOW: t('severityLow'),
@@ -114,7 +120,7 @@ export function PlatformIncidentsCommandSurface({
         <button
           type="button"
           onClick={() => withAction('incidents:refresh', () => loadIncidents())}
-          className="rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100"
+          className="rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-1 text-xs text-[color:var(--pt-text-1)]"
           disabled={isLoadingIncidents}
         >
           <span className="inline-flex items-center gap-2">
@@ -160,7 +166,7 @@ export function PlatformIncidentsCommandSurface({
         <button
           type="button"
           onClick={() => withAction('incidents:apply', () => applyIncidentFilters())}
-          className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
+          className="rounded bg-[var(--pt-accent)] px-3 py-2 text-sm font-semibold text-black"
         >
           <span className="inline-flex items-center gap-2">
             {actionLoading['incidents:apply'] ? (
@@ -178,7 +184,7 @@ export function PlatformIncidentsCommandSurface({
             setIncidentForm((prev) => ({ ...prev, businessId: value }))
           }
           options={businessSelectOptions}
-          placeholder={t('selectBusinessToFlag')}
+          placeholder={t('selectBusiness')}
         />
         <SmartSelect
           instanceId="platform-incidents-create-severity"
@@ -194,31 +200,32 @@ export function PlatformIncidentsCommandSurface({
           onChange={(event) =>
             setIncidentForm((prev) => ({ ...prev, reason: event.target.value }))
           }
-          placeholder={t('reviewFlagReasonPlaceholder')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          placeholder={t('incidentReasonPlaceholder')}
+          className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
         />
         <button
           type="button"
           onClick={() =>
             withAction('incidents:create', () => createIncidentRecord())
           }
-          className="rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black"
+          className="rounded bg-[var(--pt-accent)] px-3 py-2 text-sm font-semibold text-black"
         >
           <span className="inline-flex items-center gap-2">
             {actionLoading['incidents:create'] ? (
               <Spinner size="xs" variant="ring" />
             ) : null}
-            {t('flagForReview')}
+            {t('createIncidentAction')}
           </span>
         </button>
       </div>
-      <div className="grid gap-3 xl:grid-cols-5">
+      <div className="overflow-x-auto">
+      <div className="grid gap-3 grid-cols-5 min-w-[680px]">
         {incidentLaneDefs.map((lane) => (
           <div
             key={lane.key}
-            className="rounded border border-gold-700/40 bg-black/25 p-3 text-xs text-gold-300"
+            className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 text-xs text-[color:var(--pt-text-2)]"
           >
-            <p className="mb-2 font-semibold text-gold-100">
+            <p className="mb-2 font-semibold text-[color:var(--pt-text-1)]">
               {lane.label} ({incidentLaneMap[lane.key]?.length ?? 0})
             </p>
             <div className="space-y-2">
@@ -228,12 +235,12 @@ export function PlatformIncidentsCommandSurface({
                 return (
                   <div
                     key={incident.id}
-                    className="rounded border border-gold-700/40 bg-black/40 p-2"
+                    className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-2"
                   >
-                    <p className="text-gold-100">
+                    <p className="text-[color:var(--pt-text-1)]">
                       {incident.business?.name ?? t('businessLabel')}
                     </p>
-                    <p className="text-[11px] text-gold-500">{incident.businessId}</p>
+                    <p className="text-[11px] text-[color:var(--pt-text-muted)]">{incident.businessId}</p>
                     <p className="text-[11px]">
                       {t('incidentSeverityLabel', { value: formatEnum(severityLabels, incident.severity) })}
                     </p>
@@ -242,7 +249,7 @@ export function PlatformIncidentsCommandSurface({
                         value: incidentStatusLabel(incident.status),
                       })}
                     </p>
-                    <p className="text-[11px] text-gold-500">
+                    <p className="text-[11px] text-[color:var(--pt-text-muted)]">
                       {t('incidentOpenedAtLabel', {
                         value: new Date(incident.openedAt).toLocaleString(locale),
                       })}
@@ -275,7 +282,7 @@ export function PlatformIncidentsCommandSurface({
                             }),
                           )
                         }
-                        className="rounded border border-gold-700/50 px-2 py-1 text-[11px]"
+                        className="rounded border border-[color:var(--pt-accent-border)] px-2 py-1 text-[11px]"
                       >
                         {t('saveAction')}
                       </button>
@@ -289,7 +296,7 @@ export function PlatformIncidentsCommandSurface({
                         }))
                       }
                       placeholder={t('actionReasonPlaceholder')}
-                      className="mt-2 w-full rounded border border-gold-700/50 bg-black px-2 py-1 text-[11px] text-gold-100"
+                      className="mt-2 w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-2 py-1 text-[11px] text-[color:var(--pt-text-1)]"
                     />
                     <div className="mt-2 flex flex-wrap gap-2">
                       <button
@@ -299,7 +306,7 @@ export function PlatformIncidentsCommandSurface({
                             addIncidentNoteRecord(incident.id),
                           )
                         }
-                        className="rounded border border-gold-700/50 px-2 py-1 text-[11px]"
+                        className="rounded border border-[color:var(--pt-accent-border)] px-2 py-1 text-[11px]"
                       >
                         {t('incidentAddNote')}
                       </button>
@@ -311,17 +318,32 @@ export function PlatformIncidentsCommandSurface({
                               transitionIncidentRecord(incident.id, nextStatus),
                             )
                           }
-                          className="rounded border border-gold-700/50 px-2 py-1 text-[11px]"
+                          className="rounded border border-[color:var(--pt-accent-border)] px-2 py-1 text-[11px]"
                         >
                           {t('incidentMoveTo', {
                             status: incidentStatusLabel(nextStatus),
                           })}
                         </button>
                       ) : null}
+                      {onOpenSupportSession ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenSupportSession(
+                              incident.businessId,
+                              incident.severity,
+                              incident.reason,
+                            )
+                          }
+                          className="rounded border border-sky-700/50 px-2 py-1 text-[11px] text-sky-300"
+                        >
+                          {t('incidentOpenSupportSession')}
+                        </button>
+                      ) : null}
                     </div>
                     <div className="mt-2 space-y-1">
                       {(incident.events ?? []).slice(0, 2).map((event) => (
-                        <p key={event.id} className="text-[11px] text-gold-500">
+                        <p key={event.id} className="text-[11px] text-[color:var(--pt-text-muted)]">
                           {event.eventType}
                           {event.note ? ` • ${event.note}` : ''}
                         </p>
@@ -331,30 +353,37 @@ export function PlatformIncidentsCommandSurface({
                 );
               })}
               {!incidentLaneMap[lane.key]?.length ? (
-                <p className="text-[11px] text-gold-500">{t('laneEmpty')}</p>
+                <p className="text-[11px] text-[color:var(--pt-text-muted)]">{t('laneEmpty')}</p>
               ) : null}
             </div>
           </div>
         ))}
       </div>
-      <div className="space-y-2 text-xs text-gold-300 nvi-stagger">
+      </div>
+      <div className="space-y-2 text-xs text-[color:var(--pt-text-2)] nvi-stagger">
         {!incidents.length && !isLoadingIncidents ? (
-          <p className="text-gold-400">{t('noIncidents')}</p>
+          <p className="text-[color:var(--pt-text-2)]">{t('noIncidents')}</p>
         ) : null}
-        {nextIncidentCursor ? (
-          <button
-            type="button"
-            onClick={() =>
-              withAction('incidents:loadMore', () =>
-                loadIncidents(nextIncidentCursor, true),
-              )
-            }
-            className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
-            disabled={isLoadingMoreIncidents}
-          >
-            {isLoadingMoreIncidents ? <Spinner size="xs" variant="grid" /> : null}
-            {t('loadMore')}
-          </button>
+        {(incidentPage > 1 || hasNextIncidentPage) ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => withAction('incidents:prev', () => onIncidentPrevPage())}
+              className="inline-flex items-center gap-1 rounded border border-[color:var(--pt-accent-border)] px-3 py-1 text-xs text-[color:var(--pt-text-1)] disabled:opacity-40"
+              disabled={incidentPage <= 1 || isLoadingIncidents}
+            >
+              {t('prevPage')}
+            </button>
+            <span className="text-[color:var(--pt-text-muted)]">{t('pageLabel', { page: incidentPage })}</span>
+            <button
+              type="button"
+              onClick={() => withAction('incidents:next', () => onIncidentNextPage())}
+              className="inline-flex items-center gap-1 rounded border border-[color:var(--pt-accent-border)] px-3 py-1 text-xs text-[color:var(--pt-text-1)] disabled:opacity-40"
+              disabled={!hasNextIncidentPage || isLoadingIncidents}
+            >
+              {t('nextPage')}
+            </button>
+          </div>
         ) : null}
       </div>
     </section>

@@ -26,7 +26,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         pathname.includes('/signup') ||
         pathname.includes('/invite') ||
         pathname.includes('/verify-email') ||
-        pathname.includes('/password-reset');
+        pathname.includes('/password-reset') ||
+        pathname.includes('/suspended');
       if (isAuthRoute) {
         return;
       }

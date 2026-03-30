@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { decodeJwt, getPlatformAccessToken } from '@/lib/auth';
 import { formatEntityLabel } from '@/lib/display';
+import { localToUtcIso } from '@/lib/date-format';
 import { usePlatformConsoleStorage } from '@/components/platform/hooks/usePlatformConsoleStorage';
 import { usePlatformBusinessDerived } from '@/components/platform/hooks/usePlatformBusinessDerived';
 import { usePlatformAnnouncements } from '@/components/platform/hooks/usePlatformAnnouncements';
@@ -17,14 +18,15 @@ import { usePlatformConsoleOptionSets } from '@/components/platform/hooks/usePla
 import { usePlatformConsolePresentation } from '@/components/platform/hooks/usePlatformConsolePresentation';
 import { usePlatformIncidents } from '@/components/platform/hooks/usePlatformIncidents';
 import { usePlatformSupportExports } from '@/components/platform/hooks/usePlatformSupportExports';
+import { usePlatformEventStream } from '@/components/platform/hooks/usePlatformEventStream';
 import type { PlatformView } from '@/components/platform/types';
-import { PlatformActivitySection } from '@/components/platform/views/PlatformActivitySection';
 import { PlatformConsoleHeader } from '@/components/platform/views/PlatformConsoleHeader';
 import { PlatformHealthCommandSurface } from '@/components/platform/views/PlatformHealthCommandSurface';
 import { PlatformIncidentsCommandSurface } from '@/components/platform/views/PlatformIncidentsCommandSurface';
 import { PlatformMetricsSection } from '@/components/platform/views/PlatformMetricsSection';
 import { PlatformOverviewCommandSurface } from '@/components/platform/views/PlatformOverviewCommandSurface';
 import { PlatformAnnouncementsCommandSurface } from '@/components/platform/views/PlatformAnnouncementsCommandSurface';
+import { PlatformAnalyticsCommandSurface } from '@/components/platform/views/PlatformAnalyticsCommandSurface';
 import { PlatformAuditCommandSurface } from '@/components/platform/views/PlatformAuditCommandSurface';
 import { PlatformBusinessesCommandSurface } from '@/components/platform/views/PlatformBusinessesCommandSurface';
 import { PlatformBusinessProvisionSurface } from '@/components/platform/views/PlatformBusinessProvisionSurface';
@@ -41,6 +43,7 @@ import {
   PointElement,
   LineElement,
   ArcElement,
+  Filler,
   Tooltip,
   Legend,
 } from 'chart.js';
@@ -51,6 +54,7 @@ ChartJS.register(
   PointElement,
   LineElement,
   ArcElement,
+  Filler,
   Tooltip,
   Legend,
 );
@@ -331,14 +335,17 @@ export function PlatformConsole({
   const common = useTranslations('common');
   const params = useParams<{ locale?: string }>();
   const locale = typeof params?.locale === 'string' ? params.locale : 'en';
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingMoreBusinesses, setIsLoadingMoreBusinesses] = useState(false);
   const [creatingBusiness, setCreatingBusiness] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [nextBusinessCursor, setNextBusinessCursor] = useState<string | null>(
     null,
   );
+  const [businessPage, setBusinessPage] = useState(1);
+  const [businessCursorStack, setBusinessCursorStack] = useState<(string | null)[]>([null]);
+  const [totalBusinesses, setTotalBusinesses] = useState<number | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [healthMatrix, setHealthMatrix] = useState<HealthMatrix | null>(null);
   const [overviewSnapshot, setOverviewSnapshot] = useState<OverviewSnapshot | null>(
@@ -363,7 +370,9 @@ export function PlatformConsole({
         trialEndsAt: string;
         graceEndsAt: string;
         expiresAt: string;
-        durationDays?: string;
+        months?: string;
+        isPaid?: boolean;
+        amountDue?: string;
       }
     >
   >({});
@@ -425,8 +434,10 @@ export function PlatformConsole({
   const [selectedBusinessId, setSelectedBusinessId] = useState('');
   const [openedBusinessId, setOpenedBusinessId] = useState(focusBusinessId ?? '');
   const [businessDrawerTab, setBusinessDrawerTab] = useState<
-    'SUMMARY' | 'SUBSCRIPTION' | 'RISK_STATUS' | 'ACCESS' | 'DEVICES' | 'DANGER'
-  >('SUMMARY');
+    'OVERVIEW' | 'MANAGE' | 'NOTES' | 'DEVICES' | 'ACTIONS'
+  >('OVERVIEW');
+  const [intelligenceTab, setIntelligenceTab] = useState<'AUDIT' | 'HEALTH'>('AUDIT');
+  const [operationsTab, setOperationsTab] = useState<'INCIDENTS' | 'EXPORTS'>('INCIDENTS');
   const [businessTrendRange, setBusinessTrendRange] = useState<'7d' | '30d'>('7d');
   const [businessWorkspaceMap, setBusinessWorkspaceMap] = useState<
     Record<string, BusinessWorkspace>
@@ -458,14 +469,99 @@ export function PlatformConsole({
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>(
     {},
   );
+  // Analytics state
+  type AnalyticsRevenue = {
+    mrr: number; arr: number; byTier: Record<string, number>;
+    monthly: { month: string; revenue: number; collected: number }[];
+    totalPaidSubscribers: number; paidCount: number; complimentaryCount: number;
+    totalCollected: number; generatedAt: string;
+  };
+  type AnalyticsCohorts = {
+    cohorts: { month: string; count: number; byTier: Record<string, number>; active: number }[];
+    generatedAt: string;
+  };
+  type AnalyticsChurn = {
+    range: string; churnRate: number; churnedCount: number;
+    recentlyChurned: { businessId: string; name: string; status: string; tier: string; churnedAt: string }[];
+    generatedAt: string;
+  };
+  type AnalyticsConversions = {
+    conversionRate: number; totalConversions: number; totalTrialBusinesses: number;
+    avgTrialDays: number | null; monthlyConversions: { month: string; conversions: number }[];
+    generatedAt: string;
+  };
+
+  // Onboarding state
+  type OnboardingResult = {
+    businessId: string;
+    milestones: { branches: boolean; products: boolean; sales: boolean; users: boolean; settings: boolean };
+    completedCount: number; totalCount: number; percentComplete: number; generatedAt: string;
+  };
+
+  const [analyticsRevenue, setAnalyticsRevenue] = useState<AnalyticsRevenue | null>(null);
+  const [analyticsCohorts, setAnalyticsCohorts] = useState<AnalyticsCohorts | null>(null);
+  const [analyticsChurn, setAnalyticsChurn] = useState<AnalyticsChurn | null>(null);
+  const [analyticsConversions, setAnalyticsConversions] = useState<AnalyticsConversions | null>(null);
+  const [analyticsChurnRange, setAnalyticsChurnRange] = useState('30d');
+  const [businessOnboarding, setBusinessOnboarding] = useState<Record<string, OnboardingResult>>({});
+  const [loadingOnboarding, setLoadingOnboarding] = useState<Record<string, boolean>>({});
+
+  // Phase 3 — Business Notes
+  type BusinessNote = {
+    id: string;
+    body: string;
+    createdAt: string;
+    platformAdmin: { id: string; email: string };
+  };
+  const [businessNotes, setBusinessNotes] = useState<Record<string, BusinessNote[]>>({});
+  const [loadingNotes, setLoadingNotes] = useState<Record<string, boolean>>({});
+  const [noteInput, setNoteInput] = useState<Record<string, string>>({});
+
+  // Purchase History
+  type PurchaseHistoryItem = {
+    id: string;
+    tier: string;
+    months: number;
+    durationDays: number;
+    startsAt: string;
+    expiresAt: string;
+    isPaid: boolean;
+    amountDue: number;
+    reason: string;
+    createdAt: string;
+    platformAdmin: { id: string; email: string };
+  };
+  const [purchaseHistory, setPurchaseHistory] = useState<Record<string, PurchaseHistoryItem[]>>({});
+  const [loadingPurchaseHistory, setLoadingPurchaseHistory] = useState<Record<string, boolean>>({});
+
+  // Phase 3 — Scheduled Actions
+  type ScheduledAction = {
+    id: string;
+    actionType: string;
+    payload: Record<string, unknown>;
+    scheduledFor: string;
+    createdAt: string;
+    platformAdmin: { id: string; email: string };
+  };
+  const [scheduledActions, setScheduledActions] = useState<Record<string, ScheduledAction[]>>({});
+  const [loadingScheduledActions, setLoadingScheduledActions] = useState<Record<string, boolean>>({});
+  const [scheduledActionForm, setScheduledActionForm] = useState<
+    Record<string, { actionType: string; payload: Record<string, unknown>; scheduledFor: string }>
+  >({});
+
   const showOverview = view === 'overview';
-  const showHealth = view === 'health';
   const showBusinesses = view === 'businesses';
-  const showSupport = view === 'support';
-  const showExports = view === 'exports';
   const showAnnouncements = view === 'announcements';
-  const showAudit = view === 'audit';
-  const showIncidents = view === 'incidents';
+  const showOperations = view === 'operations';
+  const showAccess = view === 'access';
+  const showIntelligence = view === 'intelligence';
+  const showAnalytics = view === 'analytics';
+  // Legacy routes + combined view fallthrough
+  const showHealth = view === 'health' || showIntelligence;
+  const showSupport = view === 'support' || showAccess;
+  const showExports = view === 'exports' || showOperations;
+  const showAudit = view === 'audit' || showIntelligence;
+  const showIncidents = view === 'incidents' || showOperations;
   const showBusinessDetailPage =
     showBusinesses && Boolean(focusBusinessId || openedBusinessId);
   const [quickActions, setQuickActions] = useState<
@@ -492,11 +588,10 @@ export function PlatformConsole({
   );
 
   const {
-    isLoadingMoreAudit,
     loadingLogs,
-    auditLogs,
     auditInvestigations,
-    nextAuditInvestigationCursor,
+    auditPage,
+    hasNextAuditPage,
     auditBusinessId,
     setAuditBusinessId,
     auditOutcome,
@@ -504,6 +599,8 @@ export function PlatformConsole({
     auditAction,
     setAuditAction,
     fetchAuditLogs,
+    goToNextAuditPage,
+    goToPrevAuditPage,
     historyBusinessId,
     setHistoryBusinessId,
     loadingHistory,
@@ -518,8 +615,10 @@ export function PlatformConsole({
   });
 
   const {
-    isLoadingMoreSupport,
-    isLoadingMoreSupportSessions,
+    supportPage,
+    hasNextSupportPage,
+    supportSessionPage,
+    hasNextSupportSessionPage,
     requestingSupport,
     activatingSupportId,
     supportRequests,
@@ -527,8 +626,6 @@ export function PlatformConsole({
     subscriptionRequests,
     subscriptionResponseNotes,
     setSubscriptionResponseNotes,
-    nextSupportCursor,
-    nextSupportSessionCursor,
     supportForm,
     setSupportForm,
     supportFilters,
@@ -543,8 +640,8 @@ export function PlatformConsole({
     setExportDeliveryBusinessId,
     exportJobs,
     exportQueueStats,
-    nextExportCursor,
-    isLoadingMoreExports,
+    exportPage,
+    hasNextExportPage,
     isLoadingExports,
     isLoadingExportStats,
     exportFilters,
@@ -564,6 +661,16 @@ export function PlatformConsole({
     retryExportJob,
     requeueExportJob,
     cancelExportJob,
+    goToNextExportPage,
+    goToPrevExportPage,
+    pendingSupportLogin,
+    loggingInAsSupport,
+    loginAsSupport,
+    clearPendingSupportLogin,
+    goToNextSupportPage,
+    goToPrevSupportPage,
+    goToNextSupportSessionPage,
+    goToPrevSupportSessionPage,
   } = usePlatformSupportExports({
     token,
     t,
@@ -614,9 +721,9 @@ export function PlatformConsole({
 
   const {
     incidents,
-    nextIncidentCursor,
+    incidentPage,
+    hasNextIncidentPage,
     isLoadingIncidents,
-    isLoadingMoreIncidents,
     incidentFilters,
     setIncidentFilters,
     incidentForm,
@@ -632,6 +739,8 @@ export function PlatformConsole({
     addIncidentNoteRecord,
     updateIncidentRecord,
     incidentLaneMap,
+    goToNextIncidentPage,
+    goToPrevIncidentPage,
   } = usePlatformIncidents({
     token,
     t,
@@ -707,6 +816,10 @@ export function PlatformConsole({
     loadQueuesSummary,
     loadHealthMatrix,
     loadActivityFeed,
+    loadAnalyticsRevenue,
+    loadAnalyticsCohorts,
+    loadAnalyticsChurn,
+    loadAnalyticsConversions,
     loadData,
   } = usePlatformConsoleLoaders({
     token,
@@ -720,11 +833,13 @@ export function PlatformConsole({
     showHealth,
     showIncidents,
     showOverview,
+    showAnalytics,
+    analyticsChurnRange,
     setIsLoading,
     setIsLoadingOverview,
-    setIsLoadingMoreBusinesses,
     setBusinesses,
     setNextBusinessCursor,
+    setTotalBusinesses,
     setSubscriptionEdits,
     setReadOnlyEdits,
     setStatusEdits,
@@ -735,6 +850,10 @@ export function PlatformConsole({
     setQueuesSummary,
     setHealthMatrix,
     setActivityFeed,
+    setAnalyticsRevenue,
+    setAnalyticsCohorts,
+    setAnalyticsChurn,
+    setAnalyticsConversions,
     loadSupportRequests,
     loadSubscriptionRequests,
     loadAnnouncements,
@@ -743,6 +862,23 @@ export function PlatformConsole({
     loadExportQueueStats,
     loadIncidents,
   });
+
+  const goToNextBusinessPage = useCallback(async () => {
+    if (!nextBusinessCursor) return;
+    const cursor = nextBusinessCursor;
+    setBusinessPage((p) => p + 1);
+    setBusinessCursorStack((prev) => [...prev, cursor]);
+    await loadBusinesses(cursor);
+  }, [nextBusinessCursor, loadBusinesses]);
+
+  const goToPrevBusinessPage = useCallback(async () => {
+    if (businessPage <= 1) return;
+    const newPage = businessPage - 1;
+    const cursor = businessCursorStack[newPage - 1];
+    setBusinessPage(newPage);
+    setBusinessCursorStack((prev) => prev.slice(0, newPage));
+    await loadBusinesses(cursor ?? undefined);
+  }, [businessPage, businessCursorStack, loadBusinesses]);
 
   useEffect(() => {
     setToken(getPlatformAccessToken());
@@ -765,6 +901,60 @@ export function PlatformConsole({
     setSupportNotes,
   });
 
+  usePlatformEventStream({
+    onSubscriptionRequestCreated: useCallback(() => {
+      void loadSubscriptionRequests();
+      setQueuesSummary((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          subscriptions: {
+            ...prev.subscriptions,
+            total: prev.subscriptions.total + 1,
+          },
+        };
+      });
+    }, [loadSubscriptionRequests]),
+
+    onIncidentCreated: useCallback((data: Record<string, unknown>) => {
+      void loadIncidents();
+      if (data.severity === 'CRITICAL') {
+        setMessage(t('sseIncidentCritical'));
+      }
+    }, [loadIncidents, setMessage, t]),
+
+    onIncidentTransitioned: useCallback(() => {
+      void loadIncidents();
+    }, [loadIncidents]),
+
+    onExportFailed: useCallback(() => {
+      setOverviewSnapshot((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          signals: {
+            ...(prev.signals ?? { queuePressureTotal: 0, exportsFailed: 0, apiTotalRequests: 0 }),
+            exportsFailed: (prev.signals?.exportsFailed ?? 0) + 1,
+          },
+        };
+      });
+      setMessage(t('sseExportFailed'));
+    }, [setMessage, t]),
+
+    onBusinessReviewFlagged: useCallback(() => {
+      setOverviewSnapshot((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          kpis: {
+            ...prev.kpis,
+            underReview: prev.kpis.underReview + 1,
+          },
+        };
+      });
+    }, []),
+  });
+
   useEffect(() => {
     setRevokeReasonTarget('');
     setRevokeReason('');
@@ -773,6 +963,193 @@ export function PlatformConsole({
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const loadBusinessOnboarding = useCallback(
+    async (businessId: string) => {
+      if (!token || !businessId) return;
+      setLoadingOnboarding((prev) => ({ ...prev, [businessId]: true }));
+      try {
+        type OnboardingResult = {
+          businessId: string;
+          milestones: { branches: boolean; products: boolean; sales: boolean; users: boolean; settings: boolean };
+          completedCount: number; totalCount: number; percentComplete: number; generatedAt: string;
+        };
+        const data = await apiFetch<OnboardingResult>(
+          `/platform/businesses/${businessId}/onboarding`,
+          { token },
+        );
+        setBusinessOnboarding((prev) => ({ ...prev, [businessId]: data }));
+      } catch {
+        // silent — onboarding load failures shouldn't block the workspace
+      } finally {
+        setLoadingOnboarding((prev) => ({ ...prev, [businessId]: false }));
+      }
+    },
+    [token],
+  );
+
+  const loadBusinessNotes = useCallback(
+    async (businessId: string) => {
+      if (!token || !businessId) return;
+      setLoadingNotes((prev) => ({ ...prev, [businessId]: true }));
+      try {
+        type NotesResponse = { items: BusinessNote[] };
+        const data = await apiFetch<NotesResponse>(
+          `/platform/businesses/${businessId}/notes?limit=50`,
+          { token },
+        );
+        setBusinessNotes((prev) => ({ ...prev, [businessId]: data.items ?? [] }));
+      } catch {
+        // silent
+      } finally {
+        setLoadingNotes((prev) => ({ ...prev, [businessId]: false }));
+      }
+    },
+    [token],
+  );
+
+  const createBusinessNote = useCallback(
+    async (businessId: string) => {
+      if (!token || !businessId) return;
+      const body = noteInput[businessId]?.trim() ?? '';
+      if (!body) return;
+      try {
+        await apiFetch(`/platform/businesses/${businessId}/notes`, {
+          token,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body }),
+        });
+        setNoteInput((prev) => ({ ...prev, [businessId]: '' }));
+        await loadBusinessNotes(businessId);
+      } catch (err) {
+        setMessage(getApiErrorMessage(err, t('createNoteFailed')));
+      }
+    },
+    [token, noteInput, loadBusinessNotes, setMessage, t],
+  );
+
+  const deleteBusinessNote = useCallback(
+    async (noteId: string, businessId: string) => {
+      if (!token) return;
+      try {
+        await apiFetch(`/platform/businesses/${businessId}/notes/${noteId}`, {
+          token,
+          method: 'DELETE',
+        });
+        setBusinessNotes((prev) => ({
+          ...prev,
+          [businessId]: (prev[businessId] ?? []).filter((n) => n.id !== noteId),
+        }));
+      } catch (err) {
+        setMessage(getApiErrorMessage(err, t('deleteNoteFailed')));
+      }
+    },
+    [token, setMessage, t],
+  );
+
+  const loadPurchaseHistory = useCallback(
+    async (businessId: string) => {
+      if (!token || !businessId) return;
+      setLoadingPurchaseHistory((prev) => ({ ...prev, [businessId]: true }));
+      try {
+        type PHResponse = { items: PurchaseHistoryItem[]; nextCursor: string | null };
+        const data = await apiFetch<PHResponse>(
+          `/platform/subscriptions/${businessId}/purchases?limit=20`,
+          { token },
+        );
+        setPurchaseHistory((prev) => ({ ...prev, [businessId]: data.items ?? [] }));
+      } catch {
+        // silent
+      } finally {
+        setLoadingPurchaseHistory((prev) => ({ ...prev, [businessId]: false }));
+      }
+    },
+    [token],
+  );
+
+  const loadScheduledActions = useCallback(
+    async (businessId: string) => {
+      if (!token || !businessId) return;
+      setLoadingScheduledActions((prev) => ({ ...prev, [businessId]: true }));
+      try {
+        type SA = ScheduledAction[];
+        const data = await apiFetch<SA>(
+          `/platform/businesses/${businessId}/scheduled-actions`,
+          { token },
+        );
+        setScheduledActions((prev) => ({ ...prev, [businessId]: data }));
+      } catch {
+        // silent
+      } finally {
+        setLoadingScheduledActions((prev) => ({ ...prev, [businessId]: false }));
+      }
+    },
+    [token],
+  );
+
+  const createScheduledAction = useCallback(
+    async (businessId: string) => {
+      if (!token || !businessId) return;
+      const form = scheduledActionForm[businessId];
+      if (!form?.actionType || !form?.scheduledFor) return;
+      try {
+        await apiFetch(`/platform/businesses/${businessId}/scheduled-actions`, {
+          token,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            actionType: form.actionType,
+            payload: form.payload ?? {},
+            scheduledFor: localToUtcIso(form.scheduledFor, 'Africa/Dar_es_Salaam'),
+          }),
+        });
+        setScheduledActionForm((prev) => ({
+          ...prev,
+          [businessId]: { actionType: '', payload: {}, scheduledFor: '' },
+        }));
+        await loadScheduledActions(businessId);
+      } catch (err) {
+        setMessage(getApiErrorMessage(err, t('createScheduledActionFailed')));
+      }
+    },
+    [token, scheduledActionForm, loadScheduledActions, setMessage, t],
+  );
+
+  const cancelScheduledAction = useCallback(
+    async (actionId: string, businessId: string) => {
+      if (!token) return;
+      try {
+        await apiFetch(`/platform/businesses/${businessId}/scheduled-actions/${actionId}`, {
+          token,
+          method: 'DELETE',
+        });
+        setScheduledActions((prev) => ({
+          ...prev,
+          [businessId]: (prev[businessId] ?? []).filter((a) => a.id !== actionId),
+        }));
+      } catch (err) {
+        setMessage(getApiErrorMessage(err, t('cancelScheduledActionFailed')));
+      }
+    },
+    [token, setMessage, t],
+  );
+
+  const handleOpenSupportSession = useCallback(
+    (businessId: string, severity: string, reason: string) => {
+      const validSeverity = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(severity)
+        ? (severity as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL')
+        : 'MEDIUM';
+      setSupportForm((prev) => ({
+        ...prev,
+        businessId,
+        reason: reason || prev.reason,
+        severity: validSeverity,
+      }));
+      router.push(`/${locale}/platform/access`);
+    },
+    [setSupportForm, router, locale],
+  );
 
   const createBusiness = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -840,10 +1217,10 @@ export function PlatformConsole({
     businessActionModal,
     setBusinessActionModal,
     actionNeedsPreflight,
+    saveStatusAndAccess,
     updateStatus,
     updateSubscription,
     recordSubscriptionPurchase,
-    applySubscriptionDuration,
     resetSubscriptionLimits,
     updateReadOnly,
     updateReview,
@@ -926,6 +1303,62 @@ export function PlatformConsole({
     <div className="space-y-10">
       <PlatformConsoleHeader t={t} message={message} />
 
+      {showOperations && (
+        <div className="nvi-reveal">
+          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--pt-text-2)]">{t('operationsViewTag')}</p>
+          <h2 className="mt-0.5 text-2xl font-semibold text-[color:var(--pt-text-1)]">{t('operationsViewTitle')}</h2>
+          <p className="mt-1 text-sm text-[color:var(--pt-text-muted)]">{t('operationsViewSubtitle')}</p>
+          <div className="mt-4 flex items-center gap-1 rounded border border-[color:var(--pt-accent-border)] p-0.5 w-fit">
+            {(['INCIDENTS', 'EXPORTS'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setOperationsTab(tab)}
+                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                  operationsTab === tab
+                    ? 'bg-[var(--pt-accent)] text-black'
+                    : 'text-[color:var(--pt-text-2)] hover:text-[color:var(--pt-text-1)]'
+                }`}
+              >
+                {tab === 'INCIDENTS' ? t('operationsTabIncidents') : t('operationsTabExports')}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showAccess && (
+        <div className="nvi-reveal">
+          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--pt-text-2)]">{t('accessViewTag')}</p>
+          <h2 className="mt-0.5 text-2xl font-semibold text-[color:var(--pt-text-1)]">{t('accessViewTitle')}</h2>
+          <p className="mt-1 text-sm text-[color:var(--pt-text-muted)]">{t('accessViewSubtitle')}</p>
+        </div>
+      )}
+
+      {showIntelligence && (
+        <div className="nvi-reveal">
+          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--pt-text-2)]">{t('intelligenceViewTag')}</p>
+          <h2 className="mt-0.5 text-2xl font-semibold text-[color:var(--pt-text-1)]">{t('intelligenceViewTitle')}</h2>
+          <p className="mt-1 text-sm text-[color:var(--pt-text-muted)]">{t('intelligenceViewSubtitle')}</p>
+          <div className="mt-4 flex items-center gap-1 rounded border border-[color:var(--pt-accent-border)] p-0.5 w-fit">
+            {(['AUDIT', 'HEALTH'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setIntelligenceTab(tab)}
+                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                  intelligenceTab === tab
+                    ? 'bg-[var(--pt-accent)] text-black'
+                    : 'text-[color:var(--pt-text-2)] hover:text-[color:var(--pt-text-1)]'
+                }`}
+              >
+                {tab === 'AUDIT' ? t('intelligenceTabAudit') : t('intelligenceTabHealth')}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <PlatformOverviewCommandSurface
         show={showOverview}
         t={t}
@@ -937,14 +1370,7 @@ export function PlatformConsole({
         loadOverviewSnapshot={loadOverviewSnapshot}
         loadQueuesSummary={loadQueuesSummary}
         queueStatusLabel={queueStatusLabel}
-      />
-
-      <PlatformActivitySection
-        t={t}
-        show={showOverview}
-        locale={locale}
         activityFeed={activityFeed}
-        withAction={withAction}
         loadActivityFeed={loadActivityFeed}
         actionLoading={actionLoading}
       />
@@ -963,7 +1389,7 @@ export function PlatformConsole({
 
       <PlatformMetricsSection
         t={t}
-        show={showOverview || showHealth}
+        show={showOverview || (showHealth && (!showIntelligence || intelligenceTab === 'HEALTH'))}
         metricsRange={metricsRange}
         setMetricsRange={setMetricsRange}
         metricsFrom={metricsFrom}
@@ -978,7 +1404,7 @@ export function PlatformConsole({
       />
 
       <PlatformHealthCommandSurface
-        show={showHealth}
+        show={showHealth && (!showIntelligence || intelligenceTab === 'HEALTH')}
         t={t}
         locale={locale}
         healthMatrix={healthMatrix}
@@ -1006,7 +1432,7 @@ export function PlatformConsole({
       />
 
       <PlatformIncidentsCommandSurface
-        show={showIncidents}
+        show={showIncidents && !showOperations}
         t={t}
         locale={locale}
         withAction={withAction}
@@ -1034,8 +1460,82 @@ export function PlatformConsole({
         transitionIncidentRecord={transitionIncidentRecord}
         incidentStatusLabel={incidentStatusLabel}
         incidents={incidents}
-        nextIncidentCursor={nextIncidentCursor}
-        isLoadingMoreIncidents={isLoadingMoreIncidents}
+        incidentPage={incidentPage}
+        hasNextIncidentPage={hasNextIncidentPage}
+        onIncidentNextPage={goToNextIncidentPage}
+        onIncidentPrevPage={goToPrevIncidentPage}
+        onOpenSupportSession={handleOpenSupportSession}
+      />
+
+      {/* Operations view — tab-based (Incidents | Exports) */}
+      <PlatformIncidentsCommandSurface
+        show={showOperations && operationsTab === 'INCIDENTS'}
+        t={t}
+        locale={locale}
+        withAction={withAction}
+        loadIncidents={loadIncidents}
+        isLoadingIncidents={isLoadingIncidents}
+        incidentFilters={incidentFilters}
+        setIncidentFilters={setIncidentFilters}
+        businessSelectOptions={businessSelectOptions}
+        incidentStatusOptions={incidentStatusOptions}
+        incidentSeverityOptions={incidentSeverityOptions}
+        actionLoading={actionLoading}
+        applyIncidentFilters={applyIncidentFilters}
+        incidentForm={incidentForm}
+        setIncidentForm={setIncidentForm}
+        createIncidentRecord={createIncidentRecord}
+        incidentLaneDefs={incidentLaneDefs}
+        incidentLaneMap={incidentLaneMap}
+        nextIncidentStatus={nextIncidentStatus}
+        incidentNotes={incidentNotes}
+        setIncidentNotes={setIncidentNotes}
+        incidentSeverityEdits={incidentSeverityEdits}
+        setIncidentSeverityEdits={setIncidentSeverityEdits}
+        updateIncidentRecord={updateIncidentRecord}
+        addIncidentNoteRecord={addIncidentNoteRecord}
+        transitionIncidentRecord={transitionIncidentRecord}
+        incidentStatusLabel={incidentStatusLabel}
+        incidents={incidents}
+        incidentPage={incidentPage}
+        hasNextIncidentPage={hasNextIncidentPage}
+        onIncidentNextPage={goToNextIncidentPage}
+        onIncidentPrevPage={goToPrevIncidentPage}
+        onOpenSupportSession={handleOpenSupportSession}
+      />
+      <PlatformExportsCommandSurface
+        show={showOperations && operationsTab === 'EXPORTS'}
+        t={t}
+        locale={locale}
+        withAction={withAction}
+        loadExportJobs={loadExportJobs}
+        loadExportQueueStats={loadExportQueueStats}
+        isLoadingExports={isLoadingExports}
+        exportFilters={exportFilters}
+        setExportFilters={setExportFilters}
+        businessSelectOptions={businessSelectOptions}
+        actionLoading={actionLoading}
+        exportQueueStats={exportQueueStats}
+        exportLaneDefs={exportLaneDefs}
+        exportLaneJobs={exportLaneJobs}
+        isLoadingExportStats={isLoadingExportStats}
+        exportJobs={exportJobs}
+        exportPage={exportPage}
+        hasNextExportPage={hasNextExportPage}
+        onExportNextPage={goToNextExportPage}
+        onExportPrevPage={goToPrevExportPage}
+        retryExportJob={retryExportJob}
+        requeueExportJob={requeueExportJob}
+        cancelExportJob={cancelExportJob}
+        exportDeliveryBusinessId={exportDeliveryBusinessId}
+        setExportDeliveryBusinessId={setExportDeliveryBusinessId}
+        setMessage={setMessage}
+        exportOnExit={exportOnExit}
+        exportDeliveryForm={exportDeliveryForm}
+        setExportDeliveryForm={setExportDeliveryForm}
+        markExportDelivered={markExportDelivered}
+        isMarkingExportDelivered={isMarkingExportDelivered}
+        showDelivery={false}
       />
 
       <PlatformBusinessesCommandSurface
@@ -1062,8 +1562,11 @@ export function PlatformConsole({
         pinnedBusinessIds={pinnedBusinessIds}
         togglePinnedBusiness={togglePinnedBusiness}
         updateReview={updateReview}
-        nextBusinessCursor={nextBusinessCursor}
-        isLoadingMoreBusinesses={isLoadingMoreBusinesses}
+        totalBusinesses={totalBusinesses}
+        businessPage={businessPage}
+        hasNextBusinessPage={nextBusinessCursor !== null}
+        onBusinessNextPage={goToNextBusinessPage}
+        onBusinessPrevPage={goToPrevBusinessPage}
         openedBusinessWorkspace={openedBusinessWorkspace}
         loadingBusinessWorkspace={loadingBusinessWorkspace}
         businessDrawerTab={businessDrawerTab}
@@ -1081,9 +1584,13 @@ export function PlatformConsole({
         updateSubscription={updateSubscription}
         recordSubscriptionPurchase={recordSubscriptionPurchase}
         resetSubscriptionLimits={resetSubscriptionLimits}
+        purchaseHistory={purchaseHistory}
+        loadingPurchaseHistory={loadingPurchaseHistory}
+        loadPurchaseHistory={loadPurchaseHistory}
         statusEdits={statusEdits}
         setStatusEdits={setStatusEdits}
         updateStatus={updateStatus}
+        saveStatusAndAccess={saveStatusAndAccess}
         reviewEdits={reviewEdits}
         setReviewEdits={setReviewEdits}
         incidentSeverityOptions={incidentSeverityOptions}
@@ -1104,6 +1611,23 @@ export function PlatformConsole({
         setBusinessActionModal={setBusinessActionModal}
         actionNeedsPreflight={actionNeedsPreflight}
         executeBusinessActionModal={executeBusinessActionModal}
+        businessOnboarding={businessOnboarding}
+        loadingOnboarding={loadingOnboarding}
+        loadBusinessOnboarding={loadBusinessOnboarding}
+        businessNotes={businessNotes}
+        loadingNotes={loadingNotes}
+        noteInput={noteInput}
+        setNoteInput={setNoteInput}
+        loadBusinessNotes={loadBusinessNotes}
+        createBusinessNote={createBusinessNote}
+        deleteBusinessNote={deleteBusinessNote}
+        scheduledActions={scheduledActions}
+        loadingScheduledActions={loadingScheduledActions}
+        scheduledActionForm={scheduledActionForm}
+        setScheduledActionForm={setScheduledActionForm}
+        createScheduledAction={createScheduledAction}
+        cancelScheduledAction={cancelScheduledAction}
+        platformAdminId={platformAdminId}
       />
 
       <PlatformBusinessProvisionSurface
@@ -1136,23 +1660,29 @@ export function PlatformConsole({
         supportRequests={supportRequests}
         activateSupport={activateSupport}
         activatingSupportId={activatingSupportId}
-        nextSupportCursor={nextSupportCursor}
-        loadSupportRequests={loadSupportRequests}
-        isLoadingMoreSupport={isLoadingMoreSupport}
+        supportPage={supportPage}
+        hasNextSupportPage={hasNextSupportPage}
+        onSupportNextPage={goToNextSupportPage}
+        onSupportPrevPage={goToPrevSupportPage}
         supportSessions={supportSessions}
         supportSessionReasons={supportSessionReasons}
         setSupportSessionReasons={setSupportSessionReasons}
         revokeSupportSession={revokeSupportSession}
         revokingSupportSessionId={revokingSupportSessionId}
-        nextSupportSessionCursor={nextSupportSessionCursor}
-        loadSupportSessions={loadSupportSessions}
-        isLoadingMoreSupportSessions={isLoadingMoreSupportSessions}
+        supportSessionPage={supportSessionPage}
+        hasNextSupportSessionPage={hasNextSupportSessionPage}
+        onSupportSessionNextPage={goToNextSupportSessionPage}
+        onSupportSessionPrevPage={goToPrevSupportSessionPage}
         subscriptionRequests={subscriptionRequests}
         subscriptionResponseNotes={subscriptionResponseNotes}
         setSubscriptionResponseNotes={setSubscriptionResponseNotes}
         withAction={withAction}
         updateSubscriptionRequest={updateSubscriptionRequest}
         actionLoading={actionLoading}
+        pendingSupportLogin={pendingSupportLogin}
+        loggingInAsSupport={loggingInAsSupport}
+        loginAsSupport={loginAsSupport}
+        clearPendingSupportLogin={clearPendingSupportLogin}
       />
 
       <PlatformSubscriptionIntelligenceSurface
@@ -1170,7 +1700,7 @@ export function PlatformConsole({
       />
 
       <PlatformExportsCommandSurface
-        show={showExports}
+        show={showExports && !showOperations}
         t={t}
         locale={locale}
         withAction={withAction}
@@ -1186,8 +1716,10 @@ export function PlatformConsole({
         exportLaneJobs={exportLaneJobs}
         isLoadingExportStats={isLoadingExportStats}
         exportJobs={exportJobs}
-        nextExportCursor={nextExportCursor}
-        isLoadingMoreExports={isLoadingMoreExports}
+        exportPage={exportPage}
+        hasNextExportPage={hasNextExportPage}
+        onExportNextPage={goToNextExportPage}
+        onExportPrevPage={goToPrevExportPage}
         retryExportJob={retryExportJob}
         requeueExportJob={requeueExportJob}
         cancelExportJob={cancelExportJob}
@@ -1226,7 +1758,7 @@ export function PlatformConsole({
       />
 
       <PlatformAuditCommandSurface
-        show={showAudit}
+        show={showAudit && (!showIntelligence || intelligenceTab === 'AUDIT')}
         t={t}
         locale={locale}
         auditBusinessId={auditBusinessId}
@@ -1241,9 +1773,31 @@ export function PlatformConsole({
         loadingLogs={loadingLogs}
         auditInvestigations={auditInvestigations}
         businessLookup={businessLookup}
-        nextAuditInvestigationCursor={nextAuditInvestigationCursor}
         withAction={withAction}
-        isLoadingMoreAudit={isLoadingMoreAudit}
+        auditPage={auditPage}
+        hasNextAuditPage={hasNextAuditPage}
+        onAuditNextPage={goToNextAuditPage}
+        onAuditPrevPage={goToPrevAuditPage}
+        activityFeed={activityFeed}
+        loadActivityFeed={loadActivityFeed}
+      />
+
+      <PlatformAnalyticsCommandSurface
+        show={showAnalytics}
+        t={t}
+        locale={locale}
+        withAction={withAction}
+        actionLoading={actionLoading}
+        analyticsRevenue={analyticsRevenue}
+        analyticsCohorts={analyticsCohorts}
+        analyticsChurn={analyticsChurn}
+        analyticsConversions={analyticsConversions}
+        loadAnalyticsRevenue={loadAnalyticsRevenue}
+        loadAnalyticsCohorts={loadAnalyticsCohorts}
+        loadAnalyticsChurn={loadAnalyticsChurn}
+        loadAnalyticsConversions={loadAnalyticsConversions}
+        analyticsChurnRange={analyticsChurnRange}
+        setAnalyticsChurnRange={setAnalyticsChurnRange}
       />
     </div>
   );

@@ -22,6 +22,11 @@ type BusinessSeed = {
     readOnlyEnabled?: boolean;
     readOnlyReason?: string | null;
   } | null;
+  systemOwner?: {
+    name: string;
+    email: string;
+    phone: string | null;
+  } | null;
 };
 
 type PlatformAuditLog = {
@@ -29,6 +34,7 @@ type PlatformAuditLog = {
   action: string;
   resourceType: string;
   platformAdminId?: string | null;
+  adminEmail?: string | null;
   resourceId?: string | null;
   reason?: string | null;
   metadata?: Record<string, unknown> | null;
@@ -43,6 +49,10 @@ export function usePlatformConsoleLoaders<
   TOverviewSnapshot = unknown,
   TQueuesSummary = unknown,
   THealthMatrix = unknown,
+  TAnalyticsRevenue = unknown,
+  TAnalyticsCohorts = unknown,
+  TAnalyticsChurn = unknown,
+  TAnalyticsConversions = unknown,
 >({
   token,
   t,
@@ -55,11 +65,13 @@ export function usePlatformConsoleLoaders<
   showHealth,
   showIncidents,
   showOverview,
+  showAnalytics,
+  analyticsChurnRange,
   setIsLoading,
   setIsLoadingOverview,
-  setIsLoadingMoreBusinesses,
   setBusinesses,
   setNextBusinessCursor,
+  setTotalBusinesses,
   setSubscriptionEdits,
   setReadOnlyEdits,
   setStatusEdits,
@@ -70,6 +82,10 @@ export function usePlatformConsoleLoaders<
   setQueuesSummary,
   setHealthMatrix,
   setActivityFeed,
+  setAnalyticsRevenue,
+  setAnalyticsCohorts,
+  setAnalyticsChurn,
+  setAnalyticsConversions,
   loadSupportRequests,
   loadSubscriptionRequests,
   loadAnnouncements,
@@ -89,11 +105,13 @@ export function usePlatformConsoleLoaders<
   showHealth: boolean;
   showIncidents: boolean;
   showOverview: boolean;
+  showAnalytics: boolean;
+  analyticsChurnRange: string;
   setIsLoading: (value: boolean) => void;
   setIsLoadingOverview: (value: boolean) => void;
-  setIsLoadingMoreBusinesses: (value: boolean) => void;
   setBusinesses: Dispatch<SetStateAction<TBusiness[]>>;
   setNextBusinessCursor: (value: string | null) => void;
+  setTotalBusinesses: (value: number | null) => void;
   setSubscriptionEdits: Dispatch<
     SetStateAction<
       Record<
@@ -106,7 +124,9 @@ export function usePlatformConsoleLoaders<
           trialEndsAt: string;
           graceEndsAt: string;
           expiresAt: string;
-          durationDays?: string;
+          months?: string;
+          isPaid?: boolean;
+          amountDue?: string;
         }
       >
     >
@@ -130,6 +150,10 @@ export function usePlatformConsoleLoaders<
   setQueuesSummary: Dispatch<SetStateAction<TQueuesSummary | null>>;
   setHealthMatrix: Dispatch<SetStateAction<THealthMatrix | null>>;
   setActivityFeed: (value: PlatformAuditLog[]) => void;
+  setAnalyticsRevenue: Dispatch<SetStateAction<TAnalyticsRevenue | null>>;
+  setAnalyticsCohorts: Dispatch<SetStateAction<TAnalyticsCohorts | null>>;
+  setAnalyticsChurn: Dispatch<SetStateAction<TAnalyticsChurn | null>>;
+  setAnalyticsConversions: Dispatch<SetStateAction<TAnalyticsConversions | null>>;
   loadSupportRequests: AsyncTask;
   loadSubscriptionRequests: AsyncTask;
   loadAnnouncements: AsyncTask;
@@ -139,12 +163,9 @@ export function usePlatformConsoleLoaders<
   loadIncidents: AsyncTask;
 }) {
   const loadBusinesses = useCallback(
-    async (cursor?: string, append = false) => {
+    async (cursor?: string) => {
       if (!token) {
         return;
-      }
-      if (append) {
-        setIsLoadingMoreBusinesses(true);
       }
       try {
         const query = buildCursorQuery({ limit: 20, cursor });
@@ -153,89 +174,89 @@ export function usePlatformConsoleLoaders<
           { token },
         );
         const result = normalizePaginated(biz);
-        setBusinesses((prev) => (append ? [...prev, ...result.items] : result.items));
+        setBusinesses(result.items);
         setNextBusinessCursor(result.nextCursor);
-        setSubscriptionEdits((prev) => {
-          const next = append ? { ...prev } : {};
+        setTotalBusinesses(result.total ?? null);
+        setSubscriptionEdits(() => {
+          const next: Record<string, {
+            tier: string;
+            status: string;
+            reason: string;
+            startsAt?: string;
+            trialEndsAt: string;
+            graceEndsAt: string;
+            expiresAt: string;
+            months?: string;
+            isPaid?: boolean;
+            amountDue?: string;
+          }> = {};
           result.items.forEach((item) => {
-            if (!next[item.id]) {
-              next[item.id] = {
-                tier: item.subscription?.tier ?? 'BUSINESS',
-                status: item.subscription?.status ?? 'TRIAL',
-                reason: '',
-                startsAt: '',
-                trialEndsAt: item.subscription?.trialEndsAt ?? '',
-                graceEndsAt: item.subscription?.graceEndsAt ?? '',
-                expiresAt: item.subscription?.expiresAt ?? '',
-                durationDays: '',
-              };
-            }
+            next[item.id] = {
+              tier: item.subscription?.tier ?? 'BUSINESS',
+              status: item.subscription?.status ?? 'TRIAL',
+              reason: '',
+              startsAt: '',
+              trialEndsAt: item.subscription?.trialEndsAt ?? '',
+              graceEndsAt: item.subscription?.graceEndsAt ?? '',
+              expiresAt: item.subscription?.expiresAt ?? '',
+              months: '',
+              isPaid: true,
+              amountDue: '',
+            };
           });
           return next;
         });
-        setReadOnlyEdits((prev) => {
-          const next = append ? { ...prev } : {};
+        setReadOnlyEdits(() => {
+          const next: Record<string, { enabled: boolean; reason: string }> = {};
           result.items.forEach((item) => {
-            if (!next[item.id]) {
-              next[item.id] = {
-                enabled: item.settings?.readOnlyEnabled ?? false,
-                reason: item.settings?.readOnlyReason ?? '',
-              };
-            }
+            next[item.id] = {
+              enabled: item.settings?.readOnlyEnabled ?? false,
+              reason: item.settings?.readOnlyReason ?? '',
+            };
           });
           return next;
         });
-        setStatusEdits((prev) => {
-          const next = append ? { ...prev } : {};
+        setStatusEdits(() => {
+          const next: Record<string, { status: string; reason: string }> = {};
           result.items.forEach((item) => {
-            if (!next[item.id]) {
-              next[item.id] = { status: item.status ?? 'ACTIVE', reason: '' };
-            }
+            next[item.id] = { status: item.status ?? 'ACTIVE', reason: '' };
           });
           return next;
         });
-        setReviewEdits((prev) => {
-          const next = append ? { ...prev } : {};
+        setReviewEdits(() => {
+          const next: Record<string, { underReview: boolean; reason: string; severity: string }> = {};
           result.items.forEach((item) => {
-            if (!next[item.id]) {
-              next[item.id] = {
-                underReview: item.underReview ?? false,
-                reason: item.reviewReason ?? '',
-                severity: item.reviewSeverity ?? 'MEDIUM',
-              };
-            }
+            next[item.id] = {
+              underReview: item.underReview ?? false,
+              reason: item.reviewReason ?? '',
+              severity: item.reviewSeverity ?? 'MEDIUM',
+            };
           });
           return next;
         });
-        setRateLimitEdits((prev) => {
-          const next = append ? { ...prev } : {};
+        setRateLimitEdits(() => {
+          const next: Record<string, { limit: string; ttlSeconds: string; expiresAt: string; reason: string }> = {};
           result.items.forEach((item) => {
-            if (!next[item.id]) {
-              next[item.id] = {
-                limit: '',
-                ttlSeconds: '',
-                expiresAt: '',
-                reason: '',
-              };
-            }
+            next[item.id] = {
+              limit: '',
+              ttlSeconds: '',
+              expiresAt: '',
+              reason: '',
+            };
           });
           return next;
         });
       } catch (err) {
         setMessage(getApiErrorMessage(err, t('loadBusinessesFailed')));
-      } finally {
-        if (append) {
-          setIsLoadingMoreBusinesses(false);
-        }
       }
     },
     [
       token,
       t,
       setMessage,
-      setIsLoadingMoreBusinesses,
       setBusinesses,
       setNextBusinessCursor,
+      setTotalBusinesses,
       setSubscriptionEdits,
       setReadOnlyEdits,
       setStatusEdits,
@@ -334,6 +355,55 @@ export function usePlatformConsoleLoaders<
     }
   }, [token, setActivityFeed, setMessage, t]);
 
+  const loadAnalyticsRevenue = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await apiFetch<TAnalyticsRevenue>('/platform/analytics/revenue', { token });
+      setAnalyticsRevenue(data);
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('loadAnalyticsFailed')));
+    }
+  }, [token, setAnalyticsRevenue, setMessage, t]);
+
+  const loadAnalyticsCohorts = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await apiFetch<TAnalyticsCohorts>('/platform/analytics/cohorts', { token });
+      setAnalyticsCohorts(data);
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('loadAnalyticsFailed')));
+    }
+  }, [token, setAnalyticsCohorts, setMessage, t]);
+
+  const loadAnalyticsChurn = useCallback(
+    async (range?: string) => {
+      if (!token) return;
+      try {
+        const r = range ?? analyticsChurnRange;
+        const data = await apiFetch<TAnalyticsChurn>(
+          `/platform/analytics/churn?range=${encodeURIComponent(r)}`,
+          { token },
+        );
+        setAnalyticsChurn(data);
+      } catch (err) {
+        setMessage(getApiErrorMessage(err, t('loadAnalyticsFailed')));
+      }
+    },
+    [token, analyticsChurnRange, setAnalyticsChurn, setMessage, t],
+  );
+
+  const loadAnalyticsConversions = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await apiFetch<TAnalyticsConversions>('/platform/analytics/conversions', {
+        token,
+      });
+      setAnalyticsConversions(data);
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('loadAnalyticsFailed')));
+    }
+  }, [token, setAnalyticsConversions, setMessage, t]);
+
   const loadData = useCallback(async () => {
     if (!token) {
       setIsLoading(false);
@@ -364,6 +434,14 @@ export function usePlatformConsoleLoaders<
       if (showOverview) {
         tasks.push(loadOverviewSnapshot(), loadQueuesSummary());
       }
+      if (showAnalytics) {
+        tasks.push(
+          loadAnalyticsRevenue(),
+          loadAnalyticsCohorts(),
+          loadAnalyticsChurn(),
+          loadAnalyticsConversions(),
+        );
+      }
       await Promise.all(tasks);
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('loadPlatformDataFailed')));
@@ -378,6 +456,7 @@ export function usePlatformConsoleLoaders<
     showHealth,
     showIncidents,
     showOverview,
+    showAnalytics,
     setIsLoading,
     setMessage,
     loadBusinesses,
@@ -393,6 +472,10 @@ export function usePlatformConsoleLoaders<
     loadIncidents,
     loadOverviewSnapshot,
     loadQueuesSummary,
+    loadAnalyticsRevenue,
+    loadAnalyticsCohorts,
+    loadAnalyticsChurn,
+    loadAnalyticsConversions,
   ]);
 
   return {
@@ -402,6 +485,10 @@ export function usePlatformConsoleLoaders<
     loadQueuesSummary,
     loadHealthMatrix,
     loadActivityFeed,
+    loadAnalyticsRevenue,
+    loadAnalyticsCohorts,
+    loadAnalyticsChurn,
+    loadAnalyticsConversions,
     loadData,
   };
 }

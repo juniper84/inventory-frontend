@@ -1,9 +1,13 @@
 export type PlatformView =
   | 'overview'
-  | 'health'
   | 'businesses'
+  | 'operations'
+  | 'access'
+  | 'announcements'
+  | 'analytics'
+  | 'intelligence'
+  | 'health'
   | 'support'
   | 'exports'
-  | 'announcements'
   | 'audit'
   | 'incidents';

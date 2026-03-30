@@ -59,14 +59,6 @@ type BusinessActionModalState = {
   preflight: BusinessActionPreflight | null;
 };
 
-function formatLocalDateTime(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
-    date.getDate(),
-  ).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(
-    date.getMinutes(),
-  ).padStart(2, '0')}`;
-}
-
 export function usePlatformBusinessActions({
   token,
   t,
@@ -137,7 +129,9 @@ export function usePlatformBusinessActions({
       trialEndsAt: string;
       graceEndsAt: string;
       expiresAt: string;
-      durationDays?: string;
+      months?: string;
+      isPaid?: boolean;
+      amountDue?: string;
     }
   >;
   setSubscriptionEdits: Dispatch<
@@ -152,7 +146,9 @@ export function usePlatformBusinessActions({
           trialEndsAt: string;
           graceEndsAt: string;
           expiresAt: string;
-          durationDays?: string;
+          months?: string;
+          isPaid?: boolean;
+          amountDue?: string;
         }
       >
     >
@@ -247,25 +243,6 @@ export function usePlatformBusinessActions({
     }
   };
 
-  const applySubscriptionDuration = (businessId: string) => {
-    const values = subscriptionEdits[businessId];
-    if (!values) return;
-    const days = Number(values.durationDays ?? '');
-    if (!days || Number.isNaN(days) || days <= 0) {
-      setMessage(t('subscriptionDurationInvalid'));
-      return;
-    }
-    const base = values.startsAt ? new Date(values.startsAt) : new Date();
-    const nextExpiry = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
-    setSubscriptionEdits((prev) => ({
-      ...prev,
-      [businessId]: {
-        ...(prev[businessId] ?? values),
-        expiresAt: formatLocalDateTime(nextExpiry),
-      },
-    }));
-  };
-
   const resetSubscriptionLimits = async (businessId: string) => {
     if (!token) return;
     const values = subscriptionEdits[businessId];
@@ -293,8 +270,8 @@ export function usePlatformBusinessActions({
       setMessage(t('subscriptionReasonRequired'));
       return;
     }
-    const durationDays = Number(values.durationDays ?? '');
-    if (!Number.isFinite(durationDays) || durationDays <= 0) {
+    const months = Number(values.months ?? '');
+    if (!Number.isFinite(months) || months <= 0) {
       setMessage(t('subscriptionDurationInvalid'));
       return;
     }
@@ -305,8 +282,10 @@ export function usePlatformBusinessActions({
         method: 'POST',
         body: JSON.stringify({
           tier: values.tier,
-          durationDays,
+          months,
           startsAt: startsAt || null,
+          isPaid: values.isPaid ?? true,
+          amountDue: values.isPaid ? Number(values.amountDue ?? 0) : 0,
           reason: values.reason,
         }),
       });
@@ -317,6 +296,60 @@ export function usePlatformBusinessActions({
       }
     } catch (err) {
       setMessage(getApiErrorMessage(err, t('recordPurchaseFailed')));
+    }
+  };
+
+  const saveStatusAndAccess = async (businessId: string) => {
+    if (!token) return;
+    const statusValues = statusEdits[businessId];
+    const reviewValues = reviewEdits[businessId];
+    const readOnlyValues = readOnlyEdits[businessId];
+
+    if (!statusValues?.reason) {
+      setMessage(t('statusReasonRequired'));
+      return;
+    }
+    if (reviewValues?.underReview && !reviewValues?.reason) {
+      setMessage(t('reviewReasonRequired'));
+      return;
+    }
+    if (readOnlyValues?.enabled && !readOnlyValues?.reason) {
+      setMessage(t('readOnlyReasonRequired'));
+      return;
+    }
+
+    try {
+      await Promise.all([
+        apiFetch(`/platform/businesses/${businessId}/status`, {
+          token,
+          method: 'PATCH',
+          body: JSON.stringify({ status: statusValues.status, reason: statusValues.reason }),
+        }),
+        apiFetch(`/platform/businesses/${businessId}/review`, {
+          token,
+          method: 'PATCH',
+          body: JSON.stringify({
+            underReview: reviewValues?.underReview ?? false,
+            reason: reviewValues?.reason ?? '',
+            severity: reviewValues?.severity ?? 'MEDIUM',
+          }),
+        }),
+        apiFetch(`/platform/businesses/${businessId}/read-only`, {
+          token,
+          method: 'PATCH',
+          body: JSON.stringify({
+            enabled: readOnlyValues?.enabled ?? false,
+            reason: readOnlyValues?.reason || undefined,
+          }),
+        }),
+      ]);
+      setMessage(t('saveChangesSuccess'));
+      await loadData();
+      if (showBusinessDetailPage && resolvedBusinessId === businessId) {
+        await loadBusinessWorkspace(businessId);
+      }
+    } catch (err) {
+      setMessage(getApiErrorMessage(err, t('saveChangesFailed')));
     }
   };
 
@@ -825,10 +858,10 @@ export function usePlatformBusinessActions({
     businessActionModal,
     setBusinessActionModal,
     actionNeedsPreflight,
+    saveStatusAndAccess,
     updateStatus,
     updateSubscription,
     recordSubscriptionPurchase,
-    applySubscriptionDuration,
     resetSubscriptionLimits,
     updateReadOnly,
     updateReview,

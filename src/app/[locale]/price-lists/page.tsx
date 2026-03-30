@@ -12,6 +12,7 @@ import { SmartSelect } from '@/components/SmartSelect';
 import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { useVariantSearch } from '@/lib/use-variant-search';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import {
   buildCursorQuery,
   normalizePaginated,
@@ -377,13 +378,12 @@ export default function PriceListsPage() {
             isClearable
             className="nvi-select-container"
           />
-          <input
+          <CurrencyInput
             value={itemForm.price}
-            onChange={(event) =>
-              setItemForm({ ...itemForm, price: event.target.value })
+            onChange={(value) =>
+              setItemForm({ ...itemForm, price: value })
             }
             placeholder={t('price')}
-            type="number"
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
         </div>

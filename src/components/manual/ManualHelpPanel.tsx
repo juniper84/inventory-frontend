@@ -249,7 +249,7 @@ export function ManualHelpPanel() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed bottom-20 right-4 z-40 rounded-full border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs font-semibold text-[color:var(--foreground)] shadow-lg hover:bg-[color:var(--surface-soft)] md:bottom-6"
+        className="fixed bottom-36 right-4 z-40 rounded-full border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs font-semibold text-[color:var(--foreground)] shadow-lg hover:bg-[color:var(--surface-soft)]"
       >
         {copy.open}
       </button>

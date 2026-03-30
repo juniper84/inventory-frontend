@@ -13,6 +13,7 @@ import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import { installBarcodeScanner } from '@/lib/barcode-scanner';
@@ -34,6 +35,7 @@ type VariantDraft = {
   baseUnitId: string;
   sellUnitId: string;
   conversionFactor: string;
+  availableBranchIds: string[];
 };
 
 type StockDraft = {
@@ -76,6 +78,7 @@ export default function ProductWizardPage() {
       baseUnitId: '',
       sellUnitId: '',
       conversionFactor: '1',
+      availableBranchIds: [],
     },
   ]);
   const [stockLines, setStockLines] = useState<StockDraft[]>([]);
@@ -136,6 +139,18 @@ export default function ProductWizardPage() {
       .catch((err) => setMessage({ action: 'load', outcome: 'failure', message: getApiErrorMessage(err, t('loadFailed')) }))
       .finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (branches.length > 0) {
+      setVariants((prev) =>
+        prev.map((v) =>
+          v.availableBranchIds.length === 0
+            ? { ...v, availableBranchIds: branches.map((b) => b.id) }
+            : v,
+        ),
+      );
+    }
+  }, [branches]);
 
   useEffect(() => {
     if (activeBranch?.id && stockLines.length === 0 && variants.length > 0) {
@@ -369,6 +384,7 @@ export default function ProductWizardPage() {
         baseUnitId: '',
         sellUnitId: '',
         conversionFactor: '1',
+        availableBranchIds: branches.map((b) => b.id),
       },
     ]);
     setStockLines((prev) => [
@@ -498,6 +514,28 @@ export default function ProductWizardPage() {
           ),
       );
 
+      const allBranchIds = branches.map((b) => b.id);
+      const availabilityUpdates: Promise<unknown>[] = [];
+      for (const variant of filteredVariants) {
+        const createdId = createdVariantMap.get(variant.id);
+        if (!createdId) continue;
+        const disabledBranchIds = allBranchIds.filter(
+          (id) => !variant.availableBranchIds.includes(id),
+        );
+        for (const branchId of disabledBranchIds) {
+          availabilityUpdates.push(
+            apiFetch(`/variants/${createdId}/availability`, {
+              token,
+              method: 'POST',
+              body: JSON.stringify({ branchId, isActive: false }),
+            }),
+          );
+        }
+      }
+      if (availabilityUpdates.length > 0) {
+        await Promise.all(availabilityUpdates);
+      }
+
       setProduct({ name: '', description: '', categoryId: '' });
       setVariants([
         {
@@ -513,6 +551,7 @@ export default function ProductWizardPage() {
           baseUnitId: units.find((unit) => unit.code === 'piece')?.id || '',
           sellUnitId: units.find((unit) => unit.code === 'piece')?.id || '',
           conversionFactor: '1',
+          availableBranchIds: allBranchIds,
         },
       ]);
       setStockLines([]);
@@ -653,30 +692,38 @@ export default function ProductWizardPage() {
                   placeholder={t('skuOptional')}
                   className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
                 />
-                <input
-                  value={variant.defaultPrice}
-                  onChange={(event) =>
-                    updateVariant(variant.id, { defaultPrice: event.target.value })
-                  }
-                  placeholder={t('defaultPrice')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                />
-                <input
-                  value={variant.minPrice}
-                  onChange={(event) =>
-                    updateVariant(variant.id, { minPrice: event.target.value })
-                  }
-                  placeholder={t('minPriceOptional')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                />
-                <input
-                  value={variant.defaultCost}
-                  onChange={(event) =>
-                    updateVariant(variant.id, { defaultCost: event.target.value })
-                  }
-                  placeholder={t('defaultCostOptional')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                />
+                {(() => {
+                  const sellUnit = variant.sellUnitId ? units.find((u) => u.id === variant.sellUnitId) : null;
+                  const perLabel = sellUnit ? ` (${t('perUnit', { unit: sellUnit.label || sellUnit.code })})` : '';
+                  return (
+                    <>
+                      <CurrencyInput
+                        value={variant.defaultPrice}
+                        onChange={(value) =>
+                          updateVariant(variant.id, { defaultPrice: value })
+                        }
+                        placeholder={`${t('defaultPrice')}${perLabel}`}
+                        className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                      />
+                      <CurrencyInput
+                        value={variant.minPrice}
+                        onChange={(value) =>
+                          updateVariant(variant.id, { minPrice: value })
+                        }
+                        placeholder={`${t('minPriceOptional')}${perLabel}`}
+                        className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                      />
+                      <CurrencyInput
+                        value={variant.defaultCost}
+                        onChange={(value) =>
+                          updateVariant(variant.id, { defaultCost: value })
+                        }
+                        placeholder={`${t('defaultCostOptional')}${perLabel}`}
+                        className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                      />
+                    </>
+                  );
+                })()}
                 <SmartSelect
                   instanceId={`wizard-variant-vat-${variant.id}`}
                   value={variant.vatMode}
@@ -773,6 +820,29 @@ export default function ProductWizardPage() {
                   <p className="text-[10px] text-gold-400">{t('conversionHint')}</p>
                 </label>
               </div>
+              {branches.length > 1 ? (
+                <div className="space-y-1 pt-1">
+                  <p className="text-xs text-gold-400">{t('availableAtBranches')}</p>
+                  <div className="flex flex-wrap gap-3 text-xs text-gold-200">
+                    {branches.map((branch) => (
+                      <label key={branch.id} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={variant.availableBranchIds.includes(branch.id)}
+                          onChange={(event) =>
+                            updateVariant(variant.id, {
+                              availableBranchIds: event.target.checked
+                                ? [...variant.availableBranchIds, branch.id]
+                                : variant.availableBranchIds.filter((id) => id !== branch.id),
+                            })
+                          }
+                        />
+                        {branch.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ))}
           <button

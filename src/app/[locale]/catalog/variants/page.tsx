@@ -13,6 +13,7 @@ import { SmartSelect } from '@/components/SmartSelect';
 import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import {
@@ -112,11 +113,14 @@ export default function VariantsPage() {
     barcode: '',
     defaultPrice: '',
     minPrice: '',
+    defaultCost: '',
     vatMode: 'INCLUSIVE',
     baseUnitId: '',
     sellUnitId: '',
     conversionFactor: '1',
+    trackStock: true,
   });
+  const [newVariantBranchIds, setNewVariantBranchIds] = useState<string[]>([]);
   const [barcodeReassign, setBarcodeReassign] = useState({
     barcodeId: '',
     variantId: '',
@@ -145,6 +149,15 @@ export default function VariantsPage() {
   const [isReassigning, setIsReassigning] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [uploadingVariantId, setUploadingVariantId] = useState<string | null>(null);
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const toggleCardExpand = useCallback((id: string) => {
+    setExpandedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [barcodeAction, setBarcodeAction] = useState<{ variantId: string; type: 'generate' } | null>(
     null,
@@ -200,7 +213,6 @@ export default function VariantsPage() {
     availability: '',
   });
   const { activeBranch } = useBranchScope();
-  const branchFilterInit = useRef(false);
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchDraft, 350);
 
@@ -258,17 +270,6 @@ export default function VariantsPage() {
   );
 
   useEffect(() => {
-    if (branchFilterInit.current) {
-      return;
-    }
-    if (!activeBranch?.id) {
-      return;
-    }
-    branchFilterInit.current = true;
-    pushFilters({ branchId: activeBranch.id });
-  }, [activeBranch?.id, pushFilters]);
-
-  useEffect(() => {
     setSearchDraft(filters.search);
   }, [filters.search]);
 
@@ -288,7 +289,11 @@ export default function VariantsPage() {
         loadUnits(token),
       ]);
       setProducts(normalizePaginated(prod).items);
-      setBranches(normalizePaginated(br).items);
+      const loadedBranches = normalizePaginated(br).items;
+      setBranches(loadedBranches);
+      setNewVariantBranchIds((prev) =>
+        prev.length === 0 ? loadedBranches.map((b) => b.id) : prev,
+      );
       setUnits(unitList ?? []);
     } catch (err) {
       setMessage({
@@ -406,7 +411,9 @@ export default function VariantsPage() {
             : undefined,
           defaultPrice: form.defaultPrice ? Number(form.defaultPrice) : undefined,
           minPrice: form.minPrice ? Number(form.minPrice) : undefined,
+          defaultCost: form.defaultCost ? Number(form.defaultCost) : undefined,
           vatMode: form.vatMode,
+          trackStock: form.trackStock,
         }),
       });
       const trimmedBarcode = form.barcode.trim();
@@ -421,6 +428,20 @@ export default function VariantsPage() {
           });
         }
       }
+      const disabledBranchIds = branches
+        .map((b) => b.id)
+        .filter((id) => !newVariantBranchIds.includes(id));
+      if (disabledBranchIds.length > 0) {
+        await Promise.all(
+          disabledBranchIds.map((branchId) =>
+            apiFetch(`/variants/${created.id}/availability`, {
+              token,
+              method: 'POST',
+              body: JSON.stringify({ branchId, isActive: false }),
+            }),
+          ),
+        );
+      }
       setForm({
         productId: '',
         name: '',
@@ -428,11 +449,14 @@ export default function VariantsPage() {
         barcode: '',
         defaultPrice: '',
         minPrice: '',
+        defaultCost: '',
         vatMode: 'INCLUSIVE',
         baseUnitId: form.baseUnitId,
         sellUnitId: form.sellUnitId,
         conversionFactor: '1',
+        trackStock: true,
       });
+      setNewVariantBranchIds(branches.map((b) => b.id));
       await load(1);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
     } catch (err) {
@@ -922,22 +946,38 @@ export default function VariantsPage() {
           </button>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <input
-            value={form.defaultPrice}
-            onChange={(event) =>
-              setForm({ ...form, defaultPrice: event.target.value })
-            }
-            placeholder={t('defaultPrice')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={form.minPrice}
-            onChange={(event) =>
-              setForm({ ...form, minPrice: event.target.value })
-            }
-            placeholder={t('minPrice')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
+          {(() => {
+            const sellUnit = form.sellUnitId ? units.find((u) => u.id === form.sellUnitId) : null;
+            const perLabel = sellUnit ? ` (${t('perUnit', { unit: sellUnit.label || sellUnit.code })})` : '';
+            return (
+              <>
+                <CurrencyInput
+                  value={form.defaultPrice}
+                  onChange={(value) =>
+                    setForm({ ...form, defaultPrice: value })
+                  }
+                  placeholder={`${t('defaultPrice')}${perLabel}`}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                />
+                <CurrencyInput
+                  value={form.minPrice}
+                  onChange={(value) =>
+                    setForm({ ...form, minPrice: value })
+                  }
+                  placeholder={`${t('minPrice')}${perLabel}`}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                />
+                <CurrencyInput
+                  value={form.defaultCost}
+                  onChange={(value) =>
+                    setForm({ ...form, defaultCost: value })
+                  }
+                  placeholder={`${t('defaultCost')}${perLabel}`}
+                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                />
+              </>
+            );
+          })()}
           <SmartSelect
             instanceId="variant-create-vat-mode"
             value={form.vatMode}
@@ -950,6 +990,38 @@ export default function VariantsPage() {
             className="nvi-select-container"
           />
         </div>
+        <label className="flex items-center gap-2 text-xs text-gold-200">
+          <input
+            type="checkbox"
+            checked={form.trackStock}
+            onChange={(event) => setForm({ ...form, trackStock: event.target.checked })}
+          />
+          {t('trackStock')}
+        </label>
+        {branches.length > 1 ? (
+          <div className="space-y-2">
+            <p className="text-xs text-gold-400">{t('availableAtBranches')}</p>
+            <div className="flex flex-wrap gap-3 text-xs text-gold-200">
+              {branches.map((branch) => (
+                <label key={branch.id} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={newVariantBranchIds.includes(branch.id)}
+                    onChange={(event) =>
+                      setNewVariantBranchIds((prev) =>
+                        event.target.checked
+                          ? [...prev, branch.id]
+                          : prev.filter((id) => id !== branch.id),
+                      )
+                    }
+                    disabled={!canWrite}
+                  />
+                  {branch.name}
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="grid gap-3 md:grid-cols-3">
           <label className="space-y-1 text-xs text-gold-300">
             <span className="text-gold-400">{t('baseUnit')}</span>
@@ -1309,304 +1381,345 @@ export default function VariantsPage() {
       ) : null}
 
       {viewMode === 'cards' ? (
-      <div className="space-y-4">
-        {variants.length === 0 ? (
-          <StatusBanner message={t('noVariants')} />
-        ) : (
-          variants.map((variant) => (
-          <div
-            key={variant.id}
-            className="command-card nvi-panel p-4 space-y-3 nvi-reveal"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={selectedLabels.includes(variant.id)}
-                  onChange={() => toggleLabelSelection(variant.id)}
-                />
-                <div>
-                  <h4 className="text-lg font-semibold text-gold-100">
-                    {variant.name}
-                  </h4>
-                  <p className="text-xs text-gold-500">
-                    {variant.product?.name ?? common('unknown')}
-                  </p>
-                  <p className="text-xs text-gold-400">
-                    {t('skuLabel', { value: variant.sku || '—' })} ·{' '}
-                    {t('vatLabel', { value: variant.vatMode })}
-                  </p>
-                  <p className="text-xs text-gold-500">
-                    {t('minPriceLabel', { value: variant.minPrice ?? '—' })}
-                  </p>
-                  <p className="text-xs text-gold-400">
-                    {t('costLabel', { value: variant.defaultCost ?? '—' })}
-                    {variant.defaultPrice != null && variant.defaultCost != null && variant.defaultPrice > 0
-                      ? ` · ${t('marginLabel', { value: (((variant.defaultPrice - variant.defaultCost) / variant.defaultPrice) * 100).toFixed(1) })}`
-                      : null}
-                  </p>
-                </div>
-                {variant.imageUrl ? (
-                  <img
-                    src={variant.imageUrl}
-                    alt={variant.name}
-                    className="h-10 w-10 rounded border border-gold-700/40 object-cover"
-                  />
-                ) : null}
-              </div>
-              <label className="text-xs text-gold-300">
-                {t('variantImage')}
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg"
-                  className="mt-2 block text-xs text-gold-100"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) {
-                      uploadVariantImage(variant.id, file).catch((err) =>
-                        setMessage(
-                          getApiErrorMessage(err, t('variantImageFailed')),
-                        ),
-                      );
-                    }
-                  }}
-                  disabled={!canWrite}
-                />
-              </label>
-              {uploadingVariantId === variant.id ? (
-                <p className="text-xs text-gold-400">
-                  <span className="inline-flex items-center gap-2">
-                    <Spinner variant="dots" size="xs" />
-                    {t('uploadingImage')}
-                  </span>
-                </p>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap gap-4 text-xs text-gold-200">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={variant.trackStock}
-                  onChange={(event) =>
-                    updateVariant(variant.id, {
-                      trackStock: event.target.checked,
-                    }).catch((err) =>
-                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
-                    )
-                  }
-                />
-                {t('trackStock')}
-              </label>
-              <label className="flex items-center gap-2">
-                {t('status')}
-                <SmartSelect
-                  instanceId={`variant-status-${variant.id}`}
-                  value={variant.status}
-                  onChange={(value) =>
-                    updateVariant(variant.id, {
-                      status: value as Variant['status'],
-                    }).catch((err) =>
-                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
-                    )
-                  }
-                  options={[
-                    { value: 'ACTIVE', label: t('statusActive') },
-                    { value: 'INACTIVE', label: t('statusInactive') },
-                    { value: 'ARCHIVED', label: t('statusArchived') },
-                  ]}
-                  className="nvi-select-container"
-                />
-              </label>
-            </div>
-            <div className="grid gap-3 text-xs text-gold-200 md:grid-cols-3">
-              <label className="space-y-1">
-                <span className="text-gold-400">{t('baseUnit')}</span>
-                <SmartSelect
-                  instanceId={`variant-base-unit-${variant.id}`}
-                  value={variant.baseUnitId ?? ''}
-                  onChange={(value) =>
-                    updateVariant(variant.id, {
-                      baseUnitId: value,
-                      sellUnitId:
-                        variant.sellUnitId && variant.sellUnitId !== value
-                          ? variant.sellUnitId
-                          : value,
-                      conversionFactor:
-                        variant.sellUnitId === value ? 1 : variant.conversionFactor ?? 1,
-                    }).catch((err) =>
-                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
-                    )
-                  }
-                  options={unitOptions}
-                  placeholder={t('baseUnit')}
-                  className="nvi-select-container"
-                />
-              </label>
-              <label className="space-y-1">
-                <span className="text-gold-400">{t('sellUnit')}</span>
-                <SmartSelect
-                  instanceId={`variant-sell-unit-${variant.id}`}
-                  value={variant.sellUnitId ?? variant.baseUnitId ?? ''}
-                  onChange={(value) =>
-                    updateVariant(variant.id, {
-                      sellUnitId: value,
-                      conversionFactor:
-                        value === variant.baseUnitId ? 1 : variant.conversionFactor ?? 1,
-                    }).catch((err) =>
-                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
-                    )
-                  }
-                  options={unitOptions}
-                  placeholder={t('sellUnit')}
-                  className="nvi-select-container"
-                />
-              </label>
-              <label className="space-y-1">
-                <span className="text-gold-400">{t('sellToBaseFactor')}</span>
-                <input
-                  value={variant.conversionFactor ?? 1}
-                  onChange={(event) =>
-                    updateVariant(variant.id, {
-                      conversionFactor: Number(event.target.value || 1),
-                    }).catch((err) =>
-                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
-                    )
-                  }
-                  disabled={(variant.sellUnitId ?? variant.baseUnitId) === variant.baseUnitId}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100 disabled:opacity-70"
-                />
-                <p className="text-[10px] text-gold-400">{t('conversionHint')}</p>
-              </label>
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs text-gold-300">{t('barcodes')}</p>
-              <div className="flex flex-wrap gap-2">
-                {variant.barcodes.map((barcode) => (
-                  <span
-                    key={barcode.id}
-                    className={`rounded border px-2 py-1 text-xs ${
-                      barcode.isActive
-                        ? 'border-gold-600/60 text-gold-100'
-                        : 'border-gold-900/60 text-gold-500'
-                    }`}
-                  >
-                    {barcode.code}
-                  </span>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <input
-                  placeholder={t('addBarcode')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-1 text-xs text-gold-100"
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      addBarcode(variant.id, event.currentTarget.value).catch(
-                        (err) =>
-                          setMessage(
-                            getApiErrorMessage(err, t('addBarcodeFailed')),
-                          ),
-                      );
-                      event.currentTarget.value = '';
-                    }
-                  }}
-                  disabled={!canWrite}
-                />
-                <button
-                  type="button"
-                  onClick={() => startScan('assignExisting', variant.id)}
-                  disabled={!canWrite}
-                  title={!canWrite ? noAccess('title') : undefined}
-                  className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
-                >
-                  {t('scanAssign')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => generateBarcode(variant.id)}
-                  disabled={!canWrite || barcodeAction?.variantId === variant.id}
-                  title={!canWrite ? noAccess('title') : undefined}
-                  className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    {barcodeAction?.variantId === variant.id ? (
-                      <Spinner variant="pulse" size="xs" />
-                    ) : null}
-                    {barcodeAction?.variantId === variant.id
-                      ? t('generating')
-                      : t('generate')}
-                  </span>
-                </button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs text-gold-300">{t('skuReassignTitle')}</p>
-              <div className="flex flex-wrap gap-2">
-                <input
-                  placeholder={t('newSku')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-1 text-xs text-gold-100"
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      const sku = event.currentTarget.value.trim();
-                      if (!sku) {
-                        return;
-                      }
-                      promptAction({
-                        message: t('skuReassignPrompt'),
-                        placeholder: t('requiredPlaceholder'),
-                      }).then((reason) => {
-                        if (!reason) {
-                          setMessage({ action: 'save', outcome: 'warning', message: t('skuReasonRequired') });
-                          return;
-                        }
-                        reassignSku(variant.id, sku, reason).catch((err) =>
-                          setMessage(
-                            getApiErrorMessage(err, t('skuReassignFailed')),
-                          ),
-                        );
-                      });
-                      event.currentTarget.value = '';
-                    }
-                  }}
-                  disabled={!canWrite}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs text-gold-300">{t('branchAvailability')}</p>
-              <div className="flex flex-wrap gap-3 text-xs text-gold-200">
-                {branches.map((branch) => {
-                  const current =
-                    variant.availability.find(
-                      (item) => item.branchId === branch.id,
-                    )?.isActive ?? true;
-                  return (
-                    <label key={branch.id} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={current}
-                        onChange={(event) =>
-                          updateAvailability(
-                            variant.id,
-                            branch.id,
-                            event.target.checked,
-                          ).catch((err) =>
-                            setMessage(
-                              getApiErrorMessage(err, t('availabilityFailed')),
-                            ),
+        <div className="space-y-3">
+          {variants.length === 0 ? (
+            <StatusBanner message={t('noVariants')} />
+          ) : (
+            variants.map((variant) => {
+              const isExpanded = expandedCards.has(variant.id);
+              const margin =
+                variant.defaultPrice != null &&
+                variant.defaultCost != null &&
+                variant.defaultPrice > 0
+                  ? (((variant.defaultPrice - variant.defaultCost) / variant.defaultPrice) * 100).toFixed(1)
+                  : null;
+              return (
+                <div key={variant.id} className="command-card nvi-panel nvi-reveal overflow-hidden">
+                  {/* ── Header ── */}
+                  <div className="flex items-start gap-3 p-4">
+                    <input
+                      type="checkbox"
+                      className="mt-1 shrink-0"
+                      checked={selectedLabels.includes(variant.id)}
+                      onChange={() => toggleLabelSelection(variant.id)}
+                    />
+                    {variant.imageUrl ? (
+                      <img
+                        src={variant.imageUrl}
+                        alt={variant.name}
+                        className="h-14 w-14 shrink-0 rounded border border-gold-700/40 object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded border border-gold-800/40 bg-gold-950/30" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <h4 className="truncate text-base font-semibold text-gold-100">
+                        {variant.name}
+                      </h4>
+                      <p className="truncate text-xs text-gold-500">
+                        {variant.product?.name ?? common('unknown')}
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                        <span className="text-gold-200">
+                          <span className="mr-1 text-gold-500">{t('defaultPrice')}</span>
+                          {variant.defaultPrice ?? '—'}
+                        </span>
+                        <span className="text-gold-200">
+                          <span className="mr-1 text-gold-500">{t('defaultCost')}</span>
+                          {variant.defaultCost ?? '—'}
+                        </span>
+                        {margin !== null ? (
+                          <span className="text-gold-200">
+                            <span className="mr-1 text-gold-500">{t('margin')}</span>
+                            {margin}%
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-gold-500">
+                        <span>{t('skuLabel', { value: variant.sku || '—' })}</span>
+                        <span>·</span>
+                        <span>{vatModeLabels[variant.vatMode] ?? variant.vatMode}</span>
+                        {variant.minPrice != null ? (
+                          <>
+                            <span>·</span>
+                            <span>{t('minPriceLabel', { value: variant.minPrice })}</span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      <SmartSelect
+                        instanceId={`variant-status-${variant.id}`}
+                        value={variant.status}
+                        onChange={(value) =>
+                          updateVariant(variant.id, {
+                            status: value as Variant['status'],
+                          }).catch((err) =>
+                            setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
                           )
                         }
+                        options={[
+                          { value: 'ACTIVE', label: t('statusActive') },
+                          { value: 'INACTIVE', label: t('statusInactive') },
+                          { value: 'ARCHIVED', label: t('statusArchived') },
+                        ]}
+                        className="nvi-select-container w-32"
+                      />
+                      <label className="flex cursor-pointer items-center gap-2 text-xs text-gold-300">
+                        <input
+                          type="checkbox"
+                          checked={variant.trackStock}
+                          onChange={(event) =>
+                            updateVariant(variant.id, {
+                              trackStock: event.target.checked,
+                            }).catch((err) =>
+                              setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
+                            )
+                          }
+                        />
+                        {t('trackStock')}
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* ── Barcodes ── */}
+                  <div className="border-t border-gold-800/40 px-4 py-3 space-y-2">
+                    <p className="text-xs font-medium text-gold-400">{t('barcodes')}</p>
+                    {variant.barcodes.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {variant.barcodes.map((barcode) => (
+                          <span
+                            key={barcode.id}
+                            className={`rounded border px-2 py-0.5 text-xs ${
+                              barcode.isActive
+                                ? 'border-gold-600/60 text-gold-100'
+                                : 'border-gold-900/60 text-gold-500'
+                            }`}
+                          >
+                            {barcode.code}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        placeholder={t('addBarcode')}
+                        className="rounded border border-gold-700/50 bg-black px-3 py-1 text-xs text-gold-100"
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            addBarcode(variant.id, event.currentTarget.value).catch(
+                              (err) =>
+                                setMessage(
+                                  getApiErrorMessage(err, t('addBarcodeFailed')),
+                                ),
+                            );
+                            event.currentTarget.value = '';
+                          }
+                        }}
                         disabled={!canWrite}
                       />
-                      {branch.name}
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-          ))
-        )}
-      </div>
+                      <button
+                        type="button"
+                        onClick={() => startScan('assignExisting', variant.id)}
+                        disabled={!canWrite}
+                        title={!canWrite ? noAccess('title') : undefined}
+                        className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
+                      >
+                        {t('scanAssign')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => generateBarcode(variant.id)}
+                        disabled={!canWrite || barcodeAction?.variantId === variant.id}
+                        title={!canWrite ? noAccess('title') : undefined}
+                        className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          {barcodeAction?.variantId === variant.id ? (
+                            <Spinner variant="pulse" size="xs" />
+                          ) : null}
+                          {barcodeAction?.variantId === variant.id
+                            ? t('generating')
+                            : t('generate')}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ── Branch availability ── */}
+                  {branches.length > 1 ? (
+                    <div className="border-t border-gold-800/40 px-4 py-3 space-y-2">
+                      <p className="text-xs font-medium text-gold-400">{t('branchAvailability')}</p>
+                      <div className="flex flex-wrap gap-3 text-xs text-gold-200">
+                        {branches.map((branch) => {
+                          const current =
+                            variant.availability.find(
+                              (item) => item.branchId === branch.id,
+                            )?.isActive ?? true;
+                          return (
+                            <label key={branch.id} className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={current}
+                                onChange={(event) =>
+                                  updateAvailability(
+                                    variant.id,
+                                    branch.id,
+                                    event.target.checked,
+                                  ).catch((err) =>
+                                    setMessage(
+                                      getApiErrorMessage(err, t('availabilityFailed')),
+                                    ),
+                                  )
+                                }
+                                disabled={!canWrite}
+                              />
+                              {branch.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* ── Advanced (collapsible) ── */}
+                  <div className="border-t border-gold-800/40">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between px-4 py-2 text-xs text-gold-500 hover:text-gold-200 transition-colors"
+                      onClick={() => toggleCardExpand(variant.id)}
+                    >
+                      <span>{t('advanced')}</span>
+                      <span className="text-[10px]">{isExpanded ? '▲' : '▼'}</span>
+                    </button>
+                    {isExpanded ? (
+                      <div className="space-y-4 px-4 pb-4">
+                        <div className="grid gap-3 text-xs text-gold-200 md:grid-cols-3">
+                          <label className="space-y-1">
+                            <span className="text-gold-400">{t('baseUnit')}</span>
+                            <SmartSelect
+                              instanceId={`variant-base-unit-${variant.id}`}
+                              value={variant.baseUnitId ?? ''}
+                              onChange={(value) =>
+                                updateVariant(variant.id, {
+                                  baseUnitId: value,
+                                  sellUnitId:
+                                    variant.sellUnitId && variant.sellUnitId !== value
+                                      ? variant.sellUnitId
+                                      : value,
+                                  conversionFactor:
+                                    variant.sellUnitId === value ? 1 : variant.conversionFactor ?? 1,
+                                }).catch((err) =>
+                                  setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
+                                )
+                              }
+                              options={unitOptions}
+                              placeholder={t('baseUnit')}
+                              className="nvi-select-container"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-gold-400">{t('sellUnit')}</span>
+                            <SmartSelect
+                              instanceId={`variant-sell-unit-${variant.id}`}
+                              value={variant.sellUnitId ?? variant.baseUnitId ?? ''}
+                              onChange={(value) =>
+                                updateVariant(variant.id, {
+                                  sellUnitId: value,
+                                  conversionFactor:
+                                    value === variant.baseUnitId ? 1 : variant.conversionFactor ?? 1,
+                                }).catch((err) =>
+                                  setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
+                                )
+                              }
+                              options={unitOptions}
+                              placeholder={t('sellUnit')}
+                              className="nvi-select-container"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-gold-400">{t('sellToBaseFactor')}</span>
+                            <input
+                              value={variant.conversionFactor ?? 1}
+                              onChange={(event) =>
+                                updateVariant(variant.id, {
+                                  conversionFactor: Number(event.target.value || 1),
+                                }).catch((err) =>
+                                  setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
+                                )
+                              }
+                              disabled={(variant.sellUnitId ?? variant.baseUnitId) === variant.baseUnitId}
+                              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100 disabled:opacity-70"
+                            />
+                            <p className="text-[10px] text-gold-400">{t('conversionHint')}</p>
+                          </label>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-gold-400">{t('skuReassignTitle')}</p>
+                          <input
+                            placeholder={t('newSku')}
+                            className="rounded border border-gold-700/50 bg-black px-3 py-1 text-xs text-gold-100"
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                const sku = event.currentTarget.value.trim();
+                                if (!sku) return;
+                                promptAction({
+                                  message: t('skuReassignPrompt'),
+                                  placeholder: t('requiredPlaceholder'),
+                                }).then((reason) => {
+                                  if (!reason) {
+                                    setMessage({ action: 'save', outcome: 'warning', message: t('skuReasonRequired') });
+                                    return;
+                                  }
+                                  reassignSku(variant.id, sku, reason).catch((err) =>
+                                    setMessage(
+                                      getApiErrorMessage(err, t('skuReassignFailed')),
+                                    ),
+                                  );
+                                });
+                                event.currentTarget.value = '';
+                              }
+                            }}
+                            disabled={!canWrite}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-gold-400">{t('variantImage')}</p>
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-200 hover:border-gold-500 transition-colors">
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg"
+                              className="sr-only"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                if (file) {
+                                  uploadVariantImage(variant.id, file).catch((err) =>
+                                    setMessage(
+                                      getApiErrorMessage(err, t('variantImageFailed')),
+                                    ),
+                                  );
+                                }
+                              }}
+                              disabled={!canWrite}
+                            />
+                            {uploadingVariantId === variant.id ? (
+                              <span className="inline-flex items-center gap-2">
+                                <Spinner variant="dots" size="xs" />
+                                {t('uploadingImage')}
+                              </span>
+                            ) : (
+                              t('uploadImage')
+                            )}
+                          </label>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       ) : null}
       <PaginationControls
         page={page}
@@ -1633,9 +1746,9 @@ export default function VariantsPage() {
         className="hidden print:block"
       >
         <div className="label-grid grid gap-4">
-          {labelData.map((label) => (
+          {labelData.map((label, index) => (
             <div
-              key={label.variantId}
+              key={`${label.variantId}-${index}`}
               className="label-card rounded border border-neutral-200 bg-white p-3 text-black"
             >
               <div className="text-xs font-semibold">

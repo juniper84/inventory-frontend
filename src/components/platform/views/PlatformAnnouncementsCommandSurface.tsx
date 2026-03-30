@@ -1,4 +1,5 @@
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
+import { useState } from 'react';
 import { DateTimePickerInput } from '@/components/DateTimePickerInput';
 import { SmartSelect } from '@/components/SmartSelect';
 import { Spinner } from '@/components/Spinner';
@@ -39,6 +40,13 @@ type Timeline = {
   active: Announcement[];
   upcoming: Announcement[];
   ended: Announcement[];
+};
+
+const SEVERITY_PILL: Record<string, string> = {
+  INFO: 'border-sky-500/40 bg-sky-500/10 text-sky-300',
+  WARNING: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+  SECURITY: 'border-red-500/40 bg-red-500/10 text-red-300',
+  CRITICAL: 'border-red-500/40 bg-red-500/10 text-red-300',
 };
 
 export function PlatformAnnouncementsCommandSurface({
@@ -89,90 +97,138 @@ export function PlatformAnnouncementsCommandSurface({
   endingAnnouncementId: string | null;
   endAnnouncement: (announcementId: string) => Promise<void>;
 }) {
+  const [tab, setTab] = useState<'COMPOSE' | 'TIMELINE'>('COMPOSE');
+
   if (!show) {
     return null;
   }
 
+  const activeCount = announcementTimeline.active.length;
+
   return (
     <section className="command-card p-6 space-y-4 nvi-reveal">
-      <h3 className="text-xl font-semibold">{t('announcementsTitle')}</h3>
-      <div className="grid gap-4 xl:grid-cols-[2fr_3fr]">
-        <form className="grid gap-3 md:grid-cols-2" onSubmit={createAnnouncement}>
-          <input
-            value={announcementForm.title}
-            onChange={(event) =>
-              setAnnouncementForm((prev) => ({
-                ...prev,
-                title: event.target.value,
-              }))
-            }
-            placeholder={t('titlePlaceholder')}
-            required
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 md:col-span-2"
-          />
-          <SmartSelect
-            instanceId="platform-announcements-severity"
-            value={announcementForm.severity}
-            onChange={(value) =>
-              setAnnouncementForm((prev) => ({ ...prev, severity: value }))
-            }
-            options={[
-              { value: 'INFO', label: t('severityInfo') },
-              { value: 'WARNING', label: t('severityWarning') },
-              { value: 'SECURITY', label: t('severitySecurity') },
-            ]}
-          />
-          <input
-            value={announcementForm.reason}
-            onChange={(event) =>
-              setAnnouncementForm((prev) => ({ ...prev, reason: event.target.value }))
-            }
-            placeholder={t('reasonPlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <DateTimePickerInput
-            value={announcementForm.startsAt}
-            onChange={(value) =>
-              setAnnouncementForm((prev) => ({
-                ...prev,
-                startsAt: value,
-                endsAt: applyDefaultAnnouncementEnd(value, prev.endsAt),
-              }))
-            }
-            placeholder={t('startsAtPlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <DateTimePickerInput
-            value={announcementForm.endsAt}
-            onChange={(value) =>
-              setAnnouncementForm((prev) => ({ ...prev, endsAt: value }))
-            }
-            placeholder={t('endsAtPlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <textarea
-            value={announcementForm.message}
-            onChange={(event) =>
-              setAnnouncementForm((prev) => ({ ...prev, message: event.target.value }))
-            }
-            placeholder={t('messagePlaceholder')}
-            required
-            className="min-h-[120px] rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 md:col-span-2"
-          />
-          <div className="space-y-3 rounded border border-gold-700/40 bg-black/40 p-3 md:col-span-2">
-            <p className="text-xs uppercase tracking-[0.3em] text-gold-400">
-              {t('announcementTargeting')}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-xl font-semibold">{t('announcementsTitle')}</h3>
+        <div className="flex items-center gap-1 rounded border border-[color:var(--pt-accent-border)] p-0.5">
+          {(['COMPOSE', 'TIMELINE'] as const).map((tabKey) => (
+            <button
+              key={tabKey}
+              type="button"
+              onClick={() => setTab(tabKey)}
+              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                tab === tabKey
+                  ? 'bg-[var(--pt-accent)] text-black'
+                  : 'text-[color:var(--pt-text-2)] hover:text-[color:var(--pt-text-1)]'
+              }`}
+            >
+              {tabKey === 'COMPOSE' ? t('announcementsTabCompose') : t('announcementsTabTimeline')}
+              {tabKey === 'TIMELINE' && activeCount > 0 ? (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
+                    tab === 'TIMELINE'
+                      ? 'bg-black/20 text-black'
+                      : 'bg-emerald-500/20 text-emerald-400'
+                  }`}
+                >
+                  {activeCount}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {tab === 'COMPOSE' ? (
+        <form className="space-y-6" onSubmit={createAnnouncement}>
+          {/* Content section */}
+          <div className="space-y-3">
+            <p className="text-[10px] uppercase tracking-[0.3em] text-[color:var(--pt-text-2)]">
+              {t('announcementSectionContent')}
+            </p>
+            <input
+              value={announcementForm.title}
+              onChange={(event) =>
+                setAnnouncementForm((prev) => ({ ...prev, title: event.target.value }))
+              }
+              placeholder={t('titlePlaceholder')}
+              required
+              className="w-full rounded border border-[color:var(--pt-accent-border)] bg-black px-3 py-2 text-[color:var(--pt-text-1)]"
+            />
+            <div className="grid gap-3 md:grid-cols-2">
+              <SmartSelect
+                instanceId="platform-announcements-severity"
+                value={announcementForm.severity}
+                onChange={(value) =>
+                  setAnnouncementForm((prev) => ({ ...prev, severity: value }))
+                }
+                options={[
+                  { value: 'INFO', label: t('severityInfo') },
+                  { value: 'WARNING', label: t('severityWarning') },
+                  { value: 'SECURITY', label: t('severitySecurity') },
+                ]}
+              />
+              <input
+                value={announcementForm.reason}
+                onChange={(event) =>
+                  setAnnouncementForm((prev) => ({ ...prev, reason: event.target.value }))
+                }
+                placeholder={t('reasonPlaceholder')}
+                className="rounded border border-[color:var(--pt-accent-border)] bg-black px-3 py-2 text-[color:var(--pt-text-1)]"
+              />
+            </div>
+            <textarea
+              value={announcementForm.message}
+              onChange={(event) =>
+                setAnnouncementForm((prev) => ({ ...prev, message: event.target.value }))
+              }
+              placeholder={t('messagePlaceholder')}
+              required
+              className="w-full min-h-[120px] rounded border border-[color:var(--pt-accent-border)] bg-black px-3 py-2 text-[color:var(--pt-text-1)]"
+            />
+          </div>
+
+          {/* Schedule section */}
+          <div className="space-y-3">
+            <p className="text-[10px] uppercase tracking-[0.3em] text-[color:var(--pt-text-2)]">
+              {t('announcementSectionSchedule')}
             </p>
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <p className="text-xs text-gold-300">{t('targetBusinesses')}</p>
+              <DateTimePickerInput
+                value={announcementForm.startsAt}
+                onChange={(value) =>
+                  setAnnouncementForm((prev) => ({
+                    ...prev,
+                    startsAt: value,
+                    endsAt: applyDefaultAnnouncementEnd(value, prev.endsAt),
+                  }))
+                }
+                placeholder={t('startsAtPlaceholder')}
+                className="rounded border border-[color:var(--pt-accent-border)] bg-black px-3 py-2 text-[color:var(--pt-text-1)]"
+              />
+              <DateTimePickerInput
+                value={announcementForm.endsAt}
+                onChange={(value) =>
+                  setAnnouncementForm((prev) => ({ ...prev, endsAt: value }))
+                }
+                placeholder={t('endsAtPlaceholder')}
+                className="rounded border border-[color:var(--pt-accent-border)] bg-black px-3 py-2 text-[color:var(--pt-text-1)]"
+              />
+            </div>
+          </div>
+
+          {/* Targeting section */}
+          <div className="space-y-3 rounded border border-[color:var(--pt-accent-border)] p-bg-card p-4">
+            <p className="text-[10px] uppercase tracking-[0.3em] text-[color:var(--pt-text-2)]">
+              {t('announcementTargeting')}
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="relative z-10 space-y-2">
+                <p className="text-xs text-[color:var(--pt-text-2)]">{t('targetBusinesses')}</p>
                 <TypeaheadInput
                   value={announcementBusinessSearch}
                   onChange={setAnnouncementBusinessSearch}
                   onSelect={(option) => {
-                    if (announcementForm.targetBusinessIds.includes(option.id)) {
-                      return;
-                    }
+                    if (announcementForm.targetBusinessIds.includes(option.id)) return;
                     setAnnouncementForm((prev) => ({
                       ...prev,
                       targetBusinessIds: [...prev.targetBusinessIds, option.id],
@@ -181,14 +237,14 @@ export function PlatformAnnouncementsCommandSurface({
                   }}
                   options={businessOptions}
                   placeholder={t('businessSearchPlaceholder')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+                  className="rounded border border-[color:var(--pt-accent-border)] bg-black px-3 py-2 text-[color:var(--pt-text-1)]"
                 />
                 {announcementForm.targetBusinessIds.length ? (
                   <div className="flex flex-wrap gap-2">
                     {announcementForm.targetBusinessIds.map((id) => (
                       <span
                         key={id}
-                        className="inline-flex items-center gap-2 rounded-full border border-gold-700/40 bg-black/60 px-3 py-1 text-xs text-gold-200"
+                        className="inline-flex items-center gap-2 rounded-full border border-[color:var(--pt-accent-border)] p-bg-card px-3 py-1 text-xs text-[color:var(--pt-text-1)]"
                       >
                         {businessLookup.get(id)?.name ?? id.slice(0, 6)}
                         <button
@@ -201,7 +257,7 @@ export function PlatformAnnouncementsCommandSurface({
                               ),
                             }))
                           }
-                          className="text-gold-400 hover:text-gold-100"
+                          className="text-[color:var(--pt-text-2)] hover:text-[color:var(--pt-text-1)]"
                         >
                           ×
                         </button>
@@ -209,18 +265,18 @@ export function PlatformAnnouncementsCommandSurface({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-gold-500">{t('allBusinesses')}</p>
+                  <p className="text-xs text-[color:var(--pt-text-muted)]">{t('allBusinesses')}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <p className="text-xs text-gold-300">{t('targetTiers')}</p>
+                <p className="text-xs text-[color:var(--pt-text-2)]">{t('targetTiers')}</p>
                 <div className="flex flex-wrap gap-2">
                   {announcementTierOptions.map((option) => {
                     const checked = announcementForm.targetTiers.includes(option.value);
                     return (
                       <label
                         key={option.value}
-                        className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-200"
+                        className="inline-flex items-center gap-2 rounded border border-[color:var(--pt-accent-border)] px-3 py-2 text-xs text-[color:var(--pt-text-1)] cursor-pointer"
                       >
                         <input
                           type="checkbox"
@@ -228,13 +284,8 @@ export function PlatformAnnouncementsCommandSurface({
                           onChange={(event) => {
                             const next = event.target.checked
                               ? [...announcementForm.targetTiers, option.value]
-                              : announcementForm.targetTiers.filter(
-                                  (value) => value !== option.value,
-                                );
-                            setAnnouncementForm((prev) => ({
-                              ...prev,
-                              targetTiers: next,
-                            }));
+                              : announcementForm.targetTiers.filter((v) => v !== option.value);
+                            setAnnouncementForm((prev) => ({ ...prev, targetTiers: next }));
                           }}
                         />
                         {option.label}
@@ -243,18 +294,18 @@ export function PlatformAnnouncementsCommandSurface({
                   })}
                 </div>
                 {!announcementForm.targetTiers.length ? (
-                  <p className="text-xs text-gold-500">{t('allTiers')}</p>
+                  <p className="text-xs text-[color:var(--pt-text-muted)]">{t('allTiers')}</p>
                 ) : null}
               </div>
               <div className="space-y-2 md:col-span-2">
-                <p className="text-xs text-gold-300">{t('targetStatuses')}</p>
+                <p className="text-xs text-[color:var(--pt-text-2)]">{t('targetStatuses')}</p>
                 <div className="flex flex-wrap gap-2">
                   {announcementStatusOptions.map((option) => {
                     const checked = announcementForm.targetStatuses.includes(option.value);
                     return (
                       <label
                         key={option.value}
-                        className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-200"
+                        className="inline-flex items-center gap-2 rounded border border-[color:var(--pt-accent-border)] px-3 py-2 text-xs text-[color:var(--pt-text-1)] cursor-pointer"
                       >
                         <input
                           type="checkbox"
@@ -262,13 +313,8 @@ export function PlatformAnnouncementsCommandSurface({
                           onChange={(event) => {
                             const next = event.target.checked
                               ? [...announcementForm.targetStatuses, option.value]
-                              : announcementForm.targetStatuses.filter(
-                                  (value) => value !== option.value,
-                                );
-                            setAnnouncementForm((prev) => ({
-                              ...prev,
-                              targetStatuses: next,
-                            }));
+                              : announcementForm.targetStatuses.filter((v) => v !== option.value);
+                            setAnnouncementForm((prev) => ({ ...prev, targetStatuses: next }));
                           }}
                         />
                         {option.label}
@@ -277,61 +323,64 @@ export function PlatformAnnouncementsCommandSurface({
                   })}
                 </div>
                 {!announcementForm.targetStatuses.length ? (
-                  <p className="text-xs text-gold-500">{t('allStatuses')}</p>
+                  <p className="text-xs text-[color:var(--pt-text-muted)]">{t('allStatuses')}</p>
                 ) : null}
               </div>
             </div>
-            <div className="rounded border border-gold-700/40 bg-black/50 p-3 text-xs text-gold-300">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-gold-200">{t('announcementAudiencePreview')}</p>
-                <button
-                  type="button"
-                  onClick={previewAnnouncementAudience}
-                  className="inline-flex items-center gap-2 rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-100 disabled:opacity-60"
-                  disabled={isPreviewingAnnouncementAudience}
-                >
-                  {isPreviewingAnnouncementAudience ? (
-                    <Spinner size="xs" variant="grid" />
-                  ) : null}
-                  {isPreviewingAnnouncementAudience ? t('previewing') : t('previewAudience')}
-                </button>
-              </div>
-              {announcementAudiencePreview ? (
-                <div className="mt-2 space-y-1">
-                  <p>
-                    {t('announcementPreviewReachTotal', {
-                      value: announcementAudiencePreview.estimatedReach.total,
-                    })}
-                  </p>
-                  <p>
-                    {t('announcementPreviewReachBreakdown', {
-                      explicit: announcementAudiencePreview.estimatedReach.explicit,
-                      segment: announcementAudiencePreview.estimatedReach.segment,
-                    })}
-                  </p>
-                  <p className="text-gold-500">
-                    {announcementAudiencePreview.filters.hasBroadcastScope
-                      ? t('announcementBroadcastScope')
-                      : t('announcementSegmentScope')}
-                  </p>
-                  {announcementAudiencePreview.sampleBusinesses.length ? (
-                    <p className="text-gold-400">
-                      {t('announcementPreviewSample', {
-                        value: announcementAudiencePreview.sampleBusinesses
-                          .map((item) => item.name)
-                          .join(', '),
-                      })}
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="mt-2 text-gold-500">{t('announcementPreviewRequiredHint')}</p>
-              )}
-            </div>
           </div>
+
+          {/* Audience preview */}
+          <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-4 text-xs text-[color:var(--pt-text-2)]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[color:var(--pt-text-1)]">{t('announcementAudiencePreview')}</p>
+              <button
+                type="button"
+                onClick={previewAnnouncementAudience}
+                className="inline-flex items-center gap-2 rounded border border-[color:var(--pt-accent-border-hi)] px-3 py-1 text-xs text-[color:var(--pt-text-1)] disabled:opacity-60"
+                disabled={isPreviewingAnnouncementAudience}
+              >
+                {isPreviewingAnnouncementAudience ? <Spinner size="xs" variant="grid" /> : null}
+                {isPreviewingAnnouncementAudience ? t('previewing') : t('previewAudience')}
+              </button>
+            </div>
+            {announcementAudiencePreview ? (
+              <div className="mt-3 space-y-1">
+                <p>
+                  {t('announcementPreviewReachTotal', {
+                    value: announcementAudiencePreview.estimatedReach.total,
+                  })}
+                </p>
+                <p>
+                  {t('announcementPreviewReachBreakdown', {
+                    explicit: announcementAudiencePreview.estimatedReach.explicit,
+                    segment: announcementAudiencePreview.estimatedReach.segment,
+                  })}
+                </p>
+                <p className="text-[color:var(--pt-text-muted)]">
+                  {announcementAudiencePreview.filters.hasBroadcastScope
+                    ? t('announcementBroadcastScope')
+                    : t('announcementSegmentScope')}
+                </p>
+                {announcementAudiencePreview.sampleBusinesses.length ? (
+                  <p className="text-[color:var(--pt-text-2)]">
+                    {t('announcementPreviewSample', {
+                      value: announcementAudiencePreview.sampleBusinesses
+                        .map((item) => item.name)
+                        .join(', '),
+                    })}
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-2 text-[color:var(--pt-text-muted)]">
+                {t('announcementPreviewRequiredHint')}
+              </p>
+            )}
+          </div>
+
           <button
             type="submit"
-            className="inline-flex items-center gap-2 rounded bg-gold-500 px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70 md:col-span-2"
+            className="inline-flex w-full items-center justify-center gap-2 rounded bg-[var(--pt-accent)] px-4 py-2.5 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
             disabled={
               isCreatingAnnouncement ||
               announcementPreviewSignature !== announcementTargetSignature
@@ -341,12 +390,15 @@ export function PlatformAnnouncementsCommandSurface({
             {isCreatingAnnouncement ? t('publishing') : t('publishAnnouncement')}
           </button>
         </form>
-        <div className="grid gap-3 lg:grid-cols-3">
-          {[
-            { key: 'active', label: t('announcementLaneActive') },
-            { key: 'upcoming', label: t('announcementLaneUpcoming') },
-            { key: 'ended', label: t('announcementLaneEnded') },
-          ].map((lane) => {
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-3 nvi-stagger">
+          {(
+            [
+              { key: 'active', label: t('announcementLaneActive'), dot: 'bg-emerald-400' },
+              { key: 'upcoming', label: t('announcementLaneUpcoming'), dot: 'bg-sky-400' },
+              { key: 'ended', label: t('announcementLaneEnded'), dot: 'bg-[var(--pt-text-muted)]' },
+            ] as { key: string; label: string; dot: string }[]
+          ).map((lane) => {
             const items =
               lane.key === 'active'
                 ? announcementTimeline.active
@@ -356,84 +408,103 @@ export function PlatformAnnouncementsCommandSurface({
             return (
               <div
                 key={lane.key}
-                className="rounded border border-gold-700/40 bg-black/30 p-3 text-xs text-gold-300"
+                className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep p-4 text-xs text-[color:var(--pt-text-2)]"
               >
-                <p className="mb-2 font-semibold text-gold-100">
-                  {lane.label} ({items.length})
-                </p>
-                <div className="space-y-2">
+                <div className="mb-4 flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${lane.dot}`} />
+                  <p className="text-[10px] uppercase tracking-[0.25em] text-[color:var(--pt-text-2)]">
+                    {lane.label}
+                  </p>
+                  <span className="ml-auto rounded border border-[color:var(--pt-accent-border)] px-1.5 py-0.5 text-[10px] text-[color:var(--pt-text-muted)]">
+                    {items.length}
+                  </span>
+                </div>
+                <div className="space-y-3">
                   {items.map((announcement) => (
                     <div
                       key={announcement.id}
-                      className="rounded border border-gold-700/40 bg-black/45 p-2"
+                      className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3 space-y-2"
                     >
-                      <p className="text-gold-100">
-                        {announcement.title} • {announcement.severity}
-                      </p>
-                      <p className="text-[11px] text-gold-500">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-medium leading-snug text-[color:var(--pt-text-1)]">
+                          {announcement.title}
+                        </p>
+                        <span
+                          className={`inline-flex flex-shrink-0 items-center rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.15em] ${
+                            SEVERITY_PILL[announcement.severity] ??
+                            'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-2)]'
+                          }`}
+                        >
+                          {announcement.severity}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[color:var(--pt-text-muted)]">
                         {formatDateTimeWithTz(announcement.startsAt)} →{' '}
                         {announcement.endsAt
                           ? formatDateTimeWithTz(announcement.endsAt)
                           : t('openEnded')}
                       </p>
-                      <p className="text-[11px] text-gold-400">
-                        {t('targetBusinessesLabel')}:{' '}
-                        {announcement.businessTargets.length
-                          ? announcement.businessTargets
-                              .map((target) => {
-                                const business = businessLookup.get(target.businessId);
-                                return business?.name ?? target.businessId.slice(0, 6);
-                              })
-                              .filter(Boolean)
-                              .join(', ')
-                          : t('allBusinesses')}
-                      </p>
-                      <p className="text-[11px] text-gold-400">
-                        {t('targetTiersLabel')}:{' '}
-                        {announcement.segmentTargets.some((target) => target.type === 'TIER')
-                          ? announcement.segmentTargets
-                              .filter((target) => target.type === 'TIER')
-                              .map((target) => target.value)
-                              .join(', ')
-                          : t('allTiers')}
-                      </p>
-                      <p className="text-[11px] text-gold-400">
-                        {t('targetStatusesLabel')}:{' '}
-                        {announcement.segmentTargets.some(
-                          (target) => target.type === 'STATUS',
-                        )
-                          ? announcement.segmentTargets
-                              .filter((target) => target.type === 'STATUS')
-                              .map((target) => target.value)
-                              .join(', ')
-                          : t('allStatuses')}
-                      </p>
-                      {lane.key !== 'ended' ? (
-                        <div className="mt-2">
-                          <button
-                            type="button"
-                            onClick={() => endAnnouncement(announcement.id)}
-                            disabled={endingAnnouncementId === announcement.id}
-                            className="inline-flex items-center gap-2 rounded border border-gold-700/60 px-3 py-1 text-xs text-gold-200 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {endingAnnouncementId === announcement.id ? (
-                              <Spinner size="xs" variant="orbit" />
-                            ) : null}
-                            {endingAnnouncementId === announcement.id
-                              ? t('endingAnnouncement')
-                              : t('endAnnouncement')}
-                          </button>
-                        </div>
-                      ) : null}
+                      <div className="flex flex-wrap gap-1 text-[10px]">
+                        {announcement.businessTargets.length > 0 && (
+                          <span className="rounded border border-[color:var(--pt-accent-border)] px-1.5 py-0.5 text-[color:var(--pt-text-2)]">
+                            {announcement.businessTargets.length} {t('targetBusinessesLabel')}
+                          </span>
+                        )}
+                        {announcement.segmentTargets
+                          .filter((tgt) => tgt.type === 'TIER')
+                          .map((tgt) => (
+                            <span
+                              key={tgt.value}
+                              className="rounded border border-sky-700/40 px-1.5 py-0.5 text-sky-400"
+                            >
+                              {tgt.value}
+                            </span>
+                          ))}
+                        {announcement.segmentTargets
+                          .filter((tgt) => tgt.type === 'STATUS')
+                          .map((tgt) => (
+                            <span
+                              key={tgt.value}
+                              className="rounded border border-[color:var(--pt-accent-border)] px-1.5 py-0.5 text-[color:var(--pt-text-2)]"
+                            >
+                              {tgt.value}
+                            </span>
+                          ))}
+                        {!announcement.businessTargets.length &&
+                          !announcement.segmentTargets.length && (
+                            <span className="rounded border border-emerald-700/40 px-1.5 py-0.5 text-emerald-400">
+                              {t('allBusinesses')}
+                            </span>
+                          )}
+                      </div>
+                      {lane.key !== 'ended' && (
+                        <button
+                          type="button"
+                          onClick={() => endAnnouncement(announcement.id)}
+                          disabled={endingAnnouncementId === announcement.id}
+                          className="inline-flex items-center gap-1.5 rounded border border-[color:var(--pt-accent-border)] px-2 py-1 text-[11px] text-[color:var(--pt-text-2)] transition-colors hover:border-[color:var(--pt-accent-border-hi)] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {endingAnnouncementId === announcement.id ? (
+                            <Spinner size="xs" variant="orbit" />
+                          ) : null}
+                          {endingAnnouncementId === announcement.id
+                            ? t('endingAnnouncement')
+                            : t('endAnnouncement')}
+                        </button>
+                      )}
                     </div>
                   ))}
-                  {!items.length ? <p className="text-gold-500">{t('announcementLaneEmpty')}</p> : null}
+                  {!items.length && (
+                    <p className="text-[11px] text-[color:var(--pt-text-muted)]">
+                      {t('announcementLaneEmpty')}
+                    </p>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
-      </div>
+      )}
     </section>
   );
 }

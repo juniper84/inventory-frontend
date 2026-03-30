@@ -15,6 +15,7 @@ import { useVariantSearch } from '@/lib/use-variant-search';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import {
   buildCursorQuery,
@@ -36,13 +37,19 @@ type TransferItem = {
   quantity: number | string;
   receivedQuantity: number | string;
   batchId?: string | null;
-  variant?: { name?: string | null; product?: { name?: string | null } } | null;
+  variant?: {
+    name?: string | null;
+    product?: { name?: string | null };
+    baseUnit?: { id: string; label?: string | null; code?: string | null } | null;
+  } | null;
   batch?: Batch | null;
 };
 
 type Transfer = {
   id: string;
   status: string;
+  sourceBranchId?: string | null;
+  destinationBranchId?: string | null;
   sourceBranch?: Branch | null;
   destinationBranch?: Branch | null;
   items: TransferItem[];
@@ -571,25 +578,17 @@ export default function TransfersPage() {
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
-          <input
-            value={form.feeAmount}
-            onChange={(event) =>
-              setForm((prev) => ({ ...prev, feeAmount: event.target.value }))
-            }
-            placeholder={t('transferFeeAmount')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={form.feeCurrency}
-            onChange={(event) =>
-              setForm((prev) => ({
-                ...prev,
-                feeCurrency: event.target.value.toUpperCase(),
-              }))
-            }
-            placeholder={t('transferFeeCurrency')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
+          <div className="flex items-center gap-2">
+            <CurrencyInput
+              value={form.feeAmount}
+              onChange={(value) =>
+                setForm((prev) => ({ ...prev, feeAmount: value }))
+              }
+              placeholder={t('transferFeeAmount')}
+              className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            />
+            <span className="shrink-0 text-xs font-medium text-gold-400">{form.feeCurrency || 'TZS'}</span>
+          </div>
           <input
             value={form.feeCarrier}
             onChange={(event) =>
@@ -704,6 +703,7 @@ export default function TransfersPage() {
                 ) : null}
               </div>
               <div className="flex flex-wrap gap-2">
+                {transfer.status === 'REQUESTED' ? (
                 <button
                   type="button"
                   onClick={() => approveTransfer(transfer.id)}
@@ -718,6 +718,8 @@ export default function TransfersPage() {
                     ? t('approving')
                     : actions('approve')}
                 </button>
+                ) : null}
+                {(transfer.status === 'APPROVED' || transfer.status === 'IN_TRANSIT') && activeBranch?.id === transfer.destinationBranchId ? (
                 <button
                   type="button"
                   onClick={() => receiveTransfer(transfer.id)}
@@ -732,6 +734,8 @@ export default function TransfersPage() {
                     ? t('receiving')
                     : t('receive')}
                 </button>
+                ) : null}
+                {transfer.status !== 'COMPLETED' && transfer.status !== 'CANCELLED' ? (
                 <button
                   type="button"
                   onClick={() => cancelTransfer(transfer.id)}
@@ -746,6 +750,7 @@ export default function TransfersPage() {
                     ? t('canceling')
                     : actions('cancel')}
                 </button>
+                ) : null}
               </div>
             </div>
             <div className="space-y-2 text-xs text-gold-200">
@@ -773,6 +778,9 @@ export default function TransfersPage() {
                           qty: item.quantity,
                           received: item.receivedQuantity,
                         })}
+                        {item.variant?.baseUnit ? (
+                          <span className="ml-1 text-gold-500">({item.variant.baseUnit.label || item.variant.baseUnit.code})</span>
+                        ) : null}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">

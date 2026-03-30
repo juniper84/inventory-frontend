@@ -64,6 +64,7 @@ type StockMovement = {
     imageUrl?: string | null;
     product?: { name?: string | null } | null;
   } | null;
+  createdBy?: { id: string; name: string; email: string } | null;
 };
 
 export default function StockAdjustmentsPage() {
@@ -120,6 +121,7 @@ export default function StockAdjustmentsPage() {
     reason: '',
     batchId: '',
     lossReason: '',
+    gainReason: '',
   });
   const [batchForm, setBatchForm] = useState({
     branchId: '',
@@ -139,6 +141,13 @@ export default function StockAdjustmentsPage() {
     { value: 'EXPIRED', label: t('lossExpired') },
     { value: 'SHRINKAGE', label: t('lossShrinkage') },
     { value: 'OTHER', label: t('lossOther') },
+  ];
+  const gainReasons = [
+    { value: 'UNRECORDED_PURCHASE', label: t('gainUnrecordedPurchase') },
+    { value: 'FOUND_STOCK', label: t('gainFoundStock') },
+    { value: 'RETURN_NOT_LOGGED', label: t('gainReturnNotLogged') },
+    { value: 'CORRECTION', label: t('gainCorrection') },
+    { value: 'OTHER', label: t('gainOther') },
   ];
 
   const adjustmentBranchOptions = useMemo(
@@ -365,6 +374,10 @@ export default function StockAdjustmentsPage() {
       setMessage({ action: 'save', outcome: 'warning', message: t('lossReasonRequired') });
       return;
     }
+    if (form.type === 'POSITIVE' && !form.gainReason) {
+      setMessage({ action: 'save', outcome: 'warning', message: t('gainReasonRequired') });
+      return;
+    }
     setMessage(null);
     setIsSubmitting(true);
     if (offline) {
@@ -396,6 +409,7 @@ export default function StockAdjustmentsPage() {
             reason: form.reason || undefined,
             batchId: form.batchId || undefined,
             lossReason: form.lossReason || undefined,
+            gainReason: form.gainReason || undefined,
             idempotencyKey: actionId,
           },
           provisionalAt: new Date().toISOString(),
@@ -417,6 +431,7 @@ export default function StockAdjustmentsPage() {
         reason: '',
         batchId: '',
         lossReason: '',
+        gainReason: '',
       });
       setMessage({ action: 'sync', outcome: 'success', message: t('offlineQueued') });
       setIsSubmitting(false);
@@ -435,6 +450,7 @@ export default function StockAdjustmentsPage() {
           reason: form.reason || undefined,
           batchId: form.batchId || undefined,
           lossReason: form.lossReason || undefined,
+          gainReason: form.gainReason || undefined,
         }),
       });
       setForm({
@@ -446,6 +462,7 @@ export default function StockAdjustmentsPage() {
         reason: '',
         batchId: '',
         lossReason: '',
+        gainReason: '',
       });
       setMessage({ action: 'save', outcome: 'success', message: t('submitted') });
     } catch (err) {
@@ -613,6 +630,8 @@ export default function StockAdjustmentsPage() {
                 type: (value || 'POSITIVE') as 'POSITIVE' | 'NEGATIVE',
                 lossReason:
                   (value || 'POSITIVE') === 'NEGATIVE' ? form.lossReason : '',
+                gainReason:
+                  (value || 'POSITIVE') === 'POSITIVE' ? form.gainReason : '',
               })
             }
             options={[
@@ -647,6 +666,17 @@ export default function StockAdjustmentsPage() {
             }
             placeholder={t('lossReason')}
             options={lossReasons}
+          />
+        ) : null}
+        {form.type === 'POSITIVE' ? (
+          <SmartSelect
+            instanceId="adjustment-form-gain-reason"
+            value={form.gainReason}
+            onChange={(value) =>
+              setForm({ ...form, gainReason: value || '' })
+            }
+            placeholder={t('gainReason')}
+            options={gainReasons}
           />
         ) : null}
         <input
@@ -800,6 +830,7 @@ export default function StockAdjustmentsPage() {
                     <th className="px-3 py-2">{t('unit')}</th>
                     <th className="px-3 py-2">{t('branch')}</th>
                     <th className="px-3 py-2">{t('reason')}</th>
+                    <th className="px-3 py-2">{common('actor')}</th>
                     <th className="px-3 py-2">{t('createdAt')}</th>
                   </tr>
                 </thead>
@@ -847,6 +878,9 @@ export default function StockAdjustmentsPage() {
                           {movement.reason ?? t('noReason')}
                         </td>
                         <td className="px-3 py-2">
+                          {movement.createdBy?.name ?? movement.createdBy?.email ?? '—'}
+                        </td>
+                        <td className="px-3 py-2">
                           {formatDateTime(movement.createdAt)}
                         </td>
                       </tr>
@@ -892,6 +926,7 @@ export default function StockAdjustmentsPage() {
                       <p className="text-xs text-gold-400">
                         {movement.branch?.name ?? t('branchFallback')} •{' '}
                         {formatDateTime(movement.createdAt)}
+                        {movement.createdBy ? ` • ${movement.createdBy.name || movement.createdBy.email}` : ''}
                       </p>
                     </div>
                     <p className="text-xs text-gold-300">

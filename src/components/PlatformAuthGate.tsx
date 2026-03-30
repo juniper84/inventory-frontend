@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { decodeJwt, getPlatformAccessToken } from '@/lib/auth';
+import { clearPlatformSession, decodeJwt, getPlatformAccessToken } from '@/lib/auth';
 import { refreshPlatformAdminToken } from '@/lib/api';
 
 function isTokenExpired(token: string): boolean {
@@ -37,7 +37,8 @@ export function PlatformAuthGate({ children }: { children: React.ReactNode }) {
           return;
         }
         if (!refreshed) {
-          router.replace(loginUrl);
+          clearPlatformSession();
+          router.replace(`${loginUrl}&expired=1`);
         }
       }
     }

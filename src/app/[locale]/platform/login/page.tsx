@@ -14,6 +14,7 @@ export default function PlatformLoginPage() {
   const searchParams = useSearchParams();
   const rawReturnTo = searchParams.get('returnTo') ?? '';
   const returnTo = rawReturnTo.startsWith('/') && !rawReturnTo.startsWith('//') ? rawReturnTo : '';
+  const sessionExpired = searchParams.get('expired') === '1';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -114,6 +115,12 @@ export default function PlatformLoginPage() {
               <h2 className="text-2xl font-semibold text-gold-50">{t('formTitle')}</h2>
               <p className="text-sm text-gold-400">{t('subtitle')}</p>
             </div>
+
+            {sessionExpired ? (
+              <p role="alert" className="rounded border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+                Your session has expired. Please sign in again.
+              </p>
+            ) : null}
 
             <form className="space-y-4" onSubmit={submit}>
               <label className="space-y-1">

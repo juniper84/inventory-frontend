@@ -39,18 +39,18 @@ export function PlatformBusinessProvisionSurface({
     <section className="command-card p-6 space-y-5 nvi-reveal">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-gold-400">
+          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--pt-text-2)]">
             {t('businessOnboardingTag')}
           </p>
-          <h3 className="text-xl font-semibold text-gold-100">{t('provisionTitle')}</h3>
-          <p className="text-xs text-gold-400">{t('businessOnboardingSubtitle')}</p>
+          <h3 className="text-xl font-semibold text-[color:var(--pt-text-1)]">{t('provisionTitle')}</h3>
+          <p className="text-xs text-[color:var(--pt-text-2)]">{t('businessOnboardingSubtitle')}</p>
         </div>
         <div className="grid grid-cols-3 gap-2 text-xs">
           <div className="nvi-tile p-2 text-center">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-gold-500">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
               {t('tierStarter')}
             </p>
-            <p className="mt-1 text-sm text-gold-100">
+            <p className="mt-1 text-sm text-[color:var(--pt-text-1)]">
               {
                 businesses.filter((business) => business.subscription?.tier === 'STARTER')
                   .length
@@ -58,10 +58,10 @@ export function PlatformBusinessProvisionSurface({
             </p>
           </div>
           <div className="nvi-tile p-2 text-center">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-gold-500">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
               {t('tierBusiness')}
             </p>
-            <p className="mt-1 text-sm text-gold-100">
+            <p className="mt-1 text-sm text-[color:var(--pt-text-1)]">
               {
                 businesses.filter((business) => business.subscription?.tier === 'BUSINESS')
                   .length
@@ -69,10 +69,10 @@ export function PlatformBusinessProvisionSurface({
             </p>
           </div>
           <div className="nvi-tile p-2 text-center">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-gold-500">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--pt-text-muted)]">
               {t('tierEnterprise')}
             </p>
-            <p className="mt-1 text-sm text-gold-100">
+            <p className="mt-1 text-sm text-[color:var(--pt-text-1)]">
               {
                 businesses.filter((business) => business.subscription?.tier === 'ENTERPRISE')
                   .length
@@ -89,7 +89,7 @@ export function PlatformBusinessProvisionSurface({
           }
           placeholder={t('businessNamePlaceholder')}
           required
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
         />
         <input
           value={createForm.ownerName}
@@ -98,7 +98,7 @@ export function PlatformBusinessProvisionSurface({
           }
           placeholder={t('ownerNamePlaceholder')}
           required
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
         />
         <input
           value={createForm.ownerEmail}
@@ -109,7 +109,7 @@ export function PlatformBusinessProvisionSurface({
           type="email"
           autoComplete="email"
           required
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
         />
         <input
           value={createForm.ownerTempPassword}
@@ -120,7 +120,7 @@ export function PlatformBusinessProvisionSurface({
           type="password"
           autoComplete="new-password"
           required
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
         />
         <SmartSelect
           instanceId="platform-provision-tier"
@@ -134,7 +134,7 @@ export function PlatformBusinessProvisionSurface({
         />
         <button
           type="submit"
-          className="inline-flex items-center justify-center gap-2 rounded bg-gold-500 px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
+          className="inline-flex items-center justify-center gap-2 rounded bg-[var(--pt-accent)] px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
           disabled={creatingBusiness}
         >
           {creatingBusiness ? <Spinner size="xs" variant="orbit" /> : null}

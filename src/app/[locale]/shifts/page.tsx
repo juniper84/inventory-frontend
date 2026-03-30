@@ -10,6 +10,7 @@ import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import {
   buildCursorQuery,
   normalizePaginated,
@@ -251,12 +252,11 @@ export default function ShiftsPage() {
               label: branch.name,
             }))}
           />
-          <input
+          <CurrencyInput
             value={openForm.openingCash}
-            onChange={(event) =>
-              setOpenForm({ ...openForm, openingCash: event.target.value })
+            onChange={(value) =>
+              setOpenForm({ ...openForm, openingCash: value })
             }
-            type="number"
             placeholder={t('openingCash')}
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />
@@ -299,12 +299,11 @@ export default function ShiftsPage() {
                 } · ${formatDateTime(shift.openedAt)}`,
               }))}
           />
-          <input
+          <CurrencyInput
             value={closeForm.closingCash}
-            onChange={(event) =>
-              setCloseForm({ ...closeForm, closingCash: event.target.value })
+            onChange={(value) =>
+              setCloseForm({ ...closeForm, closingCash: value })
             }
-            type="number"
             placeholder={t('closingCash')}
             className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
           />

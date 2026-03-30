@@ -74,8 +74,8 @@ export function PlatformMetricsSection({
               onClick={() => setMetricsRange(range)}
               className={`rounded border px-3 py-1 ${
                 metricsRange === range
-                  ? 'border-gold-500 bg-gold-500/20 text-gold-100'
-                  : 'border-gold-700/50 text-gold-300'
+                  ? 'border-[color:var(--pt-accent)] bg-[var(--pt-accent-dim)] text-[color:var(--pt-text-1)]'
+                  : 'border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-2)]'
               }`}
             >
               {range}
@@ -89,18 +89,18 @@ export function PlatformMetricsSection({
             value={metricsFrom}
             onChange={(event) => setMetricsFrom(event.target.value)}
             placeholder={translate('metricsFrom')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
           />
           <input
             value={metricsTo}
             onChange={(event) => setMetricsTo(event.target.value)}
             placeholder={translate('metricsTo')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+            className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-2 text-[color:var(--pt-text-1)]"
           />
           <button
             type="button"
             onClick={() => withAction('metrics:apply', loadMetrics)}
-            className="rounded bg-gold-500 px-3 py-2 font-semibold text-black"
+            className="rounded bg-[var(--pt-accent)] px-3 py-2 font-semibold text-black"
           >
             <span className="inline-flex items-center gap-2">
               {actionLoading['metrics:apply'] ? (
@@ -113,12 +113,12 @@ export function PlatformMetricsSection({
       ) : null}
       {metrics ? (
         <div className="space-y-4">
-          <div className="grid gap-3 text-sm text-gold-200 md:grid-cols-3">
-            <div className="rounded border border-gold-700/40 bg-black/40 p-3">
-              <p className="text-xs uppercase tracking-[0.25em] text-gold-300">
+          <div className="grid gap-3 text-sm text-[color:var(--pt-text-1)] md:grid-cols-3">
+            <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+              <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--pt-text-2)]">
                 {translate('metricsBusinesses')}
               </p>
-              <p className="mt-2 text-gold-100">
+              <p className="mt-2 text-[color:var(--pt-text-1)]">
                 {translate('metricsTotal', { value: metrics.totals.businesses })}
               </p>
               <p>{translate('metricsActive', { value: metrics.totals.active })}</p>
@@ -127,11 +127,11 @@ export function PlatformMetricsSection({
               <p>{translate('metricsSuspended', { value: metrics.totals.suspended })}</p>
               <p>{translate('metricsUnderReview', { value: metrics.totals.underReview })}</p>
             </div>
-            <div className="rounded border border-gold-700/40 bg-black/40 p-3">
-              <p className="text-xs uppercase tracking-[0.25em] text-gold-300">
+            <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+              <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--pt-text-2)]">
                 {translate('metricsOfflineExports')}
               </p>
-              <p className="mt-2 text-gold-100">
+              <p className="mt-2 text-[color:var(--pt-text-1)]">
                 {translate('metricsOfflineEnabled', {
                   value: metrics.totals.offlineEnabled,
                 })}
@@ -139,11 +139,11 @@ export function PlatformMetricsSection({
               <p>{translate('metricsOfflineFailures', { value: metrics.offlineFailures })}</p>
               <p>{translate('metricsExportsPending', { value: metrics.exports.pending })}</p>
             </div>
-            <div className="rounded border border-gold-700/40 bg-black/40 p-3">
-              <p className="text-xs uppercase tracking-[0.25em] text-gold-300">
+            <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+              <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--pt-text-2)]">
                 {translate('metricsApiHealth')}
               </p>
-              <p className="mt-2 text-gold-100">
+              <p className="mt-2 text-[color:var(--pt-text-1)]">
                 {translate('metricsErrorRate', {
                   value: (metrics.api.errorRate * 100).toFixed(1),
                 })}
@@ -152,7 +152,7 @@ export function PlatformMetricsSection({
             </div>
           </div>
           {chartData ? (
-            <div className="rounded border border-gold-700/40 bg-black/40 p-4">
+            <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-4">
               <Line
                 data={chartData}
                 options={{
@@ -173,17 +173,17 @@ export function PlatformMetricsSection({
               />
             </div>
           ) : null}
-          <div className="grid gap-3 text-xs text-gold-300 md:grid-cols-2">
-            <div className="rounded border border-gold-700/40 bg-black/40 p-3">
-              <p className="text-gold-100">{translate('metricsSlowEndpoints')}</p>
+          <div className="grid gap-3 text-xs text-[color:var(--pt-text-2)] md:grid-cols-2">
+            <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+              <p className="text-[color:var(--pt-text-1)]">{translate('metricsSlowEndpoints')}</p>
               {metrics.api.slowEndpoints.map((endpoint) => (
                 <p key={endpoint.path}>
                   {endpoint.path} • {endpoint.avgDurationMs}ms ({endpoint.count})
                 </p>
               ))}
             </div>
-            <div className="rounded border border-gold-700/40 bg-black/40 p-3">
-              <p className="text-gold-100">{translate('metricsStorageLeaders')}</p>
+            <div className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3">
+              <p className="text-[color:var(--pt-text-1)]">{translate('metricsStorageLeaders')}</p>
               {metrics.storage.topBusinesses.map((row) => (
                 <p key={row.businessId}>
                   {row.name} • {row.sizeMb.toFixed(1)}MB
@@ -193,7 +193,7 @@ export function PlatformMetricsSection({
           </div>
         </div>
       ) : (
-        <p className="text-sm text-gold-300">{translate('metricsUnavailable')}</p>
+        <p className="text-sm text-[color:var(--pt-text-2)]">{translate('metricsUnavailable')}</p>
       )}
     </section>
   );

@@ -59,32 +59,32 @@ type BellNotification = {
 const APP_VIEW_MODE_KEY = 'nvi.app.viewMode';
 
 const NAV_VISIBILITY_POLICY: Record<string, 'hide' | 'disabled'> = {
-  'reports.read': 'disabled',
-  'business.read': 'disabled',
-  'settings.read': 'disabled',
-  'users.read': 'disabled',
-  'roles.read': 'disabled',
-  'catalog.read': 'disabled',
-  'customers.read': 'disabled',
-  'price-lists.manage': 'disabled',
-  'stock.read': 'disabled',
-  'stock.write': 'disabled',
-  'transfers.read': 'disabled',
-  'sales.write': 'disabled',
-  'sales.read': 'disabled',
-  'shifts.open': 'disabled',
-  'suppliers.read': 'disabled',
-  'purchases.read': 'disabled',
-  'purchases.write': 'disabled',
-  'attachments.write': 'disabled',
-  'expenses.read': 'disabled',
-  'exports.write': 'disabled',
-  'search.read': 'disabled',
-  'audit.read': 'disabled',
-  'notifications.read': 'disabled',
-  'notes.read': 'disabled',
-  'approvals.read': 'disabled',
-  'offline.read': 'disabled',
+  'reports.read': 'hide',
+  'business.read': 'hide',
+  'settings.read': 'hide',
+  'users.read': 'hide',
+  'roles.read': 'hide',
+  'catalog.read': 'hide',
+  'customers.read': 'hide',
+  'price-lists.manage': 'hide',
+  'stock.read': 'hide',
+  'stock.write': 'hide',
+  'transfers.read': 'hide',
+  'sales.write': 'hide',
+  'sales.read': 'hide',
+  'shifts.open': 'hide',
+  'suppliers.read': 'hide',
+  'purchases.read': 'hide',
+  'purchases.write': 'hide',
+  'attachments.write': 'hide',
+  'expenses.read': 'hide',
+  'exports.write': 'hide',
+  'search.read': 'hide',
+  'audit.read': 'hide',
+  'notifications.read': 'hide',
+  'notes.read': 'hide',
+  'approvals.read': 'hide',
+  'offline.read': 'hide',
 };
 
 const parsePositiveInt = (value: string | undefined, fallback: number) => {
@@ -1077,9 +1077,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     return (
       <PlatformAuthGate>
-        <div className="min-h-screen bg-[color:var(--background)] text-[color:var(--foreground)]">
+        <>
           {!isLoggingOut && idleCountdownSeconds !== null ? (
-            <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+            <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
               <div className="w-full max-w-md space-y-3 rounded-2xl border border-gold-600/40 bg-black/90 p-6 text-gold-100 shadow-[0_30px_120px_rgba(0,0,0,0.6)]">
                 <h3 className="text-lg font-semibold">
                   {shellT('sessionExpiringTitle')}
@@ -1106,20 +1106,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           ) : null}
-          <header className="flex items-center justify-between border-b border-gold-700/40 px-6 py-4">
-            <h1 className="text-lg font-semibold text-gold-100">
-              {t('brand')} {navT('platform')}
-            </h1>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
-            >
-              {actionsT('logout')}
-            </button>
-          </header>
-          <main className="px-6 py-6">{children}</main>
-        </div>
+          {children}
+        </>
       </PlatformAuthGate>
     );
   }

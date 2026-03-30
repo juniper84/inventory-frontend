@@ -29,6 +29,7 @@ import { SmartSelect } from '@/components/SmartSelect';
 import { TypeaheadInput } from '@/components/TypeaheadInput';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { StatusBanner } from '@/components/StatusBanner';
+import { CurrencyInput } from '@/components/CurrencyInput';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import { getActiveBranch, setActiveBranch } from '@/lib/branch-context';
 import { setStoredCurrency, formatCurrency, useCurrency, useTimezone, useDateFormat } from '@/lib/business-context';
@@ -1942,21 +1943,19 @@ export default function PosPage() {
                     />
                   </div>
                   {/* Unit price */}
-                  <input
-                    type="number"
-                    value={item.unitPrice}
+                  <CurrencyInput
+                    value={String(item.unitPrice)}
                     readOnly={!priceEditEnabled}
-                    onChange={(e) => {
-                      if (priceEditEnabled) updateCartItem(index, { unitPrice: Number(e.target.value) });
+                    onChange={(value) => {
+                      if (priceEditEnabled) updateCartItem(index, { unitPrice: Number(value) || 0 });
                     }}
                     className={`w-24 rounded-lg border border-gold-700/40 bg-[#0d0f16] px-2 py-1.5 text-xs tabular-nums text-gold-100 focus:outline-none ${priceEditEnabled ? 'focus:border-gold-500' : 'cursor-default opacity-60'}`}
                     placeholder={t('unitPrice')}
                   />
                   {/* Line discount */}
-                  <input
-                    type="number"
-                    value={item.lineDiscount || ''}
-                    onChange={(e) => updateCartItem(index, { lineDiscount: Number(e.target.value) || 0 })}
+                  <CurrencyInput
+                    value={item.lineDiscount ? String(item.lineDiscount) : ''}
+                    onChange={(value) => updateCartItem(index, { lineDiscount: Number(value) || 0 })}
                     className="w-20 rounded-lg border border-gold-700/40 bg-black/60 px-2 py-1.5 text-xs tabular-nums text-gold-500 placeholder:text-gold-700 focus:border-gold-500 focus:outline-none"
                     placeholder={t('discount')}
                   />
@@ -1971,10 +1970,9 @@ export default function PosPage() {
       {cart.length > 0 ? (
         <div className="flex items-center justify-between border-t border-gold-700/20 px-4 py-2">
           <span className="text-xs text-gold-500">{t('cartDiscount')}</span>
-          <input
-            type="number"
-            value={cartDiscount || ''}
-            onChange={(e) => setCartDiscount(Number(e.target.value) || 0)}
+          <CurrencyInput
+            value={cartDiscount ? String(cartDiscount) : ''}
+            onChange={(value) => setCartDiscount(Number(value) || 0)}
             className="w-24 rounded-lg border border-gold-700/40 bg-black/60 px-2 py-1.5 text-xs tabular-nums text-gold-100 focus:border-gold-500 focus:outline-none"
           />
         </div>
@@ -2432,14 +2430,11 @@ export default function PosPage() {
             <label htmlFor="pos-opening-cash" className="text-xs uppercase tracking-[0.2em] text-gold-400">
               {t('openingCashLabel')}
             </label>
-            <input
+            <CurrencyInput
               id="pos-opening-cash"
-              type="number"
-              min="0"
-              step="any"
               required
               value={openingCash}
-              onChange={(e) => setOpeningCash(e.target.value)}
+              onChange={setOpeningCash}
               placeholder="0"
               autoComplete="off"
               className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
