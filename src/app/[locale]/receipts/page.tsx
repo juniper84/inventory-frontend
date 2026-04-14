@@ -6,21 +6,17 @@ import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useBranchScope } from '@/lib/use-branch-scope';
-import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
-import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { useVariantSearch } from '@/lib/use-variant-search';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
-import { StatusBanner } from '@/components/StatusBanner';
-import { CurrencyInput } from '@/components/CurrencyInput';
+import { Banner } from '@/components/notifications/Banner';
 import {
   buildCursorQuery,
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
-import { formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import {
@@ -34,11 +30,18 @@ import {
   type ReceiptLabels,
 } from '@/lib/receipt-print';
 import { ReceiptPreview } from '@/components/receipts/ReceiptPreview';
+import { ReceiptDetailModal } from '@/components/receipts/ReceiptDetailModal';
+import { NoReceiptReturnModal } from '@/components/receipts/NoReceiptReturnModal';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
-import { useDebouncedValue } from '@/lib/use-debounced-value';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+
 import { useCurrency, formatCurrency, useFormatDate, useTimezone, useDateFormat } from '@/lib/business-context';
+import {
+  ListPage,
+  Card,
+  Icon,
+  ActionButtons,
+} from '@/components/ui';
 
 type ReceiptData = ReceiptPrintData;
 
@@ -47,7 +50,8 @@ type ReceiptRecord = {
   saleId: string;
   receiptNumber: string;
   issuedAt: string;
-  data?: ReceiptData;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?: ReceiptData | any;
 };
 
 type ReceiptResponse = ReceiptRecord & {
@@ -68,6 +72,41 @@ type Branch = { id: string; name: string };
 type Customer = { id: string; name: string };
 type Variant = { id: string; name: string; product?: { name: string } | null };
 type User = { id: string; name?: string | null; email?: string | null };
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function relativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}h ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  const diffMonth = Math.floor(diffDay / 30);
+  if (diffMonth < 12) return `${diffMonth}mo ago`;
+  return `${Math.floor(diffMonth / 12)}y ago`;
+}
+
+function getPaymentMethodIcon(method: string): 'Banknote' | 'CreditCard' | 'Smartphone' | 'Building' | 'CircleDot' {
+  switch (method) {
+    case 'CASH': return 'Banknote';
+    case 'CARD': return 'CreditCard';
+    case 'MOBILE_MONEY': return 'Smartphone';
+    case 'BANK_TRANSFER': return 'Building';
+    default: return 'CircleDot';
+  }
+}
+
+function getReceiptStatus(receipt: ReceiptResponse): { key: string; color: string; dotColor: string } {
+  const outstanding = receipt.sale?.outstandingAmount ? Number(receipt.sale.outstandingAmount) : 0;
+  if (outstanding > 0) return { key: 'CREDIT', color: 'text-amber-400', dotColor: 'bg-amber-400' };
+  return { key: 'COMPLETED', color: 'text-emerald-400', dotColor: 'bg-emerald-400' };
+}
 
 export default function ReceiptsPage() {
   const t = useTranslations('receiptsPage');
@@ -91,6 +130,7 @@ export default function ReceiptsPage() {
   const [isReturning, setIsReturning] = useState(false);
   const [receipts, setReceipts] = useState<ReceiptResponse[]>([]);
   const [selected, setSelected] = useState<ReceiptResponse | null>(null);
+  const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [previewMode, setPreviewMode] = useState<'compact' | 'detailed'>('detailed');
   const [message, setMessage] = useToastState();
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -140,7 +180,7 @@ export default function ReceiptsPage() {
   const effectiveFilterBranchId = resolveBranchId(filters.branchId) || '';
   const effectiveReturnBranchId = resolveBranchId(returnForm.branchId) || '';
   const [searchDraft, setSearchDraft] = useState(filters.search);
-  const debouncedSearch = useDebouncedValue(searchDraft, 350);
+
 
   const branchOptions = useMemo(
     () => [
@@ -166,11 +206,7 @@ export default function ReceiptsPage() {
     setSearchDraft(filters.search);
   }, [filters.search]);
 
-  useEffect(() => {
-    if (debouncedSearch !== filters.search) {
-      pushFilters({ search: debouncedSearch });
-    }
-  }, [debouncedSearch, filters.search, pushFilters]);
+
 
   const loadCustomerOptions = useCallback(async (inputValue: string) => {
     const token = getAccessToken();
@@ -278,7 +314,8 @@ export default function ReceiptsPage() {
     setPageCursors({ 1: null });
     setTotal(null);
     load(1);
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.search, effectiveFilterBranchId, filters.paymentMethod, filters.from, filters.to, pageSize]);
 
   useEffect(() => {
     if (activeBranch?.id && !returnForm.branchId) {
@@ -389,28 +426,6 @@ export default function ReceiptsPage() {
     }
   };
 
-  const receiptData = useMemo(() => selected?.data ?? null, [selected]);
-  const cashierLookup = useMemo(() => {
-    return new Map(
-      users.map((user) => [
-        user.id,
-        user.name?.trim() || user.email?.trim() || null,
-      ]),
-    );
-  }, [users]);
-  const previewReceiptData = useMemo(() => {
-    if (!receiptData) {
-      return null;
-    }
-    const cashierLabel = receiptData.cashierId
-      ? cashierLookup.get(receiptData.cashierId) ?? receiptData.cashierId
-      : null;
-    return { ...receiptData, cashierId: cashierLabel ?? receiptData.cashierId };
-  }, [receiptData, cashierLookup]);
-  const outstandingAmount = selected?.sale?.outstandingAmount
-    ? Number(selected.sale.outstandingAmount)
-    : 0;
-
   const submitSettlement = async () => {
     if (!canSettleCredit) {
       return;
@@ -507,6 +522,7 @@ export default function ReceiptsPage() {
       setReturnForm({ branchId: '', customerId: '', reason: '' });
       setReturnItems([{ variantId: '', quantity: '', unitPrice: '' }]);
       setReturnToStock(true);
+      setReturnModalOpen(false);
       await load(page);
       setMessage({ action: 'save', outcome: 'success', message: t('returnRecorded') });
     } catch (err) {
@@ -519,10 +535,6 @@ export default function ReceiptsPage() {
       setIsReturning(false);
     }
   };
-
-  if (isLoading) {
-    return <PageSkeleton />;
-  }
 
   const refundSale = async () => {
     if (!canRefund) {
@@ -565,478 +577,554 @@ export default function ReceiptsPage() {
     }
   };
 
-  return (
-    <section className="nvi-page">
-      <PremiumPageHeader
-        title={t('title')}
-        subtitle={t('subtitle')}
-        actions={
-          <>
-            <button
-              type="button"
-              onClick={connectPrinter}
-              className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
-              disabled={isConnectingPrinter}
-            >
-              {isConnectingPrinter ? t('printerConnecting') : t('connectPrinter')}
-            </button>
-            <label className="flex items-center gap-2 text-xs text-gold-200">
-              <input
-                type="checkbox"
-                className="h-3 w-3 accent-gold-400"
-                checked={useHardwarePrint}
-                onChange={(event) => setUseHardwarePrint(event.target.checked)}
-                disabled={!printer}
-              />
-              {t('hardwarePrint')}
-            </label>
-            <ViewToggle
-              value={viewMode}
-              onChange={setViewMode}
-              labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-            />
-          </>
-        }
-      />
-      {message ? <StatusBanner message={message} /> : null}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            {t('kpiReceiptRows')}
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{receipts.length}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            {t('kpiCurrentPage')}
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{page}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            {t('kpiOutstanding')}
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{formatCurrency(outstandingAmount, currency)}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            {t('kpiSelectedReceipt')}
-          </p>
-          <p className="mt-2 text-xl font-semibold text-gold-100">
-            {selected ? selected.receiptNumber : t('none')}
-          </p>
-        </article>
-      </div>
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          instanceId="receipts-filter-branch"
-          value={filters.branchId}
-          onChange={(value) => pushFilters({ branchId: value })}
-          options={branchOptions}
-          placeholder={common('branch')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          instanceId="receipts-filter-payment-method"
-          value={filters.paymentMethod}
-          onChange={(value) => pushFilters({ paymentMethod: value })}
-          options={paymentOptions}
-          placeholder={t('paymentMethod')}
-          className="nvi-select-container"
-        />
-        <DatePickerInput
-          value={filters.from}
-          onChange={(value) => pushFilters({ from: value })}
-          placeholder={common('fromDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-        <DatePickerInput
-          value={filters.to}
-          onChange={(value) => pushFilters({ to: value })}
-          placeholder={common('toDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-      </ListFilters>
+  const receiptData = useMemo((): ReceiptData | null => {
+    const raw = selected?.data;
+    if (!raw) return null;
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw) as ReceiptData; } catch { return null; }
+    }
+    return raw as ReceiptData;
+  }, [selected]);
 
-      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
-        {viewMode === 'table' ? (
-          receipts.length === 0 ? (
-            <StatusBanner message={t('noReceipts')} />
-          ) : (
-            <div className="overflow-auto text-sm text-gold-200">
-              <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
-                <thead className="text-xs uppercase text-gold-400">
-                  <tr>
-                    <th className="px-3 py-2">{t('receiptNumberLabel')}</th>
-                    <th className="px-3 py-2">{t('issuedAt')}</th>
-                    <th className="px-3 py-2">{t('total')}</th>
-                    <th className="px-3 py-2">{t('actionsLabel')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {receipts.map((receipt) => (
-                    <tr key={receipt.id} className="border-t border-gold-700/20">
-                      <td className="px-3 py-2 font-semibold">{receipt.receiptNumber}</td>
-                      <td className="px-3 py-2">
-                        {formatDateTime(receipt.issuedAt)}
-                      </td>
-                      <td className="px-3 py-2">
-                        {receipt.sale?.total ?? t('empty')}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2 text-xs">
-                          <button
-                            type="button"
-                            onClick={() => setSelected(receipt)}
-                            className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
-                          >
-                            {actions('view')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => reprint(receipt.id)}
-                            className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-                            disabled={!canRead || isReprinting === receipt.id}
-                            title={!canRead ? noAccess('title') : undefined}
-                          >
-                            {isReprinting === receipt.id ? (
-                              <Spinner size="xs" variant="dots" />
-                            ) : null}
-                            {isReprinting === receipt.id ? t('reprinting') : t('reprint')}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+  const cashierLookup = useMemo(() => {
+    return new Map(
+      users.map((user) => [
+        user.id,
+        user.name?.trim() || user.email?.trim() || null,
+      ]),
+    );
+  }, [users]);
+
+  const previewReceiptData = useMemo(() => {
+    if (!receiptData) {
+      return null;
+    }
+    const cashierLabel = receiptData.cashierId
+      ? cashierLookup.get(receiptData.cashierId) ?? receiptData.cashierId
+      : null;
+    return { ...receiptData, cashierId: cashierLabel ?? receiptData.cashierId };
+  }, [receiptData, cashierLookup]);
+
+  const outstandingAmount = selected?.sale?.outstandingAmount
+    ? Number(selected.sale.outstandingAmount)
+    : 0;
+
+  const receiptStats = useMemo(() => {
+    if (receipts.length === 0) return null;
+    const totalSales = receipts.reduce((sum, r) => {
+      const saleTotal = r.sale?.total != null ? Number(r.sale.total) : 0;
+      return sum + saleTotal;
+    }, 0);
+    const totalItems = receipts.reduce((sum, r) => {
+      return sum + (r.data?.lines?.length ?? 0);
+    }, 0);
+    return {
+      avgSale: totalSales / receipts.length,
+      avgItems: totalItems / receipts.length,
+    };
+  }, [receipts]);
+
+  // ─── Computed: today's receipts count ────────────────────────────────────
+  const todayCount = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    return receipts.filter((r) => r.issuedAt.slice(0, 10) === todayStr).length;
+  }, [receipts]);
+
+  // ─── Computed: total outstanding across visible receipts ─────────────────
+  const totalOutstanding = useMemo(() => {
+    return receipts.reduce((sum, r) => {
+      const amt = r.sale?.outstandingAmount ? Number(r.sale.outstandingAmount) : 0;
+      return sum + amt;
+    }, 0);
+  }, [receipts]);
+
+  // ─── Active filter description ───────────────────────────────────────────
+  const activeFilterLabel = useMemo(() => {
+    const parts: string[] = [];
+    if (filters.search) parts.push(filters.search);
+    if (filters.branchId) {
+      const b = branches.find((br) => br.id === filters.branchId);
+      if (b) parts.push(b.name);
+    }
+    if (filters.paymentMethod) parts.push(filters.paymentMethod);
+    if (filters.from || filters.to) parts.push(`${filters.from || '...'} - ${filters.to || '...'}`);
+    return parts.length > 0 ? parts.join(', ') : t('kpiAllReceipts');
+  }, [filters, branches, t]);
+
+  // ─── Branch lookup for receipt cards ─────────────────────────────────────
+  const branchLookup = useMemo(() => {
+    return new Map(branches.map((b) => [b.id, b.name]));
+  }, [branches]);
+
+  // ─── KPI Strip ───────────────────────────────────────────────────────────
+  const kpiCards: {
+    icon: 'Receipt' | 'Calendar' | 'DollarSign' | 'ListFilter';
+    tone: 'amber' | 'emerald' | 'blue';
+    label: string;
+    value: string;
+    truncate?: boolean;
+  }[] = [
+    {
+      icon: 'Receipt',
+      tone: 'amber',
+      label: t('kpiTotalReceipts'),
+      value: String(total ?? receipts.length),
+    },
+    {
+      icon: 'Calendar',
+      tone: 'emerald',
+      label: t('kpiTodayReceipts'),
+      value: String(todayCount),
+    },
+    {
+      icon: 'DollarSign',
+      tone: 'amber',
+      label: t('kpiOutstanding'),
+      value: formatCurrency(totalOutstanding, currency),
+    },
+    {
+      icon: 'ListFilter',
+      tone: 'blue',
+      label: t('kpiCurrentFilter'),
+      value: activeFilterLabel,
+      truncate: true,
+    },
+  ];
+
+  const kpiStrip = (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+      {kpiCards.map((k) => (
+        <Card key={k.label}>
+          <div className="flex items-center gap-3">
+            <div className={`nvi-kpi-icon nvi-kpi-icon--${k.tone}`}>
+              <Icon name={k.icon} size={20} />
             </div>
-          )
-        ) : receipts.length === 0 ? (
-          <StatusBanner message={t('noReceipts')} />
-        ) : (
-          receipts.map((receipt) => (
-            <div
-              key={receipt.id}
-              className="flex flex-wrap items-center justify-between gap-2 border-b border-gold-700/20 pb-2 text-sm text-gold-200"
-            >
-              <div>
-                <p className="text-gold-100">{receipt.receiptNumber}</p>
-                <p className="text-xs text-gold-400">
-                  {formatDateTime(receipt.issuedAt)}
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-[color:var(--muted)]">
+                {k.label}
+              </p>
+              <p
+                className={`font-semibold text-[color:var(--foreground)] ${
+                  k.truncate
+                    ? 'max-w-[180px] truncate text-sm'
+                    : 'text-2xl font-bold'
+                }`}
+              >
+                {k.value}
+              </p>
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+
+  // ─── Banner ──────────────────────────────────────────────────────────────
+  const bannerNode = message ? (
+    <Banner
+      message={message.message}
+      severity={message.outcome === 'success' ? 'success' : message.outcome === 'warning' ? 'warning' : 'error'}
+      onDismiss={() => setMessage(null)}
+    />
+  ) : null;
+
+  // ─── Header actions ──────────────────────────────────────────────────────
+  const headerActions = (
+    <div className="flex flex-wrap items-center gap-3">
+      {canReturnWithoutReceipt ? (
+        <button
+          type="button"
+          onClick={() => setReturnModalOpen(true)}
+          className="nvi-press inline-flex items-center gap-2 rounded-xl border border-[color:var(--border)] px-3 py-1.5 text-xs text-[color:var(--foreground)]"
+        >
+          <Icon name="RotateCcw" size={14} />
+          {t('returnTitle')}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={connectPrinter}
+        className="nvi-press inline-flex items-center gap-2 rounded-xl border border-[color:var(--border)] px-3 py-1.5 text-xs text-[color:var(--foreground)] disabled:opacity-70"
+        disabled={isConnectingPrinter}
+      >
+        <Icon name="Printer" size={14} />
+        {isConnectingPrinter ? t('printerConnecting') : t('connectPrinter')}
+      </button>
+      <label className="flex items-center gap-2 text-xs text-[color:var(--foreground)]">
+        <input
+          type="checkbox"
+          className="h-3 w-3 accent-[color:var(--accent)]"
+          checked={useHardwarePrint}
+          onChange={(event) => setUseHardwarePrint(event.target.checked)}
+          disabled={!printer}
+        />
+        {t('hardwarePrint')}
+      </label>
+      <ViewToggle
+        value={viewMode}
+        onChange={setViewMode}
+        labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+      />
+    </div>
+  );
+
+  // ─── Filters ─────────────────────────────────────────────────────────────
+  const filtersNode = (
+    <ListFilters
+      searchValue={searchDraft}
+      onSearchChange={setSearchDraft}
+      onSearchSubmit={() => pushFilters({ search: searchDraft })}
+      onReset={() => resetFilters()}
+      isLoading={isLoading}
+      showAdvanced={showAdvanced}
+      onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+      placeholder={t('searchByReceiptNumber')}
+    >
+      <SmartSelect
+        instanceId="receipts-filter-branch"
+        value={filters.branchId}
+        onChange={(value) => pushFilters({ branchId: value })}
+        options={branchOptions}
+        placeholder={common('branch')}
+        className="nvi-select-container"
+      />
+      <SmartSelect
+        instanceId="receipts-filter-payment-method"
+        value={filters.paymentMethod}
+        onChange={(value) => pushFilters({ paymentMethod: value })}
+        options={paymentOptions}
+        placeholder={t('paymentMethod')}
+        className="nvi-select-container"
+      />
+      <DatePickerInput
+        value={filters.from}
+        onChange={(value) => pushFilters({ from: value })}
+        placeholder={common('fromDate')}
+        className="rounded-xl border border-[color:var(--border)] bg-black px-3 py-2 text-[color:var(--foreground)]"
+      />
+      <DatePickerInput
+        value={filters.to}
+        onChange={(value) => pushFilters({ to: value })}
+        placeholder={common('toDate')}
+        className="rounded-xl border border-[color:var(--border)] bg-black px-3 py-2 text-[color:var(--foreground)]"
+      />
+    </ListFilters>
+  );
+
+  // ─── Receipt stats row ───────────────────────────────────────────────────
+  const statsRow = receiptStats ? (
+    <div className="flex flex-wrap gap-4 text-xs text-[color:var(--muted)]">
+      <span>{t('avgSale')}: {formatCurrency(receiptStats.avgSale, currency)}</span>
+      <span>{t('avgItems')}: {receiptStats.avgItems.toFixed(1)}</span>
+    </div>
+  ) : null;
+
+
+  // ─── Payment method pill ─────────────────────────────────────────────────
+  const PaymentPill = ({ method }: { method: string }) => (
+    <span className="inline-flex items-center gap-1 rounded-full bg-[color:var(--surface-alt)] px-2 py-0.5 text-[10px] font-medium text-[color:var(--foreground)] nvi-status-fade">
+      <Icon name={getPaymentMethodIcon(method)} size={12} />
+      {method.replace(/_/g, ' ')}
+    </span>
+  );
+
+  // ─── Card view ───────────────────────────────────────────────────────────
+  const cardsContent = (
+    <div className="grid gap-4 md:grid-cols-2 nvi-stagger">
+      {receipts.map((receipt) => {
+        const status = getReceiptStatus(receipt);
+        const saleTotal = receipt.sale?.total != null ? Number(receipt.sale.total) : null;
+        const customerName = receipt.data?.customer?.name || null;
+        const cashier = receipt.data?.cashierId
+          ? cashierLookup.get(receipt.data.cashierId) ?? null
+          : null;
+        const branchName = receipt.data?.branchId
+          ? branchLookup.get(receipt.data.branchId) ?? null
+          : null;
+        const payments = receipt.data?.payments ?? [];
+        const isSelected = selected?.id === receipt.id;
+
+        return (
+          <Card
+            key={receipt.id}
+            className={`nvi-card-hover cursor-pointer ${isSelected ? 'ring-2 ring-[color:var(--accent)]' : ''}`}
+          >
+            <div onClick={() => setSelected(receipt)}>
+              {/* Header row: receipt number + status dot */}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Icon name="Hash" size={14} className="text-[color:var(--muted)]" />
+                  <span className="font-mono text-sm font-semibold text-[color:var(--foreground)]">
+                    {receipt.receiptNumber}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${status.dotColor} nvi-status-fade`} />
+                  <span className={`text-[10px] font-medium ${status.color}`}>
+                    {status.key}
+                  </span>
+                </div>
+              </div>
+
+              {/* Hero total */}
+              {saleTotal !== null ? (
+                <p className="text-2xl font-bold text-[color:var(--foreground)] mb-2">
+                  {formatCurrency(saleTotal, currency)}
+                </p>
+              ) : null}
+
+              {/* Payment method badges */}
+              {payments.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {payments.map((p: { method: string }, i: number) => (
+                    <PaymentPill key={i} method={p.method} />
+                  ))}
+                </div>
+              ) : null}
+
+              {/* Info rows */}
+              <div className="space-y-1 text-xs text-[color:var(--muted)]">
+                {customerName ? (
+                  <p className="flex items-center gap-1.5">
+                    <Icon name="Users" size={12} />
+                    {customerName}
+                  </p>
+                ) : null}
+                {branchName ? (
+                  <p className="flex items-center gap-1.5">
+                    <Icon name="Building2" size={12} />
+                    {branchName}
+                  </p>
+                ) : null}
+                {cashier ? (
+                  <p className="flex items-center gap-1.5">
+                    <Icon name="User" size={12} />
+                    {cashier}
+                  </p>
+                ) : null}
+                <p className="flex items-center gap-1.5">
+                  <Icon name="Clock" size={12} />
+                  {relativeTime(receipt.issuedAt)}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelected(receipt)}
-                  className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
-                >
-                  {actions('view')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => reprint(receipt.id)}
-                  className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-                  disabled={!canRead || isReprinting === receipt.id}
-                  title={!canRead ? noAccess('title') : undefined}
-                >
-                  {isReprinting === receipt.id ? (
-                    <Spinner size="xs" variant="dots" />
-                  ) : null}
-                  {isReprinting === receipt.id ? t('reprinting') : t('reprint')}
-                </button>
-              </div>
             </div>
-          ))
-        )}
-        <div className="pt-2">
-          <PaginationControls
-            page={page}
-            pageSize={pageSize}
-            total={total}
-            itemCount={receipts.length}
-            availablePages={Object.keys(pageCursors).map((value) => Number(value))}
-            hasNext={Boolean(nextCursor)}
-            hasPrev={page > 1}
-            isLoading={isLoading}
-            onPageChange={(targetPage) => load(targetPage)}
-            onPageSizeChange={(nextPageSize) => {
-              setPageSize(nextPageSize);
-              setTotal(null);
-              setPage(1);
-              setPageCursors({ 1: null });
-              load(1, nextPageSize);
-            }}
-          />
-        </div>
-      </div>
 
-      {selected ? (
-        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-semibold text-gold-100">
-                {previewT('title')}
-              </h3>
-              <p className="text-xs text-gold-400">{selected.receiptNumber}</p>
+            {/* Action buttons */}
+            <div className="mt-3 flex items-center gap-1 border-t border-[color:var(--border)] pt-3">
+              <ActionButtons
+                actions={[
+                  {
+                    key: 'view',
+                    icon: <Icon name="Eye" size={14} />,
+                    label: actions('view'),
+                    onClick: () => setSelected(receipt),
+                  },
+                  {
+                    key: 'reprint',
+                    icon: isReprinting === receipt.id ? <Spinner size="xs" variant="dots" /> : <Icon name="Printer" size={14} />,
+                    label: t('reprint'),
+                    onClick: () => reprint(receipt.id),
+                    disabled: !canRead || isReprinting === receipt.id,
+                  },
+                  ...(canRefund && receipt.sale ? [{
+                    key: 'refund',
+                    icon: <Icon name="RotateCcw" size={14} />,
+                    label: t('refundSale'),
+                    onClick: () => setSelected(receipt),
+                    variant: 'danger' as const,
+                  }] : []),
+                ]}
+                size="xs"
+              />
             </div>
-            <div className="flex items-center gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => setPreviewMode('compact')}
-                className={`rounded border px-3 py-1 ${
-                  previewMode === 'compact'
-                    ? 'border-gold-500 text-gold-100'
-                    : 'border-gold-700/50 text-gold-400'
-                }`}
-              >
-                {previewT('compact')}
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewMode('detailed')}
-                className={`rounded border px-3 py-1 ${
-                  previewMode === 'detailed'
-                    ? 'border-gold-500 text-gold-100'
-                    : 'border-gold-700/50 text-gold-400'
-                }`}
-              >
-                {previewT('detailed')}
-              </button>
-            </div>
-          </div>
-          <ReceiptPreview
-            receiptNumber={selected.receiptNumber}
-            issuedAt={selected.issuedAt}
-            data={previewReceiptData ?? undefined}
-            mode={previewMode}
-          />
-        </div>
-      ) : null}
+          </Card>
+        );
+      })}
+    </div>
+  );
 
-      {selected?.sale && outstandingAmount > 0 ? (
-        <div className="command-card nvi-panel p-4 space-y-2 nvi-reveal">
-          <h3 className="text-lg font-semibold text-gold-100">
-            {t('settlementTitle')}
-          </h3>
-          <p className="text-xs text-gold-400">
-            {t('outstandingLabel', {
-              amount: formatCurrency(outstandingAmount, currency),
-              due: selected.sale.creditDueDate
-                ? formatDate(selected.sale.creditDueDate)
-                : '',
+  // ─── Table view ──────────────────────────────────────────────────────────
+  const tableContent = (
+    <Card>
+      <div className="overflow-auto text-sm">
+        <table className="min-w-[780px] w-full text-left text-sm text-[color:var(--foreground)]">
+          <thead className="text-xs uppercase text-[color:var(--muted)] border-b border-[color:var(--border)]">
+            <tr>
+              <th className="px-3 py-2">
+                <span className="inline-flex items-center gap-1">
+                  <Icon name="Hash" size={12} />
+                  {t('receiptNumberLabel')}
+                </span>
+              </th>
+              <th className="px-3 py-2">
+                <span className="inline-flex items-center gap-1">
+                  <Icon name="Users" size={12} />
+                  {t('customerColumn')}
+                </span>
+              </th>
+              <th className="px-3 py-2">
+                <span className="inline-flex items-center gap-1">
+                  <Icon name="Calendar" size={12} />
+                  {t('issuedAt')}
+                </span>
+              </th>
+              <th className="px-3 py-2 text-center">{t('itemsColumn')}</th>
+              <th className="px-3 py-2 text-right">
+                <span className="inline-flex items-center gap-1 justify-end">
+                  <Icon name="DollarSign" size={12} />
+                  {t('total')}
+                </span>
+              </th>
+              <th className="px-3 py-2">{t('paymentMethod')}</th>
+              <th className="px-3 py-2">{t('actionsLabel')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {receipts.map((receipt) => {
+              const status = getReceiptStatus(receipt);
+              return (
+                <tr key={receipt.id} className="border-t border-[color:var(--border)] hover:bg-[color:var(--surface-alt)] transition-colors">
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${status.dotColor} nvi-status-fade`} />
+                      <span className="font-mono font-semibold">{receipt.receiptNumber}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {receipt.data?.customer?.name || t('empty')}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {formatDateTime(receipt.issuedAt)}
+                  </td>
+                  <td className="px-3 py-2 text-center text-xs">
+                    {receipt.data?.lines?.length ?? t('empty')}
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold">
+                    {receipt.sale?.total != null
+                      ? formatCurrency(Number(receipt.sale.total), currency)
+                      : t('empty')}
+                  </td>
+                  <td className="px-3 py-2">
+                    {receipt.data?.payments?.[0]?.method ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[color:var(--surface-alt)] px-2 py-0.5 text-[10px] font-medium">
+                        <Icon name={getPaymentMethodIcon(receipt.data.payments[0].method)} size={12} />
+                        {receipt.data.payments[0].method.replace(/_/g, ' ')}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2">
+                    <ActionButtons
+                      actions={[
+                        { key: 'view', icon: <Icon name="Eye" size={14} />, label: actions('view'), onClick: () => setSelected(receipt) },
+                        { key: 'reprint', icon: <Icon name="Printer" size={14} />, label: t('reprint'), onClick: () => reprint(receipt.id), disabled: !canRead || isReprinting === receipt.id },
+                      ]}
+                      size="xs"
+                    />
+                  </td>
+                </tr>
+              );
             })}
-          </p>
-          <div className="grid gap-2 md:grid-cols-2">
-            <SmartSelect
-              instanceId="receipts-settlement-method"
-              value={settlement.method}
-              onChange={(value) =>
-                setSettlement({ ...settlement, method: value })
-              }
-              options={[
-                { value: 'CASH', label: t('paymentCash') },
-                { value: 'CARD', label: t('paymentCard') },
-                { value: 'MOBILE_MONEY', label: t('paymentMobileMoney') },
-                { value: 'BANK_TRANSFER', label: t('paymentBankTransfer') },
-                { value: 'OTHER', label: t('paymentOther') },
-              ]}
-              className="nvi-select-container"
-            />
-            <CurrencyInput
-              value={settlement.amount}
-              onChange={(value) =>
-                setSettlement({ ...settlement, amount: value })
-              }
-              placeholder={t('amount')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
-            />
-            {settlement.method === 'OTHER' ? (
-              <input
-                value={settlement.methodLabel}
-                onChange={(event) =>
-                  setSettlement({ ...settlement, methodLabel: event.target.value })
-                }
-                placeholder={t('paymentLabel')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
-              />
-            ) : null}
-            <input
-              value={settlement.reference}
-              onChange={(event) =>
-                setSettlement({ ...settlement, reference: event.target.value })
-              }
-              placeholder={t('referenceOptional')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={submitSettlement}
-            className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={!canSettleCredit || isSettling}
-            title={!canSettleCredit ? noAccess('title') : undefined}
-          >
-            {isSettling ? <Spinner size="xs" variant="pulse" /> : null}
-            {isSettling ? t('recording') : t('recordSettlement')}
-          </button>
-        </div>
-      ) : null}
-
-      {selected?.sale ? (
-        <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
-          <h3 className="text-lg font-semibold text-gold-100">
-            {t('refundTitle')}
-          </h3>
-          <div className="grid gap-2 md:grid-cols-2">
-            <input
-              value={refundReason}
-              onChange={(event) => setRefundReason(event.target.value)}
-              placeholder={t('refundReasonOptional')}
-              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
-            />
-            <label className="flex items-center gap-2 text-xs text-gold-200">
-              <input
-                type="checkbox"
-                checked={refundReturnToStock}
-                onChange={(event) => setRefundReturnToStock(event.target.checked)}
-              />
-              {t('returnToStock')}
-            </label>
-          </div>
-          <button
-            type="button"
-            onClick={refundSale}
-            className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={!canRefund || isRefunding}
-            title={!canRefund ? noAccess('title') : undefined}
-          >
-            {isRefunding ? <Spinner size="xs" variant="pulse" /> : null}
-            {isRefunding ? t('refunding') : t('refundSale')}
-          </button>
-        </div>
-      ) : null}
-
-      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">
-          {t('returnTitle')}
-        </h3>
-        <div className="grid gap-2 md:grid-cols-3">
-          <SmartSelect
-            instanceId="receipts-return-branch"
-            value={returnForm.branchId}
-            onChange={(value) =>
-              setReturnForm({ ...returnForm, branchId: value })
-            }
-            options={branches.map((branch) => ({
-              value: branch.id,
-              label: branch.name,
-            }))}
-            placeholder={t('selectBranch')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <AsyncSmartSelect
-            instanceId="receipts-return-customer"
-            value={returnForm.customerId ? { value: returnForm.customerId, label: customers.find((c) => c.id === returnForm.customerId)?.name ?? returnForm.customerId } : null}
-            onChange={(opt) => setReturnForm({ ...returnForm, customerId: opt?.value ?? '' })}
-            loadOptions={loadCustomerOptions}
-            defaultOptions={customers.map((c) => ({ value: c.id, label: c.name }))}
-            placeholder={t('customerOptional')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <input
-            value={returnForm.reason}
-            onChange={(event) =>
-              setReturnForm({ ...returnForm, reason: event.target.value })
-            }
-            placeholder={t('reasonOptional')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
-          />
-          <label className="flex items-center gap-2 text-xs text-gold-200">
-            <input
-              type="checkbox"
-              checked={returnToStock}
-              onChange={(event) => setReturnToStock(event.target.checked)}
-            />
-            {t('returnToStock')}
-          </label>
-        </div>
-        <div className="space-y-2 nvi-stagger">
-          {returnItems.map((item, index) => (
-            <div key={`return-${index}`} className="grid gap-2 md:grid-cols-3">
-              <AsyncSmartSelect
-                instanceId={`receipts-return-item-${index}-variant`}
-                value={getVariantOption(item.variantId)}
-                loadOptions={loadVariantOptions}
-                defaultOptions={variants.map((v) => ({
-                  value: v.id,
-                  label: formatVariantLabel({
-                    id: v.id,
-                    name: v.name,
-                    productName: v.product?.name ?? null,
-                  }),
-                }))}
-                onChange={(opt) =>
-                  updateReturnItem(index, { variantId: opt?.value ?? '' })
-                }
-                placeholder={t('selectVariant')}
-                isClearable
-                className="nvi-select-container"
-              />
-              <input
-                value={item.quantity}
-                onChange={(event) =>
-                  updateReturnItem(index, { quantity: event.target.value })
-                }
-                type="number"
-                placeholder={t('quantity')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
-              />
-              <input
-                value={item.unitPrice}
-                onChange={(event) =>
-                  updateReturnItem(index, { unitPrice: event.target.value })
-                }
-                type="number"
-                placeholder={t('unitPrice')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100"
-              />
-            </div>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={addReturnItem}
-            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={!canReturnWithoutReceipt}
-            title={!canReturnWithoutReceipt ? noAccess('title') : undefined}
-          >
-            {t('addItem')}
-          </button>
-          <button
-            type="button"
-            onClick={submitReturnWithoutReceipt}
-            className="nvi-cta rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={!canReturnWithoutReceipt || isReturning}
-            title={!canReturnWithoutReceipt ? noAccess('title') : undefined}
-          >
-            {isReturning ? <Spinner size="xs" variant="orbit" /> : null}
-            {isReturning ? t('submitting') : t('submitReturn')}
-          </button>
-        </div>
+          </tbody>
+        </table>
       </div>
+    </Card>
+  );
+
+  // ─── Pagination ──────────────────────────────────────────────────────────
+  const paginationNode = (
+    <PaginationControls
+      page={page}
+      pageSize={pageSize}
+      total={total}
+      itemCount={receipts.length}
+      availablePages={Object.keys(pageCursors).map((value) => Number(value))}
+      hasNext={Boolean(nextCursor)}
+      hasPrev={page > 1}
+      isLoading={isLoading}
+      onPageChange={(targetPage) => load(targetPage)}
+      onPageSizeChange={(nextPageSize) => {
+        setPageSize(nextPageSize);
+        setTotal(null);
+        setPage(1);
+        setPageCursors({ 1: null });
+        load(1, nextPageSize);
+      }}
+    />
+  );
+
+  // ─── Render ──────────────────────────────────────────────────────────────
+  return (
+    <>
+      <ListPage
+        title={t('title')}
+        subtitle={t('subtitle')}
+        headerActions={headerActions}
+        banner={bannerNode}
+        kpis={kpiStrip}
+        filters={filtersNode}
+        beforeContent={statsRow}
+        viewMode={viewMode}
+        table={tableContent}
+        cards={cardsContent}
+        isEmpty={receipts.length === 0}
+        emptyIcon={<Icon name="Receipt" size={32} className="text-amber-400/40 nvi-float" />}
+        emptyTitle={t('noReceipts')}
+        emptyDescription={t('subtitle')}
+        pagination={paginationNode}
+        isLoading={isLoading}
+      />
+
+      <ReceiptDetailModal
+        open={Boolean(selected)}
+        onClose={() => setSelected(null)}
+        receipt={selected}
+        previewMode={previewMode}
+        onPreviewModeChange={setPreviewMode}
+        previewData={previewReceiptData}
+        isReprinting={Boolean(selected && isReprinting === selected.id)}
+        onReprint={() => selected && reprint(selected.id)}
+        canRead={canRead}
+        outstandingAmount={outstandingAmount}
+        dueDateLabel={
+          selected?.sale?.creditDueDate
+            ? formatDate(selected.sale.creditDueDate)
+            : null
+        }
+        currency={currency}
+        settlement={settlement}
+        onSettlementChange={setSettlement}
+        onSubmitSettlement={submitSettlement}
+        isSettling={isSettling}
+        canSettleCredit={canSettleCredit}
+        refundReason={refundReason}
+        onRefundReasonChange={setRefundReason}
+        refundReturnToStock={refundReturnToStock}
+        onRefundReturnToStockChange={setRefundReturnToStock}
+        onRefund={refundSale}
+        isRefunding={isRefunding}
+        canRefund={canRefund}
+      />
+
+      <NoReceiptReturnModal
+        open={returnModalOpen}
+        onClose={() => setReturnModalOpen(false)}
+        branches={branches}
+        customers={customers}
+        variants={variants}
+        returnForm={returnForm}
+        onReturnFormChange={setReturnForm}
+        returnToStock={returnToStock}
+        onReturnToStockChange={setReturnToStock}
+        returnItems={returnItems}
+        onAddItem={addReturnItem}
+        onUpdateItem={updateReturnItem}
+        loadCustomerOptions={loadCustomerOptions}
+        loadVariantOptions={loadVariantOptions}
+        getVariantOption={getVariantOption}
+        isReturning={isReturning}
+        onSubmit={submitReturnWithoutReceipt}
+        canReturnWithoutReceipt={canReturnWithoutReceipt}
+      />
 
       <div
         id="receipt-print"
@@ -1086,6 +1174,6 @@ export default function ReceiptsPage() {
           }
         }
       `}</style>
-    </section>
+    </>
   );
 }

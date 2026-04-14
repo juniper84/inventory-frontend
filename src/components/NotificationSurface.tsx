@@ -1,14 +1,24 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { useFormatDate } from '@/lib/business-context';
 import { apiFetch, refreshSessionToken } from '@/lib/api';
 import { clearSession, getAccessToken } from '@/lib/auth';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { formatNotificationMessage } from '@/lib/notification-format';
 import { pushToast } from '@/lib/app-notifications';
+import {
+  AnnouncementOverlay,
+  pruneDismissedAnnouncementIds,
+  type BusinessAnnouncement,
+} from '@/components/notifications/AnnouncementOverlay';
+import { Banner } from '@/components/notifications/Banner';
+import { notify } from '@/components/notifications/NotificationProvider';
+import {
+  priorityToSeverity,
+  type NotificationPriority,
+} from '@/components/notifications/NotificationPriorityIcon';
+import type { SseState } from '@/components/notifications/NotificationSseIndicator';
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000/api/v1';
@@ -17,71 +27,60 @@ type Notification = {
   id: string;
   title: string;
   message: string;
-  priority: 'ACTION_REQUIRED' | 'WARNING' | 'INFO' | 'SECURITY';
+  priority: NotificationPriority;
   status: 'UNREAD' | 'READ';
   createdAt: string;
   metadata?: Record<string, unknown> | null;
 };
 
-type Announcement = {
-  id: string;
-  title: string;
-  message: string;
-  severity: string;
-  startsAt: string;
-  endsAt?: string | null;
-};
+type Announcement = BusinessAnnouncement;
 
-const PRIORITY_ORDER: Notification['priority'][] = [
+// SECURITY first so the sticky banner always picks the most-urgent unread item.
+const PRIORITY_ORDER: NotificationPriority[] = [
   'SECURITY',
   'ACTION_REQUIRED',
   'WARNING',
   'INFO',
 ];
 
+function broadcastSseState(state: SseState) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent('nvi:business:sse', { detail: { state } }),
+  );
+}
+
 export function NotificationSurface({ locale }: { locale: string }) {
   const t = useTranslations('notifications');
-  const { formatDateTime, formatTime } = useFormatDate();
   const [items, setItems] = useState<Notification[]>([]);
   const [streamToken, setStreamToken] = useState<string | null>(null);
   const debugStream = process.env.NODE_ENV !== 'production';
-  const [dismissedAnnouncementId, setDismissedAnnouncementId] = useState<
-    string | null
-  >(() => {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-    return window.sessionStorage.getItem('nvi.dismissedAnnouncementId');
-  });
-  const [showAnnouncementDetails, setShowAnnouncementDetails] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
-  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [overlayMode, setOverlayMode] = useState<'unseen' | 'all' | null>(null);
   const retryRef = useRef(0);
   const retryTimerRef = useRef<number | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
+  // Tracks which notification IDs we've already toasted during this session —
+  // prevents re-toasting the same notification on reconnect / tab refocus.
+  const toastedIdsRef = useRef<Set<string>>(new Set());
+  // Tracks whether the initial payload has been received. We do NOT toast
+  // the initial backlog; only live SSE arrivals.
+  const initialLoadDoneRef = useRef(false);
 
+  // ── Token sync (unchanged) ─────────────────────────────────────────────
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
     let lastToken = getAccessToken();
     setStreamToken(lastToken);
-    if (debugStream) {
-      console.info('[notifications] token sync init', {
-        hasToken: Boolean(lastToken),
-      });
-    }
 
     const handleStorage = (_event: StorageEvent) => {
       const nextToken = getAccessToken();
       if (nextToken !== lastToken) {
         lastToken = nextToken;
         setStreamToken(nextToken);
-        if (debugStream) {
-          console.info('[notifications] token sync storage', {
-            hasToken: Boolean(nextToken),
-          });
-        }
       }
     };
 
@@ -90,11 +89,6 @@ export function NotificationSurface({ locale }: { locale: string }) {
       if (nextToken !== lastToken) {
         lastToken = nextToken;
         setStreamToken(nextToken);
-        if (debugStream) {
-          console.info('[notifications] token sync poll', {
-            hasToken: Boolean(nextToken),
-          });
-        }
       }
     }, 5000);
 
@@ -105,18 +99,25 @@ export function NotificationSurface({ locale }: { locale: string }) {
     };
   }, []);
 
-  const loadAnnouncement = async (token: string) => {
+  // ── Announcement loader ────────────────────────────────────────────────
+  const loadAnnouncements = useCallback(async (token: string) => {
     try {
-      const announcementData = await apiFetch<Announcement | null>(
-        '/notifications/announcement',
+      const list = await apiFetch<Announcement[]>(
+        '/notifications/announcements',
         { token },
       );
-      setAnnouncement(announcementData);
+      const safe = Array.isArray(list) ? list : [];
+      setAnnouncements(safe);
+      pruneDismissedAnnouncementIds(safe.map((a) => a.id));
+      if (safe.length > 0) {
+        setOverlayMode((current) => current ?? 'unseen');
+      }
     } catch (err) {
-      console.warn('Failed to load announcement', err);
+      console.warn('Failed to load announcements', err);
     }
-  };
+  }, []);
 
+  // ── Initial + periodic polling load ────────────────────────────────────
   useEffect(() => {
     if (!streamToken) {
       return;
@@ -127,19 +128,32 @@ export function NotificationSurface({ locale }: { locale: string }) {
         return;
       }
       try {
-        const [data, announcementData] = await Promise.all([
+        const [data, announcementList] = await Promise.all([
           apiFetch<PaginatedResponse<Notification> | Notification[]>(
             '/notifications',
             { token: streamToken },
           ),
-          apiFetch<Announcement | null>('/notifications/announcement', {
+          apiFetch<Announcement[]>('/notifications/announcements', {
             token: streamToken,
           }),
         ]);
         const result = normalizePaginated(data);
+        const safe = Array.isArray(announcementList) ? announcementList : [];
         if (active) {
           setItems(result.items);
-          setAnnouncement(announcementData);
+          setAnnouncements(safe);
+          pruneDismissedAnnouncementIds(safe.map((a) => a.id));
+          if (safe.length > 0) {
+            setOverlayMode((current) => current ?? 'unseen');
+          }
+          // Mark every existing item as "already seen" so we don't toast the
+          // backlog on page load. Only genuinely new SSE arrivals will toast.
+          if (!initialLoadDoneRef.current) {
+            for (const item of result.items) {
+              toastedIdsRef.current.add(item.id);
+            }
+            initialLoadDoneRef.current = true;
+          }
         }
       } catch (err) {
         console.warn('Failed to load notifications', err);
@@ -156,16 +170,18 @@ export function NotificationSurface({ locale }: { locale: string }) {
     };
   }, [streamToken]);
 
+  // ── SSE stream lifecycle ───────────────────────────────────────────────
   useEffect(() => {
     let active = true;
+    const handleReviewAnnouncements = () => {
+      setOverlayMode('all');
+    };
+    window.addEventListener('nvi:announcements:review', handleReviewAnnouncements);
 
     const connect = async () => {
-      if (!active) {
-        return;
-      }
-      if (!streamToken) {
-        return;
-      }
+      if (!active) return;
+      if (!streamToken) return;
+      broadcastSseState('reconnecting');
       let sseToken: string;
       try {
         const res = await apiFetch<{ token: string }>(
@@ -174,22 +190,18 @@ export function NotificationSurface({ locale }: { locale: string }) {
         );
         sseToken = res.token;
       } catch {
+        broadcastSseState('disconnected');
         return;
       }
       const url = new URL(`${API_BASE_URL}/notifications/stream`);
       url.searchParams.set('token', sseToken);
-      if (debugStream) {
-        console.info('[notifications] stream connect', { url: url.toString() });
-      }
       const source = new EventSource(url.toString());
       sourceRef.current = source;
 
       const handleNotification = (event: MessageEvent) => {
         try {
           const incoming = JSON.parse(event.data) as Notification;
-          if (!incoming?.id) {
-            return;
-          }
+          if (!incoming?.id) return;
           setItems((prev) => {
             if (prev.some((item) => item.id === incoming.id)) {
               return prev;
@@ -197,12 +209,21 @@ export function NotificationSurface({ locale }: { locale: string }) {
             const next = [incoming, ...prev];
             return next.slice(0, 50);
           });
-          if (debugStream) {
-            console.info('[notifications] stream event', {
-              id: incoming.id,
-              title: incoming.title,
-              priority: incoming.priority,
-            });
+          // Only toast NEW arrivals (not things we already had on load).
+          if (
+            !toastedIdsRef.current.has(incoming.id) &&
+            initialLoadDoneRef.current
+          ) {
+            toastedIdsRef.current.add(incoming.id);
+            const severity = priorityToSeverity(incoming.priority);
+            // For SECURITY / ACTION_REQUIRED we keep the Banner + modal path —
+            // don't also fire a toast (would be duplicate). For WARNING/INFO
+            // fire a toast; user dismissal is independent of read-state.
+            if (incoming.priority === 'WARNING' || incoming.priority === 'INFO') {
+              notify[severity](formatNotificationMessage(incoming), {
+                title: incoming.title,
+              });
+            }
           }
         } catch (err) {
           console.warn('Failed to parse notification stream payload', err);
@@ -211,34 +232,21 @@ export function NotificationSurface({ locale }: { locale: string }) {
 
       const handleAnnouncement = () => {
         if (streamToken) {
-          loadAnnouncement(streamToken);
+          loadAnnouncements(streamToken);
         }
       };
 
       const scheduleReconnect = async () => {
-        if (!active) {
-          return;
-        }
+        if (!active) return;
+        broadcastSseState('reconnecting');
         source.close();
         retryRef.current += 1;
         const refreshed = await refreshSessionToken();
-        if (refreshed) {
-          retryRef.current = 0;
-        }
-        const delay = refreshed
-          ? 1000
-          : Math.min(30000, 1000 * 2 ** (retryRef.current - 1));
-        if (debugStream) {
-          console.info('[notifications] stream reconnect', {
-            refreshed,
-            delay,
-            attempt: retryRef.current,
-          });
-        }
-        if (retryTimerRef.current) {
-          window.clearTimeout(retryTimerRef.current);
-        }
+        if (refreshed) retryRef.current = 0;
+        const delay = refreshed ? 1000 : Math.min(30_000, 1000 * 2 ** (retryRef.current - 1));
+        if (retryTimerRef.current) window.clearTimeout(retryTimerRef.current);
         retryTimerRef.current = window.setTimeout(() => {
+          if (retryRef.current >= 5) broadcastSseState('disconnected');
           void connect();
         }, delay);
       };
@@ -254,9 +262,7 @@ export function NotificationSurface({ locale }: { locale: string }) {
           // ignore parse errors
         }
         const message =
-          reason === 'deactivated'
-            ? t('accountDeactivated')
-            : t('sessionRevoked');
+          reason === 'deactivated' ? t('accountDeactivated') : t('sessionRevoked');
         pushToast({ message, variant: 'warning', durationMs: 4000 });
         setTimeout(() => {
           window.location.href = `/${locale}/login`;
@@ -268,26 +274,36 @@ export function NotificationSurface({ locale }: { locale: string }) {
       source.addEventListener('force-logout', handleForceLogout as EventListener);
       source.addEventListener('ping', () => {
         retryRef.current = 0;
+        broadcastSseState('connected');
       });
       source.onerror = () => {
         void scheduleReconnect();
       };
       source.onopen = () => {
-        if (debugStream) {
-          console.info('[notifications] stream open');
-        }
+        broadcastSseState('connected');
       };
     };
 
     void connect();
     return () => {
       active = false;
+      window.removeEventListener('nvi:announcements:review', handleReviewAnnouncements);
       if (retryTimerRef.current) {
         window.clearTimeout(retryTimerRef.current);
       }
       sourceRef.current?.close();
     };
-  }, [streamToken]);
+  }, [streamToken, loadAnnouncements, locale, t]);
+
+  // Broadcast active announcement count to AppShell so the bell shows a badge
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(
+      new CustomEvent('nvi:announcements:count', {
+        detail: { count: announcements.length },
+      }),
+    );
+  }, [announcements.length]);
 
   const safeItems = Array.isArray(items) ? items : [];
   const unread = useMemo(
@@ -298,63 +314,51 @@ export function NotificationSurface({ locale }: { locale: string }) {
     [safeItems, dismissedIds],
   );
 
+  // Highest-priority unread notification — drives the sticky banner + modal.
   const highest = useMemo(() => {
     for (const priority of PRIORITY_ORDER) {
       const match = unread.find((item) => item.priority === priority);
-      if (match) {
-        return match;
-      }
+      if (match) return match;
     }
     return null;
   }, [unread]);
 
-  const toastItems = unread
-    .filter((item) => item.priority === 'WARNING' || item.priority === 'INFO')
-    .slice(0, 2);
-
-  const shouldShowModal = Boolean(
-    highest &&
-      highest.priority === 'ACTION_REQUIRED' &&
-      !dismissedIds.has(highest.id),
-  );
-
-  const resolveReviewLink = (notification: Notification) => {
-    const meta = notification.metadata ?? {};
-    const directUrl =
-      typeof meta.url === 'string'
-        ? meta.url
-        : typeof meta.link === 'string'
-          ? meta.link
-          : null;
-    if (directUrl) {
-      return directUrl;
-    }
-    const path = typeof meta.path === 'string' ? meta.path : null;
-    if (path) {
-      const normalized = path.startsWith('/') ? path : `/${path}`;
-      return `/${locale}${normalized}`;
-    }
-    const actionType =
-      typeof meta.actionType === 'string' ? meta.actionType : null;
-    const targetId =
-      typeof meta.variantId === 'string'
-        ? meta.variantId
-        : typeof meta.targetId === 'string'
-          ? meta.targetId
-          : typeof meta.resourceId === 'string'
-            ? meta.resourceId
+  const resolveReviewLink = useCallback(
+    (notification: Notification) => {
+      const meta = notification.metadata ?? {};
+      const directUrl =
+        typeof meta.url === 'string'
+          ? meta.url
+          : typeof meta.link === 'string'
+            ? meta.link
             : null;
-    if (actionType) {
-      const params = new URLSearchParams();
-      params.set('status', 'PENDING');
-      params.set('actionType', actionType);
-      if (targetId) {
-        params.set('search', targetId);
+      if (directUrl) return directUrl;
+      const path = typeof meta.path === 'string' ? meta.path : null;
+      if (path) {
+        const normalized = path.startsWith('/') ? path : `/${path}`;
+        return `/${locale}${normalized}`;
       }
-      return `/${locale}/approvals?${params.toString()}`;
-    }
-    return `/${locale}/notifications`;
-  };
+      const actionType =
+        typeof meta.actionType === 'string' ? meta.actionType : null;
+      const targetId =
+        typeof meta.variantId === 'string'
+          ? meta.variantId
+          : typeof meta.targetId === 'string'
+            ? meta.targetId
+            : typeof meta.resourceId === 'string'
+              ? meta.resourceId
+              : null;
+      if (actionType) {
+        const params = new URLSearchParams();
+        params.set('status', 'PENDING');
+        params.set('actionType', actionType);
+        if (targetId) params.set('search', targetId);
+        return `/${locale}/approvals?${params.toString()}`;
+      }
+      return `/${locale}/notifications`;
+    },
+    [locale],
+  );
 
   const dismiss = (id: string) => {
     setDismissedIds((prev) => new Set([...prev, id]));
@@ -362,9 +366,7 @@ export function NotificationSurface({ locale }: { locale: string }) {
 
   const markRead = async (id: string) => {
     const token = streamToken ?? getAccessToken();
-    if (!token) {
-      return;
-    }
+    if (!token) return;
     try {
       await apiFetch(`/notifications/${id}/read`, { token, method: 'POST' });
       setItems((prev) =>
@@ -376,174 +378,74 @@ export function NotificationSurface({ locale }: { locale: string }) {
     }
   };
 
+  // ── ACTION_REQUIRED modal (replaces the old inline Piece 4) ────────────
+  // When an ACTION_REQUIRED notification is highest priority, show a single
+  // confirm modal via the new notify system. Confirm → navigate to the review
+  // link; Cancel → dismiss locally. Uses severity='warning' so the confirm
+  // button is amber (matches severity-aware modal family).
+  useEffect(() => {
+    if (!highest) return;
+    if (highest.priority !== 'ACTION_REQUIRED') return;
+    if (dismissedIds.has(highest.id)) return;
+
+    let cancelled = false;
+    (async () => {
+      const ok = await notify.confirm({
+        title: highest.title,
+        message: formatNotificationMessage(highest),
+        severity: 'warning',
+        confirmText: t('reviewNow'),
+        cancelText: t('dismiss'),
+      });
+      if (cancelled) return;
+      if (ok) {
+        const href = resolveReviewLink(highest);
+        if (typeof window !== 'undefined') {
+          window.location.href = href;
+        }
+      } else {
+        dismiss(highest.id);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Intentional: we fire once per (highest.id + dismissed set).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highest?.id]);
+
+  // ── Sticky top banner — only for non-ACTION_REQUIRED highest items ─────
+  // ACTION_REQUIRED pops a modal instead; showing both was redundant.
+  const bannerItem =
+    highest && highest.priority !== 'ACTION_REQUIRED' ? highest : null;
+
+  const bannerSeverity = bannerItem
+    ? priorityToSeverity(bannerItem.priority)
+    : 'info';
+
   return (
     <>
-      {announcement && announcement.id !== dismissedAnnouncementId ? (
-        <div className="sticky top-0 z-50 w-full border-b border-[color:var(--border)] bg-[color:var(--surface-soft)] px-6 py-3 text-sm text-[color:var(--foreground)] backdrop-blur">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
-                {t('announcement')} • {announcement.severity}
-              </p>
-              <p className="font-semibold">{announcement.title}</p>
-              <p className="text-[color:var(--muted)]">{announcement.message}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--muted)]">
-                {formatDateTime(announcement.startsAt)}
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowAnnouncementDetails(true)}
-                className="rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--foreground)]"
-              >
-                {t('viewMore')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (typeof window !== 'undefined') {
-                    window.sessionStorage.setItem(
-                      'nvi.dismissedAnnouncementId',
-                      announcement.id,
-                    );
-                  }
-                  setDismissedAnnouncementId(announcement.id);
-                  setShowAnnouncementDetails(false);
-                }}
-                className="rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--muted)]"
-              >
-                {t('dismiss')}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {highest ? (
-        <div className="sticky top-0 z-40 w-full border-b border-[color:var(--border)] bg-[color:var(--surface-soft)] px-6 py-3 text-sm text-[color:var(--foreground)] backdrop-blur">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">
-                {highest.priority}
-              </p>
-              <p className="font-semibold">{highest.title}</p>
-              <p className="text-[color:var(--muted)]">
-                {formatNotificationMessage(highest)}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Link
-                href={`/${locale}/notifications`}
-                className="rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--foreground)]"
-              >
-                {t('viewInbox')}
-              </Link>
-              <button
-                type="button"
-                onClick={() => void markRead(highest.id)}
-                className="rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--foreground)]"
-              >
-                {t('markRead')}
-              </button>
-              <button
-                type="button"
-                onClick={() => dismiss(highest.id)}
-                className="rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--muted)]"
-              >
-                {t('dismiss')}
-              </button>
-            </div>
-          </div>
-        </div>
+      {overlayMode && announcements.length > 0 ? (
+        <AnnouncementOverlay
+          announcements={announcements}
+          mode={overlayMode}
+          onClose={() => setOverlayMode(null)}
+        />
       ) : null}
 
-      {toastItems.length ? (
-        <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-3">
-          {toastItems.map((item) => (
-            <div
-              key={item.id}
-              className="w-72 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-4 text-xs text-[color:var(--muted)] shadow-xl transition"
-            >
-              <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-[color:var(--muted)]">
-                <span>{item.priority}</span>
-                <span>{formatTime(item.createdAt)}</span>
-              </div>
-              <p className="mt-2 text-sm font-semibold text-[color:var(--foreground)]">
-                {item.title}
-              </p>
-              <p className="mt-1 text-xs text-[color:var(--muted)]">
-                {formatNotificationMessage(item)}
-              </p>
-              <button
-                type="button"
-                onClick={() => dismiss(item.id)}
-                className="mt-3 text-[11px] text-[color:var(--muted)] underline underline-offset-4"
-              >
-                {t('dismiss')}
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {highest && shouldShowModal && highest.priority === 'ACTION_REQUIRED' ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6 text-[color:var(--foreground)] shadow-2xl">
-            <p className="text-[10px] uppercase tracking-[0.35em] text-[color:var(--muted)]">
-              {t('actionRequired')}
-            </p>
-            <h3 className="mt-2 text-xl font-semibold">{highest.title}</h3>
-            <p className="mt-3 text-sm text-[color:var(--muted)]">
-              {formatNotificationMessage(highest)}
-            </p>
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  dismiss(highest.id);
-                }}
-                className="rounded border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--muted)]"
-              >
-                {t('dismiss')}
-              </button>
-              <Link
-                href={resolveReviewLink(highest)}
-                className="rounded bg-[color:var(--accent)] px-4 py-2 text-xs font-semibold text-black"
-              >
-                {t('reviewNow')}
-              </Link>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {announcement &&
-      announcement.id !== dismissedAnnouncementId &&
-      showAnnouncementDetails ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6 text-[color:var(--foreground)] shadow-2xl">
-            <p className="text-[10px] uppercase tracking-[0.35em] text-[color:var(--muted)]">
-              {t('announcementDetails')}
-            </p>
-            <h3 className="mt-2 text-xl font-semibold">{announcement.title}</h3>
-            <p className="mt-2 text-sm text-[color:var(--muted)]">
-              {announcement.message}
-            </p>
-            <p className="mt-4 text-xs text-[color:var(--muted)]">
-              {announcement.severity} •{' '}
-              {formatDateTime(announcement.startsAt)}
-            </p>
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowAnnouncementDetails(false)}
-                className="rounded border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--muted)]"
-              >
-                {t('close')}
-              </button>
-            </div>
-          </div>
-        </div>
+      {bannerItem ? (
+        <Banner
+          severity={bannerSeverity}
+          title={bannerItem.title}
+          message={formatNotificationMessage(bannerItem)}
+          sticky
+          onDismiss={() => dismiss(bannerItem.id)}
+          action={{
+            label: t('markRead'),
+            onClick: () => void markRead(bannerItem.id),
+          }}
+        />
       ) : null}
     </>
   );

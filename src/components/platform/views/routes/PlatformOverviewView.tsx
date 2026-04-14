@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { OverviewDashboardView } from '@/components/platform/views/overview/OverviewDashboardView';
 
 export function PlatformOverviewView() {
-  return <PlatformConsole view="overview" />;
+  return <OverviewDashboardView />;
 }

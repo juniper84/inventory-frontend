@@ -1,11 +1,16 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { BusinessWorkspaceView } from '@/components/platform/views/businesses/BusinessWorkspaceView';
+import { BusinessWorkspaceProvider } from '@/components/platform/views/businesses/context/BusinessWorkspaceContext';
 
 export function PlatformBusinessWorkspaceView({
   businessId,
 }: {
   businessId: string;
 }) {
-  return <PlatformConsole view="businesses" focusBusinessId={businessId} />;
+  return (
+    <BusinessWorkspaceProvider>
+      <BusinessWorkspaceView businessId={businessId} />
+    </BusinessWorkspaceProvider>
+  );
 }

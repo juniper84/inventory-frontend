@@ -36,8 +36,20 @@ type SubscriptionRequest = {
   businessId: string;
   type: string;
   requestedTier?: string | null;
+  requestedDurationMonths?: number | null;
   status: string;
   reason?: string | null;
+  approvedDurationMonths?: number | null;
+  approvedTier?: string | null;
+  isPaid?: boolean | null;
+  amountDue?: number | null;
+};
+
+type SubscriptionApprovalForm = {
+  durationMonths: string;
+  isPaid: boolean;
+  amountDue: string;
+  tier: string;
 };
 
 type SupportFormState = {
@@ -98,6 +110,8 @@ export function PlatformSupportCommandSurface({
   subscriptionRequests,
   subscriptionResponseNotes,
   setSubscriptionResponseNotes,
+  subscriptionApprovalForms,
+  setSubscriptionApprovalForms,
   withAction,
   updateSubscriptionRequest,
   actionLoading,
@@ -141,6 +155,8 @@ export function PlatformSupportCommandSurface({
   subscriptionRequests: SubscriptionRequest[];
   subscriptionResponseNotes: Record<string, string>;
   setSubscriptionResponseNotes: Dispatch<SetStateAction<Record<string, string>>>;
+  subscriptionApprovalForms: Record<string, SubscriptionApprovalForm>;
+  setSubscriptionApprovalForms: Dispatch<SetStateAction<Record<string, SubscriptionApprovalForm>>>;
   withAction: (key: string, task: () => void | Promise<void>) => Promise<void>;
   updateSubscriptionRequest: (
     requestId: string,
@@ -634,7 +650,19 @@ export function PlatformSupportCommandSurface({
       {/* SUBSCRIPTIONS tab — Subscription upgrade/downgrade requests */}
       {activeTab === 'SUBSCRIPTIONS' && (
         <div className="space-y-3 text-xs text-[color:var(--pt-text-2)] nvi-stagger">
-          {subscriptionRequests.map((request) => (
+          {subscriptionRequests.map((request) => {
+            const form = subscriptionApprovalForms[request.id] ?? {
+              durationMonths: String(request.requestedDurationMonths ?? 1),
+              isPaid: true,
+              amountDue: '',
+              tier: request.requestedTier ?? '',
+            };
+            const isPending = request.status === 'PENDING';
+            const effectiveDuration = parseInt(form.durationMonths, 10) || 1;
+            const previewExpiry = new Date();
+            previewExpiry.setMonth(previewExpiry.getMonth() + effectiveDuration);
+
+            return (
             <div
               key={request.id}
               className="rounded border border-[color:var(--pt-accent-border)] p-bg-card p-3"
@@ -642,9 +670,90 @@ export function PlatformSupportCommandSurface({
               <p className="text-[color:var(--pt-text-1)]">
                 {request.businessId} • {request.type}
                 {request.requestedTier ? ` (${request.requestedTier})` : ''}
+                {request.requestedDurationMonths ? ` • ${request.requestedDurationMonths} months` : ''}
               </p>
               <p>{t('statusLabel', { status: request.status })}</p>
               {request.reason ? <p>{t('reasonLabel', { reason: request.reason })}</p> : null}
+
+              {isPending && request.type !== 'CANCEL' && (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <div>
+                    <label className="text-[10px] text-[color:var(--pt-text-2)]">{t('subscriptionDuration')}</label>
+                    <select
+                      value={form.durationMonths}
+                      onChange={(e) =>
+                        setSubscriptionApprovalForms((prev) => ({
+                          ...prev,
+                          [request.id]: { ...form, durationMonths: e.target.value },
+                        }))
+                      }
+                      className="mt-0.5 w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-2 py-1 text-xs text-[color:var(--pt-text-1)]"
+                    >
+                      <option value="1">{t('1month')}</option>
+                      <option value="3">{t('3months')}</option>
+                      <option value="6">{t('6months')}</option>
+                      <option value="12">{t('12months')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[color:var(--pt-text-2)]">{t('approvalTierLabel')}</label>
+                    <select
+                      value={form.tier}
+                      onChange={(e) =>
+                        setSubscriptionApprovalForms((prev) => ({
+                          ...prev,
+                          [request.id]: { ...form, tier: e.target.value },
+                        }))
+                      }
+                      className="mt-0.5 w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-2 py-1 text-xs text-[color:var(--pt-text-1)]"
+                    >
+                      <option value="STARTER">{t('tierStarter')}</option>
+                      <option value="BUSINESS">{t('tierBusiness')}</option>
+                      <option value="ENTERPRISE">{t('tierEnterprise')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[color:var(--pt-text-2)]">{t('approvalPaidLabel')}</label>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSubscriptionApprovalForms((prev) => ({
+                            ...prev,
+                            [request.id]: { ...form, isPaid: !form.isPaid },
+                          }))
+                        }
+                        className={`rounded px-2 py-1 text-xs font-semibold ${form.isPaid ? 'bg-[var(--pt-accent)] text-black' : 'border border-[color:var(--pt-accent-border)] text-[color:var(--pt-text-1)]'}`}
+                      >
+                        {form.isPaid ? t('approvalPaid') : t('approvalComplimentary')}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[color:var(--pt-text-2)]">{t('approvalAmountLabel')}</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.amountDue}
+                      onChange={(e) =>
+                        setSubscriptionApprovalForms((prev) => ({
+                          ...prev,
+                          [request.id]: { ...form, amountDue: e.target.value },
+                        }))
+                      }
+                      placeholder="0"
+                      className="mt-0.5 w-full rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-2 py-1 text-xs text-[color:var(--pt-text-1)]"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {isPending && request.type !== 'CANCEL' && (
+                <p className="mt-1 text-[10px] text-[color:var(--pt-text-2)]">
+                  {t('approvalExpiryPreview', { date: previewExpiry.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' }) })}
+                </p>
+              )}
+
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <input
                   value={subscriptionResponseNotes[request.id] ?? ''}
@@ -657,6 +766,8 @@ export function PlatformSupportCommandSurface({
                   placeholder={t('responseNotePlaceholder')}
                   className="rounded border border-[color:var(--pt-accent-border)] p-bg-deep px-3 py-1 text-xs text-[color:var(--pt-text-1)]"
                 />
+                {isPending && (
+                  <>
                 <button
                   type="button"
                   onClick={() =>
@@ -689,9 +800,12 @@ export function PlatformSupportCommandSurface({
                     {actions('reject')}
                   </span>
                 </button>
+                  </>
+                )}
               </div>
             </div>
-          ))}
+            );
+          })}
           {!subscriptionRequests.length ? (
             <p className="text-[color:var(--pt-text-2)]">{t('noSubscriptionRequests')}</p>
           ) : null}

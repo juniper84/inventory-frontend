@@ -1,26 +1,37 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
+import { notify } from '@/components/notifications/NotificationProvider';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
-import { SmartSelect } from '@/components/SmartSelect';
-import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { useVariantSearch } from '@/lib/use-variant-search';
-import { StatusBanner } from '@/components/StatusBanner';
-import { CurrencyInput } from '@/components/CurrencyInput';
+import { Banner } from '@/components/notifications/Banner';
+import { PriceListCreateModal } from '@/components/price-lists/PriceListCreateModal';
+import { PriceListEditModal } from '@/components/price-lists/PriceListEditModal';
+import { AddOverrideModal } from '@/components/price-lists/AddOverrideModal';
 import {
   buildCursorQuery,
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
-import { formatEntityLabel, formatVariantLabel } from '@/lib/display';
+import { PaginationControls } from '@/components/PaginationControls';
+import { formatVariantLabel } from '@/lib/display';
 import { getPermissionSet } from '@/lib/permissions';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { ViewToggle, ViewMode } from '@/components/ViewToggle';
+import { useCurrency, formatCurrency } from '@/lib/business-context';
+import {
+  ListPage,
+  Card,
+  Icon,
+  StatusBadge,
+  ActionButtons,
+} from '@/components/ui';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 type PriceListItem = {
   id: string;
@@ -32,6 +43,7 @@ type PriceList = {
   id: string;
   name: string;
   status?: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+  customerCount?: number;
   items?: PriceListItem[];
 };
 
@@ -40,7 +52,47 @@ type Variant = {
   name: string;
   product?: { name?: string | null };
   defaultPrice?: number | null;
+  imageUrl?: string | null;
 };
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function computePricingImpact(
+  items: PriceListItem[],
+  variantMap: Map<string, Variant>,
+) {
+  if (items.length === 0) return null;
+  let totalDiffPct = 0;
+  let compared = 0;
+  let discountCount = 0;
+  let markupCount = 0;
+
+  for (const item of items) {
+    const variant = variantMap.get(item.variantId);
+    const defaultPrice = variant?.defaultPrice != null ? Number(variant.defaultPrice) : null;
+    const listPrice = Number(item.price);
+    if (defaultPrice != null && defaultPrice > 0) {
+      const diffPct = ((listPrice - defaultPrice) / defaultPrice) * 100;
+      totalDiffPct += diffPct;
+      compared++;
+      if (listPrice < defaultPrice) discountCount++;
+      else if (listPrice > defaultPrice) markupCount++;
+    }
+  }
+
+  if (compared === 0) return null;
+  const avgPct = totalDiffPct / compared;
+  return {
+    avgPct,
+    compared,
+    discountCount,
+    markupCount,
+    isDiscount: avgPct < 0,
+    isMarkup: avgPct > 0,
+  };
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
 
 export default function PriceListsPage() {
   const t = useTranslations('priceListsPage');
@@ -48,20 +100,31 @@ export default function PriceListsPage() {
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
   const locale = useLocale();
+  const currency = useCurrency();
   const permissions = getPermissionSet();
   const canManage = permissions.has('price-lists.manage');
   const { loadOptions: loadVariantOptions, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
+  const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [removingItemId, setRemovingItemId] = useState<string | null>(null);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [undoingId, setUndoingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState<number | null>(null);
+  const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({ 1: null });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [lists, setLists] = useState<PriceList[]>([]);
   const [variants, setVariants] = useState<Variant[]>([]);
   const [message, setMessage] = useToastState();
   const [form, setForm] = useState({ name: '' });
+  const [createOpen, setCreateOpen] = useState(false);
+  const [addOverrideOpen, setAddOverrideOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editing, setEditing] = useState({
     name: '',
@@ -72,6 +135,9 @@ export default function PriceListsPage() {
     variantId: '',
     price: '',
   });
+  const [expandedItems, setExpandedItems] = useState<string | null>(null);
+
+  // ─── Data loading ─────────────────────────────────────────────────────
 
   const loadReferenceData = useCallback(async () => {
     const token = getAccessToken();
@@ -93,32 +159,40 @@ export default function PriceListsPage() {
     }
   }, [setMessage, t]);
 
-  const load = useCallback(async (cursor?: string, append = false) => {
-    if (append) {
-      setIsLoadingMore(true);
-    } else {
-      setIsLoading(true);
-    }
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
+    setIsLoading(true);
     const token = getAccessToken();
     if (!token) {
-      if (append) {
-        setIsLoadingMore(false);
-      } else {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
       return;
     }
+    const effectivePageSize = nextPageSize ?? pageSize;
+    const cursor = targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
     try {
-      const query = buildCursorQuery({ limit: 25, cursor });
+      const query = buildCursorQuery({
+        limit: effectivePageSize,
+        cursor: cursor ?? undefined,
+        includeTotal: targetPage === 1 ? '1' : undefined,
+      });
       const listData = await apiFetch<PaginatedResponse<PriceList> | PriceList[]>(
         `/price-lists${query}`,
         { token },
       );
       const listResult = normalizePaginated(listData);
-      setLists((prev) =>
-        append ? [...prev, ...listResult.items] : listResult.items,
-      );
+      setLists(listResult.items);
       setNextCursor(listResult.nextCursor);
+      if (typeof listResult.total === 'number') {
+        setTotal(listResult.total);
+      }
+      setPage(targetPage);
+      setPageCursors((prev) => {
+        const nextState: Record<number, string | null> =
+          targetPage === 1 ? { 1: null } : { ...prev };
+        if (listResult.nextCursor) {
+          nextState[targetPage + 1] = listResult.nextCursor;
+        }
+        return nextState;
+      });
     } catch (err) {
       setMessage({
         action: 'load',
@@ -126,21 +200,22 @@ export default function PriceListsPage() {
         message: getApiErrorMessage(err, t('loadFailed')),
       });
     } finally {
-      if (append) {
-        setIsLoadingMore(false);
-      } else {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
-  }, [t]);
+  }, [pageSize, t]);
 
   useEffect(() => {
     loadReferenceData();
   }, [loadReferenceData]);
 
   useEffect(() => {
-    load();
+    setPage(1);
+    setPageCursors({ 1: null });
+    setTotal(null);
+    load(1);
   }, [load]);
+
+  // ─── Actions ──────────────────────────────────────────────────────────
 
   const createList = async () => {
     const token = getAccessToken();
@@ -156,6 +231,7 @@ export default function PriceListsPage() {
         body: JSON.stringify({ name: form.name.trim() }),
       });
       setForm({ name: '' });
+      setCreateOpen(false);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
       await load();
     } catch (err) {
@@ -223,7 +299,8 @@ export default function PriceListsPage() {
           price: Number(itemForm.price),
         }),
       });
-      setItemForm({ ...itemForm, price: '' });
+      setItemForm({ listId: '', variantId: '', price: '' });
+      setAddOverrideOpen(false);
       setMessage({ action: 'save', outcome: 'success', message: t('itemSaved') });
       await load();
     } catch (err) {
@@ -262,275 +339,612 @@ export default function PriceListsPage() {
     }
   };
 
-  const listStatusLabels = useMemo<Record<string, string>>(
-    () => ({
-      ACTIVE: common('statusActive'),
-      INACTIVE: common('statusInactive'),
-      ARCHIVED: common('statusArchived'),
-    }),
-    [common],
-  );
+  const archiveList = async (listId: string) => {
+    const token = getAccessToken();
+    if (!token) return;
+    const ok = await notify.confirm({
+      title: t('archiveConfirmTitle') || common('archive'),
+      message: t('archiveConfirmMessage') || t('updated'),
+      confirmText: t('archiveConfirmButton') || common('archive'),
+    });
+    if (!ok) return;
+    setMessage(null);
+    setArchivingId(listId);
+    try {
+      await apiFetch(`/price-lists/${listId}`, {
+        token,
+        method: 'PUT',
+        body: JSON.stringify({ status: 'ARCHIVED' }),
+      });
+      setMessage({ action: 'update', outcome: 'success', message: t('updated') });
+      await load();
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('updateFailed')),
+      });
+    } finally {
+      setArchivingId(null);
+    }
+  };
+
+  const undoLastChange = async (listId: string) => {
+    const token = getAccessToken();
+    if (!token) return;
+    const ok = await notify.confirm({
+      title: t('undoConfirmTitle'),
+      message: t('undoConfirmMessage'),
+      confirmText: t('undoConfirmButton'),
+    });
+    if (!ok) return;
+    setMessage(null);
+    setUndoingId(listId);
+    try {
+      await apiFetch(`/price-lists/${listId}/undo`, {
+        token,
+        method: 'POST',
+      });
+      setMessage({ action: 'update', outcome: 'success', message: t('undoSuccess') });
+      await load();
+    } catch (err) {
+      setMessage({
+        action: 'update',
+        outcome: 'failure',
+        message: getApiErrorMessage(err, t('undoFailed')),
+      });
+    } finally {
+      setUndoingId(null);
+    }
+  };
+
+  // ─── Derived data ─────────────────────────────────────────────────────
 
   const variantMap = useMemo(() => {
     return new Map(variants.map((variant) => [variant.id, variant]));
   }, [variants]);
+
   const activeLists = useMemo(
     () => lists.filter((list) => (list.status ?? 'ACTIVE') === 'ACTIVE').length,
     [lists],
   );
+
   const overrideCount = useMemo(
     () => lists.reduce((sum, list) => sum + (list.items?.length ?? 0), 0),
     [lists],
   );
 
-  if (isLoading) {
-    return <PageSkeleton />;
-  }
+  const uniqueVariantCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const list of lists) {
+      for (const item of list.items ?? []) {
+        ids.add(item.variantId);
+      }
+    }
+    return ids.size;
+  }, [lists]);
+
+  // ─── Banner ───────────────────────────────────────────────────────────
+
+  const bannerNode = message ? (
+    <Banner message={message} onDismiss={() => setMessage(null)} />
+  ) : null;
+
+  // ─── KPI strip ────────────────────────────────────────────────────────
+
+  const kpiStrip = (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+      <Card as="article" padding="md">
+        <div className="flex items-center gap-3">
+          <span className="nvi-kpi-icon nvi-kpi-icon--amber">
+            <Icon name="ListOrdered" size={20} />
+          </span>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-white/50">{t('kpiPriceLists')}</p>
+            <p className="mt-0.5 text-2xl font-bold text-amber-400">{total ?? lists.length}</p>
+          </div>
+        </div>
+      </Card>
+      <Card as="article" padding="md">
+        <div className="flex items-center gap-3">
+          <span className="nvi-kpi-icon nvi-kpi-icon--emerald">
+            <Icon name="CircleCheck" size={20} />
+          </span>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-white/50">{t('kpiActiveLists')}</p>
+            <p className="mt-0.5 text-2xl font-bold text-emerald-400">{activeLists}</p>
+          </div>
+        </div>
+      </Card>
+      <Card as="article" padding="md">
+        <div className="flex items-center gap-3">
+          <span className="nvi-kpi-icon nvi-kpi-icon--blue">
+            <Icon name="Tags" size={20} />
+          </span>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-white/50">{t('kpiOverrides')}</p>
+            <p className="mt-0.5 text-2xl font-bold text-blue-400">{overrideCount}</p>
+          </div>
+        </div>
+      </Card>
+      <Card as="article" padding="md">
+        <div className="flex items-center gap-3">
+          <span className="nvi-kpi-icon nvi-kpi-icon--purple">
+            <Icon name="Package" size={20} />
+          </span>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-white/50">{t('kpiVariantPool')}</p>
+            <p className="mt-0.5 text-2xl font-bold text-purple-400">{uniqueVariantCount}</p>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+
+
+  // ─── Card view ────────────────────────────────────────────────────────
+
+  const cardsContent = (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 nvi-stagger">
+      {lists.map((list) => {
+        const items = list.items ?? [];
+        const impact = computePricingImpact(items, variantMap);
+        const isItemsOpen = expandedItems === list.id;
+
+        return (
+          <Card
+            key={list.id}
+            padding="md"
+            className="nvi-card-hover transition-all"
+          >
+            {(
+              /* ─── Display mode (edit handled by modal) ─── */
+              <div className="space-y-4">
+                {/* Header: name + status dot + actions */}
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                        (list.status ?? 'ACTIVE') === 'ACTIVE'
+                          ? 'bg-emerald-400'
+                          : list.status === 'ARCHIVED'
+                            ? 'bg-white/20'
+                            : 'bg-amber-400'
+                      }`}
+                      title={list.status ?? 'ACTIVE'}
+                    />
+                    <h3 className="text-sm font-bold text-white truncate">{list.name}</h3>
+                  </div>
+                  <ActionButtons
+                    actions={[
+                      { key: 'edit', icon: <Icon name="Pencil" size={14} />, label: common('edit'), onClick: () => startEdit(list), disabled: !canManage },
+                      { key: 'undo', icon: <Icon name="Undo" size={14} />, label: t('undoLastChange'), onClick: () => undoLastChange(list.id), disabled: !canManage || undoingId === list.id },
+                      { key: 'archive', icon: <Icon name="Trash2" size={14} />, label: common('archive') || 'Archive', onClick: () => archiveList(list.id), disabled: !canManage || archivingId === list.id || list.status === 'ARCHIVED', variant: 'danger' },
+                    ]}
+                    size="xs"
+                  />
+                </div>
+
+                {/* Impact summary — hero section */}
+                {impact ? (
+                  <div
+                    className={`rounded-xl px-4 py-3 ${
+                      impact.isDiscount
+                        ? 'bg-emerald-500/8 border border-emerald-500/20'
+                        : impact.isMarkup
+                          ? 'bg-amber-500/8 border border-amber-500/20'
+                          : 'bg-white/5 border border-white/10'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Icon
+                        name={impact.isDiscount ? 'TrendingDown' : impact.isMarkup ? 'TrendingUp' : 'DollarSign'}
+                        size={18}
+                        className={
+                          impact.isDiscount
+                            ? 'text-emerald-400'
+                            : impact.isMarkup
+                              ? 'text-amber-400'
+                              : 'text-white/40'
+                        }
+                      />
+                      <div>
+                        <p
+                          className={`text-xl font-bold ${
+                            impact.isDiscount
+                              ? 'text-emerald-400'
+                              : impact.isMarkup
+                                ? 'text-amber-400'
+                                : 'text-white/60'
+                          }`}
+                        >
+                          {t('avgLabel') || 'avg'} {Math.abs(impact.avgPct).toFixed(0)}%{' '}
+                          {impact.isDiscount
+                            ? (t('belowDefault') || 'below default')
+                            : impact.isMarkup
+                              ? (t('aboveDefault') || 'above default')
+                              : (t('atDefault') || 'at default')}
+                        </p>
+                        <p className="text-[11px] text-white/40 mt-0.5">
+                          {items.length} {items.length === 1 ? 'item' : 'items'} compared
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : items.length > 0 ? (
+                  <div className="rounded-xl bg-white/5 border border-white/10 px-4 py-3">
+                    <span className="text-sm text-white/40">
+                      {items.length} {items.length === 1 ? 'item' : 'items'} — {t('noDefaultPrices') || 'no default prices to compare'}
+                    </span>
+                  </div>
+                ) : null}
+
+                {/* Customer count pill */}
+                <div className="flex items-center">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-300">
+                    <Icon name="Users" size={13} className="text-blue-400" />
+                    {t('customerCountLabel', { count: list.customerCount ?? 0 })}
+                  </span>
+                </div>
+
+                {/* Items section (expandable) */}
+                <div className="border-t border-white/[0.06] pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedItems(isItemsOpen ? null : list.id)}
+                    className="flex items-center gap-1.5 text-[11px] text-white/40 hover:text-white/70 transition-colors"
+                  >
+                    <Icon name={isItemsOpen ? 'ChevronUp' : 'ChevronDown'} size={12} />
+                    {isItemsOpen
+                      ? (t('hideItems') || 'Hide items')
+                      : (t('viewItems') || `View ${items.length} items`)}
+                  </button>
+                  {isItemsOpen ? (
+                    <div className="mt-2.5 space-y-1 nvi-expand">
+                      {items.length === 0 ? (
+                        <p className="text-xs text-white/30">{t('noOverrides')}</p>
+                      ) : (
+                        items.map((item) => {
+                          const variant = variantMap.get(item.variantId);
+                          const defaultPrice = variant?.defaultPrice != null ? Number(variant.defaultPrice) : null;
+                          const listPrice = Number(item.price);
+                          const diffPct = defaultPrice != null && defaultPrice > 0
+                            ? ((listPrice - defaultPrice) / defaultPrice) * 100
+                            : null;
+
+                          return (
+                            <div
+                              key={item.id}
+                              className="group flex items-center justify-between gap-2 rounded-lg bg-white/[0.03] px-2.5 py-2 hover:bg-white/[0.06] transition-colors"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {variant?.imageUrl ? (
+                                  <div className="nvi-img-zoom shrink-0">
+                                    <img
+                                      src={variant.imageUrl}
+                                      alt={variant.name}
+                                      className="h-8 w-8 rounded-lg object-cover ring-1 ring-white/10"
+                                    />
+                                  </div>
+                                ) : (
+                                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06]">
+                                    <Icon name="Package" size={14} className="text-white/20" />
+                                  </span>
+                                )}
+                                <div className="min-w-0">
+                                  <p className="text-xs text-white/70 truncate">
+                                    {formatVariantLabel(
+                                      {
+                                        id: item.variantId,
+                                        name: variant?.name ?? null,
+                                        productName: variant?.product?.name ?? null,
+                                      },
+                                      common('unknown'),
+                                    )}
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    {defaultPrice != null ? (
+                                      <span className="text-[11px] text-white/25 line-through">
+                                        {formatCurrency(defaultPrice, currency)}
+                                      </span>
+                                    ) : null}
+                                    <span
+                                      className={`text-xs font-bold ${
+                                        diffPct != null && diffPct < 0
+                                          ? 'text-emerald-400'
+                                          : diffPct != null && diffPct > 0
+                                            ? 'text-amber-400'
+                                            : 'text-white/70'
+                                      }`}
+                                    >
+                                      {formatCurrency(listPrice, currency)}
+                                    </span>
+                                    {diffPct != null ? (
+                                      <span
+                                        className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
+                                          diffPct < 0
+                                            ? 'bg-emerald-500/15 text-emerald-400'
+                                            : diffPct > 0
+                                              ? 'bg-red-500/15 text-red-400'
+                                              : 'bg-white/10 text-white/40'
+                                        }`}
+                                      >
+                                        {diffPct > 0 ? '+' : ''}{diffPct.toFixed(0)}%
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeItem(list.id, item.id)}
+                                className="shrink-0 rounded-md p-1.5 text-white/20 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                                disabled={removingItemId === item.id || !canManage}
+                                title={!canManage ? noAccess('title') : (actions('remove'))}
+                                aria-label={actions('remove')}
+                              >
+                                {removingItemId === item.id ? (
+                                  <Spinner size="xs" variant="dots" />
+                                ) : (
+                                  <Icon name="Trash2" size={12} />
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Branch link */}
+                <div className="flex items-center">
+                  <Link
+                    href={`/${locale}/branches`}
+                    className="inline-flex items-center gap-1.5 text-[11px] text-white/30 hover:text-blue-400 transition-colors"
+                  >
+                    <Icon name="GitBranch" size={11} />
+                    {t('applyToBranch')}
+                  </Link>
+                </div>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
+
+  // ─── Table view ───────────────────────────────────────────────────────
+
+  const tableContent = (
+    <Card padding="lg">
+      <h3 className="text-base font-semibold text-white mb-4">{t('listsTitle')}</h3>
+      <div className="overflow-auto">
+        <table className="min-w-[720px] w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-white/[0.06]">
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/30">{common('name') || 'Name'}</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/30">{t('statusLabel')}</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/30">{t('kpiOverrides') || 'Items'}</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/30">{t('impactLabel') || 'Impact'}</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/30">{t('customers')}</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/30 text-right">{common('actions') || 'Actions'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lists.map((list) => {
+              const items = list.items ?? [];
+              const impact = computePricingImpact(items, variantMap);
+
+              return (
+                <tr key={list.id} className="border-t border-white/[0.04] hover:bg-white/[0.03] transition-colors">
+                  <td className="px-3 py-2.5 font-semibold text-white">{list.name}</td>
+                  <td className="px-3 py-2.5">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          (list.status ?? 'ACTIVE') === 'ACTIVE'
+                            ? 'bg-emerald-400'
+                            : list.status === 'ARCHIVED'
+                              ? 'bg-white/20'
+                              : 'bg-amber-400'
+                        }`}
+                      />
+                      <span className="text-xs text-white/50">{list.status ?? 'ACTIVE'}</span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-white/50">{items.length}</td>
+                  <td className="px-3 py-2.5">
+                    {impact ? (
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          impact.isDiscount
+                            ? 'bg-emerald-500/10 text-emerald-400'
+                            : impact.isMarkup
+                              ? 'bg-amber-500/10 text-amber-400'
+                              : 'bg-white/5 text-white/40'
+                        }`}
+                      >
+                        <Icon
+                          name={impact.isDiscount ? 'TrendingDown' : impact.isMarkup ? 'TrendingUp' : 'DollarSign'}
+                          size={13}
+                        />
+                        {Math.abs(impact.avgPct).toFixed(0)}%
+                      </span>
+                    ) : (
+                      <span className="text-white/15">--</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-white/50">
+                      <Icon name="Users" size={13} className="text-blue-400" />
+                      {list.customerCount ?? 0}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <ActionButtons
+                      actions={[
+                        {
+                          key: 'edit',
+                          icon: <Icon name="Pencil" size={14} />,
+                          label: common('edit'),
+                          onClick: () => {
+                            setViewMode('cards');
+                            startEdit(list);
+                          },
+                          disabled: !canManage,
+                        },
+                        {
+                          key: 'undo',
+                          icon: <Icon name="Undo" size={14} />,
+                          label: t('undoLastChange'),
+                          onClick: () => undoLastChange(list.id),
+                          disabled: !canManage || undoingId === list.id,
+                        },
+                        {
+                          key: 'archive',
+                          icon: <Icon name="Trash2" size={14} />,
+                          label: common('archive') || 'Archive',
+                          onClick: () => archiveList(list.id),
+                          disabled: !canManage || archivingId === list.id || list.status === 'ARCHIVED',
+                          variant: 'danger',
+                        },
+                      ]}
+                      size="xs"
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+
+  // ─── Pagination ───────────────────────────────────────────────────────
+
+  const paginationNode = (
+    <PaginationControls
+      page={page}
+      pageSize={pageSize}
+      total={total}
+      itemCount={lists.length}
+      availablePages={Object.keys(pageCursors).map(Number)}
+      hasNext={!!nextCursor}
+      hasPrev={page > 1}
+      isLoading={isLoading}
+      onPageChange={(p) => load(p)}
+      onPageSizeChange={(size) => {
+        setPageSize(size);
+        setPage(1);
+        setPageCursors({ 1: null });
+        setTotal(null);
+        load(1, size);
+      }}
+    />
+  );
+
+  // ─── Render ───────────────────────────────────────────────────────────
 
   return (
-    <section className="nvi-page">
-      <PremiumPageHeader
-        eyebrow={t('eyebrow')}
-        title={t('title')}
-        subtitle={t('subtitle')}
-        badges={
-          <>
-            <span className="status-chip">{t('badgePriceGovernance')}</span>
-            <span className="status-chip">{t('badgeLive')}</span>
-          </>
-        }
-        actions={
+    <>
+    <ListPage
+      eyebrow={t('eyebrow')}
+      title={t('title')}
+      subtitle={t('subtitle')}
+      badges={
+        <>
+          <span className="status-chip">{t('badgePriceGovernance')}</span>
+          <span className="status-chip">{t('badgeLive')}</span>
+        </>
+      }
+      headerActions={
+        <div className="flex items-center gap-2">
+          {canManage ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(true)}
+                className="nvi-press inline-flex items-center gap-1.5 rounded-xl bg-[var(--nvi-accent)] px-3 py-2 text-xs font-semibold text-black"
+              >
+                <Icon name="Plus" size={14} />
+                {t('createTitle')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddOverrideOpen(true)}
+                className="nvi-press inline-flex items-center gap-1.5 rounded-xl border border-[var(--nvi-border)] px-3 py-2 text-xs text-[var(--nvi-text)]"
+              >
+                <Icon name="Tags" size={14} />
+                {t('assignTitle')}
+              </button>
+            </>
+          ) : null}
           <Link
             href={`/${locale}/price-lists/wizard`}
-            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+            className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/70 hover:bg-white/[0.08] hover:text-white transition-colors nvi-press"
           >
             {t('openWizard')}
           </Link>
-        }
-      />
-      {message ? <StatusBanner message={message} /> : null}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiPriceLists')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{lists.length}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActiveLists')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeLists}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiOverrides')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{overrideCount}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiVariantPool')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
-        </article>
-      </div>
-
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('createTitle')}</h3>
-        <div className="flex flex-wrap gap-3">
-          <input
-            value={form.name}
-            onChange={(event) => setForm({ name: event.target.value })}
-            placeholder={t('namePlaceholder')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <button
-            type="button"
-            onClick={createList}
-            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isCreating || !canManage}
-            title={!canManage ? noAccess('title') : undefined}
-          >
-            {isCreating ? <Spinner size="xs" variant="orbit" /> : null}
-            {isCreating ? t('creating') : common('create')}
-          </button>
-        </div>
-      </div>
-
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('assignTitle')}</h3>
-        <div className="grid gap-3 md:grid-cols-3">
-          <SmartSelect
-            instanceId="pricelist-assign-list"
-            value={itemForm.listId}
-            onChange={(value) => setItemForm({ ...itemForm, listId: value })}
-            options={lists.map((list) => ({
-              value: list.id,
-              label: list.name,
-            }))}
-            placeholder={t('selectList')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <AsyncSmartSelect
-            instanceId="pricelist-assign-variant"
-            value={getVariantOption(itemForm.variantId)}
-            loadOptions={loadVariantOptions}
-            defaultOptions={variants.map((v) => ({
-              value: v.id,
-              label: formatVariantLabel({ id: v.id, name: v.name, productName: v.product?.name ?? null }),
-            }))}
-            onChange={(opt) => setItemForm({ ...itemForm, variantId: opt?.value ?? '' })}
-            placeholder={t('selectVariant')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <CurrencyInput
-            value={itemForm.price}
-            onChange={(value) =>
-              setItemForm({ ...itemForm, price: value })
-            }
-            placeholder={t('price')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: common('cards') || 'Cards', table: common('table') || 'Table' }}
           />
         </div>
-        <button
-          type="button"
-          onClick={addItem}
-          className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-          disabled={isAssigning || !canManage}
-          title={!canManage ? noAccess('title') : undefined}
-        >
-          {isAssigning ? <Spinner size="xs" variant="pulse" /> : null}
-          {isAssigning ? t('saving') : t('savePrice')}
-        </button>
-      </div>
-
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('listsTitle')}</h3>
-        {lists.length === 0 ? (
-          <StatusBanner message={t('empty')} />
-        ) : (
-          lists.map((list) => (
-            <div
-              key={list.id}
-              className="rounded border border-gold-700/30 bg-black/40 p-3 space-y-2"
-            >
-              {editingId === list.id ? (
-                <div className="grid gap-2 md:grid-cols-2">
-                  <input
-                    value={editing.name}
-                    onChange={(event) =>
-                      setEditing({ ...editing, name: event.target.value })
-                    }
-                    className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                  />
-                  <SmartSelect
-                    instanceId={`pricelist-edit-status-${list.id}`}
-                    value={editing.status ?? 'ACTIVE'}
-                    onChange={(value) =>
-                      setEditing({
-                        ...editing,
-                        status: value as PriceList['status'],
-                      })
-                    }
-                    options={[
-                      { value: 'ACTIVE', label: t('statusActive') },
-                      { value: 'INACTIVE', label: t('statusInactive') },
-                      { value: 'ARCHIVED', label: t('statusArchived') },
-                    ]}
-                    className="nvi-select-container"
-                  />
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm text-gold-100">{list.name}</p>
-                    <p className="text-xs text-gold-400">
-                      {t('statusLabel')}: {listStatusLabels[list.status ?? 'ACTIVE'] ?? list.status ?? common('statusActive')}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => startEdit(list)}
-                    disabled={!canManage}
-                    title={!canManage ? noAccess('title') : undefined}
-                    className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-                  >
-                    {common('edit')}
-                  </button>
-                </div>
-              )}
-              {editingId === list.id ? (
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={saveEdit}
-                    className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-                    disabled={isSaving || !canManage}
-                    title={!canManage ? noAccess('title') : undefined}
-                  >
-                    {isSaving ? <Spinner size="xs" variant="grid" /> : null}
-                    {isSaving ? t('saving') : common('save')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingId(null)}
-                    className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
-                  >
-                    {common('cancel')}
-                  </button>
-                </div>
-              ) : null}
-              <div className="space-y-1 text-xs text-gold-400">
-                {(list.items ?? []).length === 0 ? (
-                  <p>{t('noOverrides')}</p>
-                ) : (
-                  (list.items ?? []).map((item) => {
-                    const variant = variantMap.get(item.variantId);
-                    return (
-                      <div
-                        key={item.id}
-                        className="flex items-center justify-between gap-2"
-                      >
-                        <span>
-                          {formatVariantLabel(
-                            {
-                              id: item.variantId,
-                              name: variant?.name ?? null,
-                              productName: variant?.product?.name ?? null,
-                            },
-                            common('unknown'),
-                          )}{' '}
-                          · {item.price}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeItem(list.id, item.id)}
-                          className="inline-flex items-center gap-2 text-xs text-gold-200"
-                          disabled={removingItemId === item.id || !canManage}
-                          title={!canManage ? noAccess('title') : undefined}
-                        >
-                          {removingItemId === item.id ? (
-                            <Spinner size="xs" variant="dots" />
-                          ) : null}
-                          {removingItemId === item.id ? t('removing') : actions('remove')}
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          ))
-        )}
-        {nextCursor ? (
-          <button
-            type="button"
-            onClick={() => load(nextCursor, true)}
-            disabled={isLoadingMore}
-            className="rounded border border-gold-500/60 px-4 py-2 text-sm text-gold-200 disabled:opacity-60"
-          >
-            <span className="inline-flex items-center gap-2">
-              {isLoadingMore ? <Spinner size="xs" variant="orbit" /> : null}
-              {isLoadingMore ? actions('loading') : actions('loadMore')}
-            </span>
-          </button>
-        ) : null}
-      </div>
-    </section>
+      }
+      banner={bannerNode}
+      kpis={kpiStrip}
+      viewMode={viewMode}
+      table={tableContent}
+      cards={cardsContent}
+      isEmpty={lists.length === 0}
+      emptyIcon={
+        <div className="nvi-float">
+          <Icon name="ListOrdered" size={48} className="text-white/15" />
+        </div>
+      }
+      emptyTitle={t('empty')}
+      emptyDescription={t('emptyDescription') || t('empty')}
+      pagination={paginationNode}
+      isLoading={isLoading}
+    />
+    <PriceListCreateModal
+      open={createOpen}
+      onClose={() => setCreateOpen(false)}
+      name={form.name}
+      onNameChange={(value) => setForm({ name: value })}
+      onSubmit={createList}
+      isCreating={isCreating}
+      canManage={canManage}
+    />
+    <PriceListEditModal
+      open={editingId !== null}
+      onClose={() => setEditingId(null)}
+      name={editing.name}
+      status={editing.status ?? 'ACTIVE'}
+      onNameChange={(value) => setEditing({ ...editing, name: value })}
+      onStatusChange={(value) => setEditing({ ...editing, status: value })}
+      instanceIdSuffix={editingId ?? 'none'}
+      onSubmit={saveEdit}
+      isSaving={isSaving}
+      canManage={canManage}
+    />
+    <AddOverrideModal
+      open={addOverrideOpen}
+      onClose={() => setAddOverrideOpen(false)}
+      form={itemForm}
+      onFormChange={setItemForm}
+      lists={lists}
+      variants={variants}
+      loadVariantOptions={loadVariantOptions}
+      getVariantOption={getVariantOption}
+      onSubmit={addItem}
+      isAssigning={isAssigning}
+      canManage={canManage}
+    />
+    </>
   );
 }

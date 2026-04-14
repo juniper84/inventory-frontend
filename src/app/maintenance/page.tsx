@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export const metadata: Metadata = {
   title: 'Under Maintenance — New Vision Inventory',
@@ -31,9 +32,9 @@ export default function MaintenancePage() {
         ].join(', '),
       }}
     >
-      {/* Wordmark */}
-      <div className="mb-10 text-center">
-        <p className="text-xs uppercase tracking-[0.22em] text-gold-400/70 mb-1">Powered by</p>
+      {/* Brand */}
+      <div className="mb-10 flex flex-col items-center gap-3">
+        <BrandLogo variant="vision" size="md" />
         <h2
           className="text-2xl font-semibold tracking-wide"
           style={{ color: '#d7b05b', fontFamily: 'Georgia, serif', letterSpacing: '0.06em' }}

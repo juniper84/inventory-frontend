@@ -13,14 +13,13 @@ import {
   isOfflinePinRequired,
   verifyOfflinePin,
 } from '@/lib/offline-store';
-import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { useVariantSearch } from '@/lib/use-variant-search';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
-import { StatusBanner } from '@/components/StatusBanner';
+import { Banner } from '@/components/notifications/Banner';
 import { CurrencyInput } from '@/components/CurrencyInput';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
 import {
@@ -33,9 +32,23 @@ import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
-import { useDebouncedValue } from '@/lib/use-debounced-value';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+
 import { useFormatDate } from '@/lib/business-context';
+import {
+  ListPage,
+  Card,
+  Icon,
+  TextInput,
+  StatusBadge,
+  SortableTableHeader,
+  ProgressBar,
+  EmptyState,
+} from '@/components/ui';
+import type { SortDirection } from '@/components/ui';
+import { PurchaseCreateModal } from '@/components/purchases/PurchaseCreateModal';
+import { PurchasePaymentModal } from '@/components/purchases/PurchasePaymentModal';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 type Branch = { id: string; name: string };
 type Supplier = { id: string; name: string; status: string };
@@ -55,6 +68,7 @@ type PurchaseLine = {
 };
 type Purchase = {
   id: string;
+  referenceNumber?: string | null;
   status: string;
   total: string;
   createdAt: string;
@@ -64,13 +78,50 @@ type Purchase = {
   payments: { id: string; method: string; amount: string; reference?: string | null }[];
 };
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function computePaymentInfo(purchase: Purchase) {
+  const totalPaid = purchase.payments?.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) ?? 0;
+  const totalDue = Number(purchase.total) || 0;
+  const paidPercent = totalDue > 0 ? Math.min(Math.round((totalPaid / totalDue) * 100), 100) : 0;
+  const isPaid = totalDue > 0 && totalPaid >= totalDue;
+  const isPartial = totalPaid > 0 && !isPaid;
+  const remaining = Math.max(totalDue - totalPaid, 0);
+  return { totalPaid, totalDue, paidPercent, isPaid, isPartial, remaining };
+}
+
+function relativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}h ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  const diffMonth = Math.floor(diffDay / 30);
+  if (diffMonth < 12) return `${diffMonth}mo ago`;
+  return `${Math.floor(diffMonth / 12)}y ago`;
+}
+
+function fmtNum(n: number | string): string {
+  const val = Number(n);
+  if (Number.isNaN(val)) return String(n);
+  return val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
 export default function PurchasesPage() {
   const t = useTranslations('purchasesPage');
   const actions = useTranslations('actions');
   const common = useTranslations('common');
   const noAccess = useTranslations('noAccess');
   const locale = useLocale();
-  const { formatDate } = useFormatDate();
+  const { formatDate, formatDateTime } = useFormatDate();
   const permissions = getPermissionSet();
   const canWrite = permissions.has('purchases.write');
   const [isLoading, setIsLoading] = useState(true);
@@ -86,6 +137,9 @@ export default function PurchasesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<SortDirection>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
@@ -98,12 +152,34 @@ export default function PurchasesPage() {
   const [pinRequired, setPinRequired] = useState(false);
   const [pinVerified, setPinVerified] = useState(false);
   const [pinInput, setPinInput] = useState('');
+  const [expandedPayment, setExpandedPayment] = useState<string | null>(null);
   const [form, setForm] = useState({
     branchId: '',
     supplierId: '',
   });
   const { activeBranch, resolveBranchId } = useBranchScope();
   const { loadOptions: loadVariantOptions, getVariantData, seedCache: seedVariantCache, getVariantOption } = useVariantSearch();
+
+  const getUnitOptionsForVariant = useCallback(
+    (variantId: string) => {
+      const allOpts = units.map((u) => ({ value: u.id, label: buildUnitLabel(u) }));
+      if (!variantId) return allOpts;
+      const variant = getVariantData(variantId) ?? variants.find((v) => v.id === variantId);
+      if (!variant) return allOpts;
+      const validIds = new Set<string>();
+      if (variant.baseUnitId) validIds.add(variant.baseUnitId);
+      if (variant.sellUnitId) validIds.add(variant.sellUnitId);
+      if (validIds.size === 0) return allOpts;
+      return units
+        .filter((u) => validIds.has(u.id))
+        .map((u) => ({
+          value: u.id,
+          label: `${buildUnitLabel(u)}${u.id === variant.baseUnitId ? ` (${t('unitBase')})` : u.id === variant.sellUnitId ? ` (${t('unitSell')})` : ''}`,
+        }));
+    },
+    [units, variants, getVariantData, t],
+  );
+
   const [lines, setLines] = useState<PurchaseLine[]>([
     { id: crypto.randomUUID(), variantId: '', quantity: '', unitCost: '', unitId: '' },
   ]);
@@ -125,7 +201,7 @@ export default function PurchasesPage() {
   const effectiveFilterBranchId = resolveBranchId(filters.branchId) || '';
   const effectiveFormBranchId = resolveBranchId(form.branchId) || '';
   const [searchDraft, setSearchDraft] = useState(filters.search);
-  const debouncedSearch = useDebouncedValue(searchDraft, 350);
+
 
   const statusOptions = useMemo(
     () => [
@@ -150,18 +226,6 @@ export default function PurchasesPage() {
     [common],
   );
 
-  const getStatusStyle = (status: string): string => {
-    switch (status) {
-      case 'APPROVED': return 'border-blue-500/50 bg-blue-500/10 text-blue-200';
-      case 'RECEIVED': case 'COMPLETED': return 'border-green-500/50 bg-green-500/10 text-green-200';
-      case 'PENDING_APPROVAL': case 'PENDING': return 'border-amber-500/50 bg-amber-500/10 text-amber-200';
-      case 'PARTIALLY_RECEIVED': case 'PARTIAL': return 'border-purple-500/50 bg-purple-500/10 text-purple-200';
-      case 'CANCELLED': return 'border-red-500/50 bg-red-500/10 text-red-300';
-      case 'DRAFT': return 'border-gold-700/50 bg-black/40 text-gold-400';
-      default: return 'border-gold-700/50 bg-black/40 text-gold-400';
-    }
-  };
-
   const branchOptions = useMemo(
     () => [
       { value: '', label: common('globalBranch') },
@@ -181,15 +245,34 @@ export default function PurchasesPage() {
     [suppliers, common],
   );
 
+  // ─── Derived KPI data ───────────────────────────────────────────────────
+
+  const kpiData = useMemo(() => {
+    let monthSpend = 0;
+    let unpaidBalance = 0;
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    for (const p of purchases) {
+      const total = Number(p.total) || 0;
+      const created = new Date(p.createdAt);
+      if (created >= monthStart) {
+        monthSpend += total;
+      }
+      const { remaining } = computePaymentInfo(p);
+      unpaidBalance += remaining;
+    }
+
+    return { monthSpend, unpaidBalance };
+  }, [purchases]);
+
+  // ─── Effects ──────────────────────────────────────────────────────────────
+
   useEffect(() => {
     setSearchDraft(filters.search);
   }, [filters.search]);
 
-  useEffect(() => {
-    if (debouncedSearch !== filters.search) {
-      pushFilters({ search: debouncedSearch });
-    }
-  }, [debouncedSearch, filters.search, pushFilters]);
+
 
   useEffect(() => {
     const handleOnline = () => setOffline(!navigator.onLine);
@@ -339,6 +422,8 @@ export default function PurchasesPage() {
     loadFlags();
   }, []);
 
+  // ─── Handlers ─────────────────────────────────────────────────────────────
+
   const updateLine = (id: string, patch: Partial<PurchaseLine>) => {
     setLines((prev) =>
       prev.map((line) => (line.id === id ? { ...line, ...patch } : line)),
@@ -460,6 +545,7 @@ export default function PurchasesPage() {
         },
       ]);
       await load(1);
+      setCreateOpen(false);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
     } catch (err) {
       setMessage({
@@ -470,6 +556,36 @@ export default function PurchasesPage() {
     } finally {
       setIsCreating(false);
     }
+  };
+
+  const reorderFromPurchase = (purchase: Purchase) => {
+    // Seed variant cache from local variants list for any IDs in the purchase
+    const purchaseVariantIds = new Set(purchase.lines.map((l) => l.variantId).filter(Boolean));
+    const seeds = variants.filter((v) => purchaseVariantIds.has(v.id));
+    if (seeds.length) seedVariantCache(seeds);
+
+    setForm({
+      branchId: purchase.branch?.id ?? '',
+      supplierId: purchase.supplier?.id ?? '',
+    });
+    setLines(
+      purchase.lines.length > 0
+        ? purchase.lines.map((line) => ({
+            id: crypto.randomUUID(),
+            variantId: line.variantId,
+            quantity: line.quantity,
+            unitCost: line.unitCost,
+            unitId: line.unitId ?? '',
+          }))
+        : [{ id: crypto.randomUUID(), variantId: '', quantity: '', unitCost: '', unitId: '' }],
+    );
+    setCreateOpen(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const startInlinePayment = (purchaseId: string) => {
+    setExpandedPayment((prev) => (prev === purchaseId ? null : purchaseId));
+    setPaymentForm((prev) => ({ ...prev, purchaseId, amount: '', reference: '', methodLabel: '' }));
   };
 
   const recordPayment = async () => {
@@ -501,6 +617,7 @@ export default function PurchasesPage() {
         reference: '',
         methodLabel: '',
       });
+      setExpandedPayment(null);
       await load(page);
       setMessage({ action: 'update', outcome: 'success', message: t('paymentRecorded') });
     } catch (err) {
@@ -514,109 +631,161 @@ export default function PurchasesPage() {
     }
   };
 
-  if (isLoading) {
-    return <PageSkeleton />;
-  }
+  // ─── Banner helper ────────────────────────────────────────────────────────
 
-  return (
-    <section className="nvi-page">
-      <PremiumPageHeader
-        eyebrow={t('eyebrow')}
-        title={t('title')}
-        subtitle={t('subtitle')}
-        actions={
-          <ViewToggle
-            value={viewMode}
-            onChange={setViewMode}
-            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-          />
-        }
-      />
-      {message ? <StatusBanner message={message} /> : null}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            {t('kpiTotal')}
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{total ?? purchases.length}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            {t('kpiDraftLines')}
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{lines.length}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            {t('kpiPaymentTarget')}
-          </p>
-          <p className="mt-2 text-xl font-semibold text-gold-100">
-            {paymentForm.purchaseId ? t('kpiSelected') : t('kpiNone')}
-          </p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">
-            {t('kpiPage')}
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{page}</p>
-        </article>
+  const bannerNode = message ? (
+    <Banner
+      message={message}
+      onDismiss={() => setMessage(null)}
+    />
+  ) : null;
+
+  // ─── Payment method color map ──────────────────────────────────────────────
+
+  const paymentMethodStyle: Record<string, { bg: string; text: string; icon: 'Banknote' | 'CreditCard' | 'Smartphone' | 'Landmark' | 'Wallet' }> = {
+    CASH: { bg: 'bg-emerald-500/15', text: 'text-emerald-400', icon: 'Banknote' },
+    CARD: { bg: 'bg-blue-500/15', text: 'text-blue-400', icon: 'CreditCard' },
+    MOBILE_MONEY: { bg: 'bg-purple-500/15', text: 'text-purple-400', icon: 'Smartphone' },
+    BANK_TRANSFER: { bg: 'bg-cyan-500/15', text: 'text-cyan-400', icon: 'Landmark' },
+    OTHER: { bg: 'bg-gray-500/15', text: 'text-gray-400', icon: 'Wallet' },
+  };
+
+  const defaultMethodStyle = { bg: 'bg-gray-500/15', text: 'text-gray-400', icon: 'Wallet' as const };
+
+  // ─── Payment status indicator ─────────────────────────────────────────────
+
+  const PaymentIndicator = ({ purchase }: { purchase: Purchase }) => {
+    const { isPaid, isPartial, paidPercent, totalPaid, totalDue } = computePaymentInfo(purchase);
+    const barColor = isPaid ? 'green' : isPartial ? 'amber' : 'red';
+    const textColor = isPaid ? 'text-emerald-400' : isPartial ? 'text-amber-400' : 'text-red-400';
+    const label = isPaid ? (common('statusCompleted') || 'Paid') : isPartial ? `${paidPercent}% paid` : (common('statusPending') || 'Unpaid');
+
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className={`text-xs font-semibold ${textColor}`}>{label}</span>
+          <span className="text-[10px] tabular-nums text-[var(--nvi-text-muted)]">
+            {fmtNum(totalPaid)} / {fmtNum(totalDue)}
+          </span>
+        </div>
+        <ProgressBar value={paidPercent} max={100} color={barColor} height={4} />
       </div>
-      <ListFilters
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearchSubmit={() => pushFilters({ search: searchDraft })}
-        onReset={() => resetFilters()}
-        isLoading={isLoading}
-        showAdvanced={showAdvanced}
-        onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      >
-        <SmartSelect
-          instanceId="purchases-filter-status"
-          value={filters.status}
-          onChange={(value) => pushFilters({ status: value })}
-          options={statusOptions}
-          placeholder={common('status')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          instanceId="purchases-filter-branch"
-          value={filters.branchId}
-          onChange={(value) => pushFilters({ branchId: value })}
-          options={branchOptions}
-          placeholder={common('branch')}
-          className="nvi-select-container"
-        />
-        <SmartSelect
-          instanceId="purchases-filter-supplier"
-          value={filters.supplierId}
-          onChange={(value) => pushFilters({ supplierId: value })}
-          options={supplierOptions}
-          placeholder={common('supplier')}
-          className="nvi-select-container"
-        />
-        <DatePickerInput
-          value={filters.from}
-          onChange={(value) => pushFilters({ from: value })}
-          placeholder={common('fromDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-        <DatePickerInput
-          value={filters.to}
-          onChange={(value) => pushFilters({ to: value })}
-          placeholder={common('toDate')}
-          className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-      </ListFilters>
-      {offline && pinRequired && !pinVerified ? (
-        <div className="rounded border border-red-600/40 bg-red-950/50 p-3 text-xs text-red-200">
-          <p className="font-semibold">{t('pinRequiredTitle')}</p>
+    );
+  };
+
+  // ─── Table payment cell ────────────────────────────────────────────────────
+
+  const PaymentCell = ({ purchase }: { purchase: Purchase }) => {
+    const { isPaid, isPartial, paidPercent } = computePaymentInfo(purchase);
+    const dotColor = isPaid ? 'bg-emerald-400' : isPartial ? 'bg-amber-400' : 'bg-red-400';
+    const barColor = isPaid ? 'green' : isPartial ? 'amber' : 'red';
+    const textColor = isPaid ? 'text-emerald-400' : isPartial ? 'text-amber-400' : 'text-red-400';
+    return (
+      <div className="flex items-center gap-2.5 min-w-[120px]">
+        <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${dotColor}`} />
+        <ProgressBar value={paidPercent} max={100} color={barColor} height={4} className="flex-1 min-w-[48px]" />
+        <span className={`text-[11px] font-medium tabular-nums ${textColor} shrink-0`}>
+          {paidPercent}%
+        </span>
+      </div>
+    );
+  };
+
+  // ─── KPI strip ────────────────────────────────────────────────────────────
+
+  const kpiStrip = (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+      {(
+        [
+          { icon: 'ShoppingCart' as const, tone: 'amber' as const,   label: t('kpiTotal'),         value: String(total ?? purchases.length),                 accent: 'text-white',         size: '2xl' },
+          { icon: 'TrendingUp' as const,   tone: 'blue' as const,    label: t('kpiMonthSpend'),    value: fmtNum(kpiData.monthSpend),                         accent: 'text-blue-400',      size: '2xl' },
+          { icon: 'CircleAlert' as const,  tone: 'red' as const,     label: t('kpiUnpaid'),        value: fmtNum(kpiData.unpaidBalance),                      accent: 'text-red-400',       size: '2xl' },
+          { icon: 'Building2' as const,    tone: 'emerald' as const, label: t('kpiActiveBranch'),  value: activeBranch?.name ?? common('globalBranch'),       accent: 'text-emerald-400',   size: 'lg'  },
+        ]
+      ).map((k) => (
+        <Card key={k.label} padding="md" as="article" className="nvi-card-hover">
+          <div className="flex items-center gap-3">
+            <div className={`nvi-kpi-icon nvi-kpi-icon--${k.tone}`}>
+              <Icon name={k.icon} size={20} />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-white/40">{k.label}</p>
+              <p className={`${k.size === '2xl' ? 'text-2xl font-extrabold' : 'text-lg font-bold'} ${k.accent} leading-tight ${k.size === '2xl' ? 'tabular-nums' : 'truncate'}`}>{k.value}</p>
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+
+  // ─── Filters ──────────────────────────────────────────────────────────────
+
+  const filterBar = (
+    <ListFilters
+      searchValue={searchDraft}
+      onSearchChange={setSearchDraft}
+      onSearchSubmit={() => pushFilters({ search: searchDraft })}
+      onReset={() => resetFilters()}
+      isLoading={isLoading}
+      showAdvanced={showAdvanced}
+      onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+    >
+      <SmartSelect
+        instanceId="purchases-filter-status"
+        value={filters.status}
+        onChange={(value) => pushFilters({ status: value })}
+        options={statusOptions}
+        placeholder={common('status')}
+        className="nvi-select-container"
+      />
+      <SmartSelect
+        instanceId="purchases-filter-branch"
+        value={filters.branchId}
+        onChange={(value) => pushFilters({ branchId: value })}
+        options={branchOptions}
+        placeholder={common('branch')}
+        className="nvi-select-container"
+      />
+      <SmartSelect
+        instanceId="purchases-filter-supplier"
+        value={filters.supplierId}
+        onChange={(value) => pushFilters({ supplierId: value })}
+        options={supplierOptions}
+        placeholder={common('supplier')}
+        className="nvi-select-container"
+      />
+      <DatePickerInput
+        value={filters.from}
+        onChange={(value) => pushFilters({ from: value })}
+        placeholder={common('fromDate')}
+        className="rounded-xl border border-[var(--nvi-border)] bg-black px-3 py-2 text-[var(--nvi-text)]"
+      />
+      <DatePickerInput
+        value={filters.to}
+        onChange={(value) => pushFilters({ to: value })}
+        placeholder={common('toDate')}
+        className="rounded-xl border border-[var(--nvi-border)] bg-black px-3 py-2 text-[var(--nvi-text)]"
+      />
+    </ListFilters>
+  );
+
+  // ─── Offline PIN gate ─────────────────────────────────────────────────────
+
+  const offlinePinGate = offline && pinRequired && !pinVerified ? (
+    <Card padding="md" className="border-red-600/40 bg-red-950/30">
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-red-500/20">
+          <Icon name="Lock" size={16} className="text-red-400" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-red-200">{t('pinRequiredTitle')}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <input
+            <TextInput
               type="password"
               value={pinInput}
               onChange={(event) => setPinInput(event.target.value)}
               placeholder={t('pinPlaceholder')}
-              className="rounded border border-red-700/50 bg-black px-3 py-2 text-gold-100"
+              className="max-w-[200px]"
             />
             <button
               type="button"
@@ -630,311 +799,321 @@ export default function PurchasesPage() {
                 }
                 setPinInput('');
               }}
-              className="rounded border border-red-700/50 px-3 py-2 text-xs text-red-100"
+              className="nvi-cta nvi-press rounded-xl px-3 py-2 text-xs font-semibold text-black"
             >
               {t('unlock')}
             </button>
           </div>
         </div>
-      ) : null}
-
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('createTitle')}</h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <SmartSelect
-            instanceId="purchases-create-branch"
-            value={form.branchId}
-            onChange={(value) => setForm({ ...form, branchId: value })}
-            options={branches.map((branch) => ({
-              value: branch.id,
-              label: branch.name,
-            }))}
-            placeholder={t('selectBranch')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            instanceId="purchases-create-supplier"
-            value={form.supplierId}
-            onChange={(value) => setForm({ ...form, supplierId: value })}
-            options={suppliers.map((supplier) => ({
-              value: supplier.id,
-              label: `${supplier.name} (${supplier.status})`,
-            }))}
-            placeholder={t('selectSupplier')}
-            isClearable
-            className="nvi-select-container"
-          />
-        </div>
-        <div className="space-y-2 nvi-stagger">
-          {lines.map((line) => (
-            <div key={line.id} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-              <AsyncSmartSelect
-                instanceId={`purchases-line-${line.id}-variant`}
-                value={getVariantOption(line.variantId)}
-                loadOptions={loadVariantOptions}
-                defaultOptions={variants.map((v) => ({
-                  value: v.id,
-                  label: formatVariantLabel({
-                    id: v.id,
-                    name: v.name,
-                    productName: v.product?.name ?? null,
-                  }),
-                }))}
-                onChange={(opt) => {
-                  const variantId = opt?.value ?? '';
-                  const vd = getVariantData(variantId) ?? variants.find((v) => v.id === variantId);
-                  updateLine(line.id, {
-                    variantId,
-                    unitId: vd?.baseUnitId ?? vd?.sellUnitId ?? line.unitId,
-                  });
-                }}
-                placeholder={t('variant')}
-                isClearable
-              />
-              <input
-                value={line.quantity}
-                onChange={(event) =>
-                  updateLine(line.id, { quantity: event.target.value })
-                }
-                placeholder={t('quantity')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-              />
-              <SmartSelect
-                instanceId={`purchases-line-${line.id}-unit`}
-                value={line.unitId}
-                onChange={(value) => updateLine(line.id, { unitId: value })}
-                options={units.map((unit) => ({
-                  value: unit.id,
-                  label: buildUnitLabel(unit),
-                }))}
-                placeholder={t('unit')}
-                isClearable
-                className="nvi-select-container"
-              />
-              <CurrencyInput
-                value={line.unitCost}
-                onChange={(value) =>
-                  updateLine(line.id, { unitCost: value })
-                }
-                placeholder={t('unitCost')}
-                className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-              />
-              <button
-                type="button"
-                onClick={() => removeLine(line.id)}
-                className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-                disabled={!canWrite}
-                title={!canWrite ? noAccess('title') : undefined}
-              >
-                {actions('remove')}
-              </button>
-            </div>
-            ))}
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={addLine}
-            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={!canWrite}
-            title={!canWrite ? noAccess('title') : undefined}
-          >
-            {t('addLine')}
-          </button>
-          <button
-            type="button"
-            onClick={createPurchase}
-            className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={!canWrite || isCreating}
-            title={!canWrite ? noAccess('title') : undefined}
-          >
-            {isCreating ? <Spinner size="xs" variant="orbit" /> : null}
-            {isCreating ? t('creating') : t('createPurchase')}
-          </button>
-        </div>
       </div>
+    </Card>
+  ) : null;
 
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('paymentTitle')}</h3>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="sm:col-span-2">
-            <SmartSelect
-              instanceId="purchases-payment-purchase"
-              value={paymentForm.purchaseId}
-              onChange={(value) =>
-                setPaymentForm({ ...paymentForm, purchaseId: value })
-              }
-              options={purchases.map((purchase) => ({
-                value: purchase.id,
-                label: `${
-                  purchase.supplier?.name ??
-                  (purchase.createdAt
-                    ? formatDate(purchase.createdAt)
-                    : formatEntityLabel({ id: purchase.id }, common('unknown')))
-                } • ${purchaseStatusLabels[purchase.status] ?? purchase.status} • #${shortId(purchase.id)}`,
-              }))}
-              placeholder={t('selectPurchase')}
-              isClearable
-              className="nvi-select-container"
-            />
-          </div>
-          <SmartSelect
-            instanceId="purchases-payment-method"
-            value={paymentForm.method}
-            onChange={(value) =>
-              setPaymentForm({ ...paymentForm, method: value })
-            }
-            options={[
-              { value: 'CASH', label: t('paymentCash') },
-              { value: 'CARD', label: t('paymentCard') },
-              { value: 'MOBILE_MONEY', label: t('paymentMobileMoney') },
-              { value: 'BANK_TRANSFER', label: t('paymentBankTransfer') },
-              { value: 'OTHER', label: t('paymentOther') },
-            ]}
-            className="nvi-select-container"
-          />
-          <CurrencyInput
-            value={paymentForm.amount}
-            onChange={(value) =>
-              setPaymentForm({ ...paymentForm, amount: value })
-            }
-            placeholder={t('amount')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={paymentForm.reference}
-            onChange={(event) =>
-              setPaymentForm({ ...paymentForm, reference: event.target.value })
-            }
-            placeholder={t('referenceOptional')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={paymentForm.methodLabel}
-            onChange={(event) =>
-              setPaymentForm({ ...paymentForm, methodLabel: event.target.value })
-            }
-            placeholder={t('methodLabelOptional')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-        </div>
-        <button
-          type="button"
-          onClick={recordPayment}
-          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-          disabled={!canWrite || isRecording}
-          title={!canWrite ? noAccess('title') : undefined}
-        >
-          {isRecording ? <Spinner size="xs" variant="pulse" /> : null}
-          {isRecording ? t('recording') : t('recordPayment')}
-        </button>
-      </div>
+  // ─── Create form ──────────────────────────────────────────────────────────
 
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('listTitle')}</h3>
-        {viewMode === 'table' ? (
-          purchases.length === 0 ? (
-            <StatusBanner message={t('noPurchases')} />
-          ) : (
-            <div className="overflow-auto">
-              <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
-                <thead className="text-xs uppercase text-gold-400">
-                  <tr>
-                    <th className="px-3 py-2">{t('supplierFallback')}</th>
-                    <th className="px-3 py-2">{common('branch')}</th>
-                    <th className="px-3 py-2">{t('statusLabel')}</th>
-                    <th className="px-3 py-2">{t('createdAt')}</th>
-                    <th className="px-3 py-2">{t('total')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {purchases.map((purchase) => (
-                    <tr key={purchase.id} className="border-t border-gold-700/20">
-                      <td className="px-3 py-2">
-                        <p className="font-semibold text-gold-100">{purchase.supplier?.name ?? t('supplierFallback')}</p>
-                        <p className="text-[11px] text-gold-500">#{shortId(purchase.id)}</p>
-                      </td>
-                      <td className="px-3 py-2 text-gold-300">{purchase.branch?.name ?? '—'}</td>
-                      <td className="px-3 py-2">
-                        <span className={`rounded border px-2 py-0.5 text-[11px] ${getStatusStyle(purchase.status)}`}>
-                          {purchaseStatusLabels[purchase.status] ?? purchase.status}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-gold-300">
-                        {formatDate(purchase.createdAt)}
-                      </td>
-                      <td className="px-3 py-2 font-semibold text-gold-100">{purchase.total}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        ) : purchases.length === 0 ? (
-          <StatusBanner message={t('noPurchases')} />
-        ) : (
-          purchases.map((purchase) => (
-            <div
-              key={purchase.id}
-              className="rounded border border-gold-700/30 bg-black/40 p-4"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-gold-100 truncate">
-                      {purchase.supplier?.name ?? t('supplierFallback')}
-                    </p>
-                    <span className={`rounded border px-2 py-0.5 text-[11px] ${getStatusStyle(purchase.status)}`}>
-                      {purchaseStatusLabels[purchase.status] ?? purchase.status}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gold-400">
-                    {purchase.branch?.name ? <span>{purchase.branch.name}</span> : null}
-                    <span>#{shortId(purchase.id)}</span>
-                    <span>{formatDate(purchase.createdAt)}</span>
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-sm font-semibold text-gold-100">{purchase.total}</p>
-                </div>
+
+  // ─── Purchase cards ───────────────────────────────────────────────────────
+
+  const purchaseCards = (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 nvi-stagger">
+      {purchases.map((purchase) => {
+        const { totalPaid, totalDue, paidPercent, isPaid, isPartial, remaining } = computePaymentInfo(purchase);
+        const totalItems = purchase.lines.length;
+        const totalUnits = purchase.lines.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+        const isPaymentExpanded = expandedPayment === purchase.id;
+        const costColor = isPaid ? 'text-emerald-400' : isPartial ? 'text-amber-400' : 'text-red-400';
+
+        return (
+          <Card key={purchase.id} padding="sm" className="nvi-card-hover flex flex-col">
+            {/* ── Header: hero cost + order status ── */}
+            <div className="flex items-start justify-between p-1">
+              <div className="min-w-0">
+                <p className={`text-2xl font-extrabold tabular-nums leading-tight ${costColor}`}>
+                  {fmtNum(purchase.total)}
+                </p>
+                <p className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-white/30">
+                  {purchase.referenceNumber || '#' + shortId(purchase.id)}
+                </p>
               </div>
-              {purchase.payments?.length ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {purchase.payments.map((payment) => (
+              <StatusBadge
+                status={purchase.status}
+                label={purchaseStatusLabels[purchase.status]}
+                size="xs"
+                className="nvi-status-fade shrink-0"
+              />
+            </div>
+
+            {/* ── Supplier row with blue-tinted icon ── */}
+            <div className="mt-2 flex items-center gap-2.5 px-1">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
+                <Icon name="Building2" size={15} className="text-blue-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-white/90 truncate">
+                  {purchase.supplier?.name ?? t('supplierFallback')}
+                </p>
+                {purchase.branch?.name ? (
+                  <p className="text-[10px] text-white/40 truncate">{purchase.branch.name}</p>
+                ) : null}
+              </div>
+            </div>
+
+            {/* ── Meta chips: items badge, date ── */}
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 px-1">
+              <span className="inline-flex items-center gap-1 rounded-md bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium text-white/50">
+                <Icon name="Package" size={10} className="text-white/30" />
+                {totalItems} {totalItems === 1 ? 'item' : 'items'}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-md bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium text-white/50">
+                <Icon name="Layers" size={10} className="text-white/30" />
+                {fmtNum(totalUnits)} units
+              </span>
+              <span className="ml-auto text-[10px] text-white/30">
+                {relativeTime(purchase.createdAt)}
+              </span>
+            </div>
+
+            {/* ── Payment progress bar ── */}
+            <div className="mt-3 border-t border-white/[0.06] pt-2.5 px-1">
+              <PaymentIndicator purchase={purchase} />
+            </div>
+
+            {/* ── Payment method pills (colored per method) ── */}
+            {purchase.payments?.length ? (
+              <div className="mt-2 flex flex-wrap gap-1.5 px-1">
+                {purchase.payments.map((payment) => {
+                  const mStyle = paymentMethodStyle[payment.method] ?? defaultMethodStyle;
+                  return (
                     <span
                       key={payment.id}
-                      className="rounded bg-gold-900/30 px-2 py-0.5 text-[11px] text-gold-300"
+                      className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-medium ${mStyle.bg} ${mStyle.text}`}
                     >
-                      {payment.method} {payment.amount}
+                      <Icon name={mStyle.icon} size={10} />
+                      {fmtNum(payment.amount)}
                     </span>
-                  ))}
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {/* ── Action buttons ── */}
+            {canWrite ? (
+              <div className="mt-auto border-t border-white/[0.06] pt-2.5 px-1 mt-3">
+                <div className="flex flex-wrap gap-2">
+                  {!isPaid ? (
+                    <button
+                      type="button"
+                      onClick={() => startInlinePayment(purchase.id)}
+                      className="nvi-press flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/20"
+                    >
+                      <Icon name="CreditCard" size={12} />
+                      {t('recordPayment')}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => reorderFromPurchase(purchase)}
+                    className="nvi-press flex items-center gap-1.5 rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-white/60 transition-colors hover:bg-white/[0.08]"
+                  >
+                    <Icon name="RotateCcw" size={12} />
+                    {t('reorder')}
+                  </button>
                 </div>
-              ) : null}
-            </div>
-          ))
-        )}
-        <div className="pt-2">
-          <PaginationControls
-            page={page}
-            pageSize={pageSize}
-            total={total}
-            itemCount={purchases.length}
-            availablePages={Object.keys(pageCursors).map((value) => Number(value))}
-            hasNext={Boolean(nextCursor)}
-            hasPrev={page > 1}
-            isLoading={isLoading}
-            onPageChange={(targetPage) => load(targetPage)}
-            onPageSizeChange={(nextPageSize) => {
-              setPageSize(nextPageSize);
-              setTotal(null);
-              setPage(1);
-              setPageCursors({ 1: null });
-              load(1, nextPageSize);
-            }}
+              </div>
+            ) : null}
+          </Card>
+        );
+      })}
+    </div>
+  );
+
+  // ─── Table view ───────────────────────────────────────────────────────────
+
+  const purchaseTable = (
+    <Card padding="md">
+      <div className="overflow-auto">
+        <table className="min-w-[880px] w-full text-left text-sm text-[var(--nvi-text)]">
+          <thead>
+            <tr className="border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/35">
+              <SortableTableHeader label={t('supplierFallback')} sortKey="supplier" currentSortKey={sortKey} currentDirection={sortDir} onSort={(k, d) => { setSortKey(k); setSortDir(d); }} />
+              <SortableTableHeader label={common('branch')} sortKey="branch" currentSortKey={sortKey} currentDirection={sortDir} onSort={(k, d) => { setSortKey(k); setSortDir(d); }} />
+              <SortableTableHeader label={t('statusLabel')} sortKey="status" currentSortKey={sortKey} currentDirection={sortDir} onSort={(k, d) => { setSortKey(k); setSortDir(d); }} />
+              <th className="px-3 py-2.5">{t('paymentStatus') || 'Payment'}</th>
+              <SortableTableHeader label={t('createdAt')} sortKey="createdAt" currentSortKey={sortKey} currentDirection={sortDir} onSort={(k, d) => { setSortKey(k); setSortDir(d); }} />
+              <SortableTableHeader label={t('total')} sortKey="total" currentSortKey={sortKey} currentDirection={sortDir} onSort={(k, d) => { setSortKey(k); setSortDir(d); }} align="right" />
+              <th className="px-3 py-2.5" />
+            </tr>
+          </thead>
+          <tbody>
+            {purchases.map((purchase) => {
+              const { isPaid, isPartial } = computePaymentInfo(purchase);
+              const amountColor = isPaid ? 'text-emerald-400' : isPartial ? 'text-amber-400' : 'text-white/90';
+              return (
+                <tr key={purchase.id} className="border-t border-white/[0.04] transition-colors hover:bg-white/[0.02]">
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
+                        <Icon name="Building2" size={13} className="text-blue-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white/90 truncate">{purchase.supplier?.name ?? t('supplierFallback')}</p>
+                        <p className="text-[10px] text-white/30">{purchase.referenceNumber || '#' + shortId(purchase.id)}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-xs text-white/40">{purchase.branch?.name ?? '\u2014'}</td>
+                  <td className="px-3 py-2.5">
+                    <StatusBadge
+                      status={purchase.status}
+                      label={purchaseStatusLabels[purchase.status]}
+                      size="xs"
+                    />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <PaymentCell purchase={purchase} />
+                  </td>
+                  <td className="px-3 py-2.5 text-xs text-white/35">
+                    {relativeTime(purchase.createdAt)}
+                  </td>
+                  <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${amountColor}`}>
+                    {fmtNum(purchase.total)}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {canWrite ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => startInlinePayment(purchase.id)}
+                          className="nvi-press flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/20"
+                        >
+                          <Icon name="CreditCard" size={10} />
+                          {t('recordPayment')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => reorderFromPurchase(purchase)}
+                          className="nvi-press rounded-lg bg-white/[0.04] px-2 py-1 text-[10px] font-medium text-white/50 transition-colors hover:bg-white/[0.08]"
+                        >
+                          {t('reorder')}
+                        </button>
+                      </div>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+    </Card>
+  );
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+
+  const selectedPurchase = purchases.find((p) => p.id === expandedPayment) ?? null;
+  const selectedRemaining = selectedPurchase
+    ? computePaymentInfo(selectedPurchase).remaining
+    : 0;
+  const selectedPurchaseLabel = selectedPurchase
+    ? (selectedPurchase.referenceNumber ??
+      selectedPurchase.supplier?.name ??
+      null)
+    : null;
+
+  return (
+    <>
+    <ListPage
+      title={t('title')}
+      subtitle={t('subtitle')}
+      eyebrow={t('eyebrow')}
+      headerActions={
+        <div className="flex flex-wrap items-center gap-2">
+          {canWrite ? (
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="nvi-cta nvi-press inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-black"
+            >
+              <Icon name="ShoppingCart" size={14} />
+              {t('createPurchase')}
+            </button>
+          ) : null}
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
           />
         </div>
-      </div>
-    </section>
+      }
+      isLoading={isLoading}
+      banner={bannerNode}
+      kpis={kpiStrip}
+      filters={filterBar}
+      beforeContent={offlinePinGate}
+      viewMode={viewMode}
+      isEmpty={!purchases.length}
+      emptyIcon={
+        <div className="nvi-float">
+          <Icon name="ShoppingCart" size={32} className="text-[var(--nvi-text-muted)]" />
+        </div>
+      }
+      emptyTitle={t('noPurchases')}
+      emptyDescription={t('emptyDescription') || undefined}
+      table={purchaseTable}
+      cards={purchaseCards}
+      pagination={
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          itemCount={purchases.length}
+          availablePages={Object.keys(pageCursors).map((value) => Number(value))}
+          hasNext={Boolean(nextCursor)}
+          hasPrev={page > 1}
+          isLoading={isLoading}
+          onPageChange={(targetPage) => load(targetPage)}
+          onPageSizeChange={(nextPageSize) => {
+            setPageSize(nextPageSize);
+            setTotal(null);
+            setPage(1);
+            setPageCursors({ 1: null });
+            load(1, nextPageSize);
+          }}
+        />
+      }
+    />
+
+    <PurchaseCreateModal
+      open={createOpen}
+      onClose={() => setCreateOpen(false)}
+      form={form}
+      onFormChange={setForm}
+      branches={branches}
+      suppliers={suppliers}
+      variants={variants}
+      units={units}
+      lines={lines}
+      onUpdateLine={updateLine}
+      onAddLine={addLine}
+      onRemoveLine={removeLine}
+      loadVariantOptions={loadVariantOptions}
+      getVariantOption={getVariantOption}
+      onSubmit={createPurchase}
+      isCreating={isCreating}
+      canWrite={canWrite}
+    />
+
+    <PurchasePaymentModal
+      open={Boolean(expandedPayment)}
+      onClose={() => setExpandedPayment(null)}
+      form={paymentForm}
+      onFormChange={setPaymentForm}
+      remaining={selectedRemaining}
+      purchaseLabel={selectedPurchaseLabel}
+      onSubmit={recordPayment}
+      isRecording={isRecording}
+    />
+    </>
   );
 }

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, setRequestLocale } from 'next-intl/server';
 import { AppShell } from '@/components/AppShell';
+import { NotificationProvider } from '@/components/notifications/NotificationProvider';
 import '../globals.css';
 
 export const metadata: Metadata = {
@@ -43,7 +44,9 @@ export default async function RootLayout({
 
   return (
     <NextIntlClientProvider locale={locale} messages={messages}>
-      <AppShell>{children}</AppShell>
+      <NotificationProvider>
+        <AppShell>{children}</AppShell>
+      </NotificationProvider>
     </NextIntlClientProvider>
   );
 }

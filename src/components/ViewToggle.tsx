@@ -1,9 +1,9 @@
-type ViewMode = 'cards' | 'table';
+type ViewMode = 'cards' | 'table' | 'timeline';
 
 type ViewToggleProps = {
   value: ViewMode;
   onChange: (next: ViewMode) => void;
-  labels: { cards: string; table: string };
+  labels: { cards: string; table: string; timeline?: string };
 };
 
 export function ViewToggle({ value, onChange, labels }: ViewToggleProps) {
@@ -31,6 +31,19 @@ export function ViewToggle({ value, onChange, labels }: ViewToggleProps) {
       >
         {labels.table}
       </button>
+      {labels.timeline ? (
+        <button
+          type="button"
+          onClick={() => onChange('timeline')}
+          className={`rounded-full px-3 py-1 font-semibold transition ${
+            value === 'timeline'
+              ? 'bg-gold-500 text-black'
+              : 'text-gold-200 hover:text-gold-100'
+          }`}
+        >
+          {labels.timeline}
+        </button>
+      ) : null}
     </div>
   );
 }

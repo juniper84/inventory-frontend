@@ -88,7 +88,17 @@ export default function LoginPage() {
 
       setError(t('loginFailed'));
     } catch (err) {
-      setError(getApiErrorMessage(err, t('loginFailedVerify')));
+      const msg = getApiErrorMessage(err, '');
+      const errObj = err as { errorCode?: string; message?: string };
+      if (errObj?.errorCode === 'BUSINESS_SUSPENDED' || msg.includes('Business is not active')) {
+        setError(t('businessSuspendedError'));
+      } else if (msg.includes('not verified')) {
+        setError(t('emailNotVerifiedError'));
+      } else if (msg.includes('not active')) {
+        setError(t('userNotActiveError'));
+      } else {
+        setError(msg || t('loginFailedVerify'));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -123,7 +133,7 @@ export default function LoginPage() {
       <h3>{t('loginTitle')}</h3>
       <p>{t('commandRoomFormSubtitle')}</p>
 
-      <form className="auth-login-form" onSubmit={submit}>
+      <form className="auth-login-form" onSubmit={(e) => { if (needsBusinessSelection) { e.preventDefault(); return; } submit(e); }}>
         <div className="auth-login-field">
           <label htmlFor="email">{t('username')}</label>
           <div className="auth-login-control">
@@ -168,7 +178,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <button type="submit" disabled={isSubmitting} className="auth-login-submit">
+        <button type="submit" disabled={isSubmitting} className="auth-login-submit nvi-press">
           <span className="inline-flex items-center justify-center gap-2">
             {isSubmitting ? <Spinner variant="ring" size="xs" /> : null}
             {isSubmitting ? t('signingIn') : t('signIn')}
@@ -179,7 +189,16 @@ export default function LoginPage() {
       </form>
 
       {needsBusinessSelection ? (
-        <form className="auth-login-business" onSubmit={submitBusinessSelection}>
+        <form
+          className="auth-login-business"
+          onSubmit={submitBusinessSelection}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && selectedBusinessId) {
+              event.preventDefault();
+              submitBusinessSelection(event);
+            }
+          }}
+        >
           <label>{t('selectBusiness')}</label>
           <SmartSelect
             instanceId="login-business-select"
@@ -194,7 +213,7 @@ export default function LoginPage() {
             }))}
             className="text-sm"
           />
-          <button type="submit" disabled={isSubmitting} className="auth-login-submit">
+          <button type="submit" disabled={isSubmitting} className="auth-login-submit nvi-press" autoFocus>
             {isSubmitting ? t('loading') : t('continue')}
           </button>
         </form>

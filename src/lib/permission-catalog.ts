@@ -381,6 +381,14 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
     level: 'full',
   },
   {
+    code: 'imports.write',
+    module: 'reports',
+    labelKey: 'importsWrite',
+    descriptionKey: 'importsWrite',
+    risk: 'medium',
+    level: 'standard',
+  },
+  {
     code: 'audit.read',
     module: 'reports',
     labelKey: 'auditRead',

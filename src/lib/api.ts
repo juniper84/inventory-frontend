@@ -284,6 +284,12 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
       signal: rest.signal ?? controller.signal,
     });
   } catch (err) {
+    // If the caller's signal fired (external cancellation), re-throw the abort as-is.
+    // Only our internal timeout should surface as a network/timeout error.
+    const callerAborted = rest.signal?.aborted === true;
+    if (callerAborted || (err instanceof Error && err.name === 'AbortError' && !controller.signal.aborted)) {
+      throw err;
+    }
     const isTimeout = controller.signal.aborted;
     const errorCode = isTimeout ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR';
     const rawMessage = err instanceof Error ? err.message : 'Network request failed.';

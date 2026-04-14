@@ -2,16 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { promptAction } from '@/lib/app-notifications';
-import { PageSkeleton } from '@/components/PageSkeleton';
+import { notify } from '@/components/notifications/NotificationProvider';
+import { Banner } from '@/components/notifications/Banner';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { PaginationControls } from '@/components/PaginationControls';
-import { StatusBanner } from '@/components/StatusBanner';
+import {
+  StatusBadge,
+  SortableTableHeader,
+  Card,
+  Icon,
+  EmptyState,
+  ListPage,
+} from '@/components/ui';
+import type { SortDirection } from '@/components/ui';
 import { formatEntityLabel } from '@/lib/display';
 import {
   buildCursorQuery,
@@ -22,12 +29,15 @@ import { getPermissionSet } from '@/lib/permissions';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
-import { useDebouncedValue } from '@/lib/use-debounced-value';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+
 import { useFormatDate } from '@/lib/business-context';
+import { FlipCounter } from '@/components/analog';
+import type { IconName } from '@/components/ui';
+import { ApprovalDelegateModal } from '@/components/approvals/ApprovalDelegateModal';
 
 type Approval = {
   id: string;
+  referenceNumber?: string | null;
   actionType: string;
   status: string;
   requestedByUserId: string;
@@ -42,6 +52,36 @@ type Approval = {
   metadata?: Record<string, unknown> | null;
 };
 
+type DelegateUser = { id: string; name: string; email: string };
+
+/* ─── Type icon + color mapping ─── */
+const ACTION_TYPE_ICONS: Record<string, { icon: IconName; color: string; bg: string }> = {
+  STOCK_ADJUSTMENT: { icon: 'Package', color: 'text-blue-400', bg: 'bg-blue-500/10' },
+  STOCK_COUNT: { icon: 'ClipboardCheck', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+  REFUND: { icon: 'RotateCcw', color: 'text-purple-400', bg: 'bg-purple-500/10' },
+  DISCOUNT: { icon: 'Percent', color: 'text-amber-400', bg: 'bg-amber-500/10' },
+  TRANSFER: { icon: 'Truck', color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
+  PURCHASE: { icon: 'ShoppingCart', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+};
+
+/* ─── Status urgency stripe colors ─── */
+const STATUS_STRIPE: Record<string, string> = {
+  PENDING: 'border-l-amber-400',
+  APPROVED: 'border-l-emerald-400',
+  REJECTED: 'border-l-red-400',
+  EXPIRED: 'border-l-white/10',
+  CANCELLED: 'border-l-white/10',
+};
+
+/* ─── Status dot colors for table view ─── */
+const STATUS_DOT: Record<string, string> = {
+  PENDING: 'bg-amber-400',
+  APPROVED: 'bg-emerald-400',
+  REJECTED: 'bg-red-400',
+  EXPIRED: 'bg-[var(--nvi-text-muted)]',
+  CANCELLED: 'bg-[var(--nvi-text-muted)]',
+};
+
 export default function ApprovalsPage() {
   const locale = useLocale();
   const { formatDateTime } = useFormatDate();
@@ -53,8 +93,15 @@ export default function ApprovalsPage() {
   const canApprove = permissions.has('approvals.write');
   const [isLoading, setIsLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<Record<string, string>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [delegatingId, setDelegatingId] = useState<string | null>(null);
+  const [delegateUsers, setDelegateUsers] = useState<DelegateUser[]>([]);
+  const [delegateBusy, setDelegateBusy] = useState(false);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -65,7 +112,7 @@ export default function ApprovalsPage() {
   const pageCursorsRef = useRef(pageCursors);
   pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
-  const [message, setMessage] = useToastState();
+  const [bannerMsg, setBannerMsg] = useState<{ message: string; severity: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const { filters, pushFilters, resetFilters } = useListFilters({
     search: '',
     status: 'PENDING',
@@ -74,7 +121,7 @@ export default function ApprovalsPage() {
     to: '',
   });
   const [searchDraft, setSearchDraft] = useState(filters.search);
-  const debouncedSearch = useDebouncedValue(searchDraft, 350);
+
 
   const statusOptions = useMemo(
     () => [
@@ -127,15 +174,23 @@ export default function ApprovalsPage() {
     [approvals],
   );
 
+  const approvedTodayCount = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return approvals.filter(
+      (a) => a.status === 'APPROVED' && a.requestedAt?.slice(0, 10) === today,
+    ).length;
+  }, [approvals]);
+
+  const rejectedCount = useMemo(
+    () => approvals.filter((a) => a.status === 'REJECTED').length,
+    [approvals],
+  );
+
   useEffect(() => {
     setSearchDraft(filters.search);
   }, [filters.search]);
 
-  useEffect(() => {
-    if (debouncedSearch !== filters.search) {
-      pushFilters({ search: debouncedSearch });
-    }
-  }, [debouncedSearch, filters.search, pushFilters]);
+
 
   const formatApprovalQuantity = (approval: Approval) => {
     const metaQuantity = approval.metadata?.quantity;
@@ -161,6 +216,18 @@ export default function ApprovalsPage() {
           ? '+'
           : '';
     return `${sign}${numeric.toLocaleString(locale)}`;
+  };
+
+  /* ─── Relative time helper ─── */
+  const relativeTime = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return '<1m';
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d`;
   };
 
   const load = useCallback(async (
@@ -208,10 +275,9 @@ export default function ApprovalsPage() {
         return nextState;
       });
     } catch (err) {
-      setMessage({
-        action: 'load',
-        outcome: 'failure',
+      setBannerMsg({
         message: getApiErrorMessage(err, t('loadFailed')),
+        severity: 'error',
       });
     } finally {
       setIsLoading(false);
@@ -236,14 +302,10 @@ export default function ApprovalsPage() {
         token,
         method: 'POST',
       });
-      setMessage({ action: 'approve', outcome: 'success', message: t('statusApproved') });
+      notify.success(t('statusApproved'));
       await load(filters.status);
     } catch (err) {
-      setMessage({
-        action: 'approve',
-        outcome: 'failure',
-        message: getApiErrorMessage(err, t('loadFailed')),
-      });
+      notify.error(getApiErrorMessage(err, t('loadFailed')));
     } finally {
       setActionBusy((prev) => {
         const next = { ...prev };
@@ -258,14 +320,12 @@ export default function ApprovalsPage() {
     if (!token) {
       return;
     }
-    const reason =
-      (await promptAction({
-        title: t('rejectTitle'),
-        message: t('rejectPrompt'),
-        confirmText: t('rejectAction'),
-        cancelText: common('cancel'),
-        placeholder: t('reasonPlaceholder'),
-      })) || '';
+    const reason = await notify.prompt({
+      title: t('rejectTitle'),
+      message: t('rejectPrompt'),
+      placeholder: t('reasonPlaceholder'),
+    });
+    if (reason === null) return;
     setActionBusy((prev) => ({ ...prev, [approvalId]: 'reject' }));
     try {
       await apiFetch(`/approvals/${approvalId}/reject`, {
@@ -273,14 +333,10 @@ export default function ApprovalsPage() {
         method: 'POST',
         body: JSON.stringify({ reason: reason || undefined }),
       });
-      setMessage({ action: 'reject', outcome: 'success', message: t('statusRejected') });
+      notify.success(t('statusRejected'));
       await load(filters.status);
     } catch (err) {
-      setMessage({
-        action: 'reject',
-        outcome: 'failure',
-        message: getApiErrorMessage(err, t('loadFailed')),
-      });
+      notify.error(getApiErrorMessage(err, t('loadFailed')));
     } finally {
       setActionBusy((prev) => {
         const next = { ...prev };
@@ -290,276 +346,542 @@ export default function ApprovalsPage() {
     }
   };
 
-  if (isLoading) {
-    return <PageSkeleton />;
-  }
+  const pendingApprovals = useMemo(
+    () => approvals.filter((a) => a.status === 'PENDING'),
+    [approvals],
+  );
 
-  return (
-    <section className="nvi-page">
-      <PremiumPageHeader
-        eyebrow={t('eyebrow')}
-        title={t('title')}
-        subtitle={t('subtitle')}
-        badges={
-          <>
-            <span className="status-chip">{t('badgeApprovals')}</span>
-            <span className="status-chip">{t('badgeLive')}</span>
-          </>
-        }
-        actions={
-          <ViewToggle
-            value={viewMode}
-            onChange={setViewMode}
-            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-          />
-        }
-      />
-      {message ? <StatusBanner message={message} /> : null}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiLoadedItems')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{approvals.length}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiPendingNow')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{pendingCount}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiStatusFilter')}</p>
-          <p className="mt-2 text-lg font-semibold text-gold-100">{filters.status || common('allStatuses')}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActionFilter')}</p>
-          <p className="mt-2 text-lg font-semibold text-gold-100">{filters.actionType || common('allTypes')}</p>
-        </article>
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const pendingIds = pendingApprovals.map((a) => a.id);
+      const allSelected = pendingIds.every((id) => prev.has(id));
+      return allSelected ? new Set() : new Set(pendingIds);
+    });
+  };
+
+  const bulkApprove = async () => {
+    const token = getAccessToken();
+    if (!token || selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      await apiFetch('/approvals/bulk-approve', {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ approvalIds: Array.from(selectedIds) }),
+      });
+      notify.success(t('bulkApproveSuccess'));
+      setSelectedIds(new Set());
+      await load(filters.status);
+    } catch (err) {
+      notify.error(getApiErrorMessage(err, t('bulkApproveFailed')));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const bulkReject = async () => {
+    const token = getAccessToken();
+    if (!token || selectedIds.size === 0) return;
+    const reason = await notify.prompt({
+      title: t('bulkRejectTitle'),
+      message: t('bulkRejectPrompt'),
+      placeholder: t('reasonPlaceholder'),
+    });
+    if (reason === null) return;
+    setBulkBusy(true);
+    try {
+      await apiFetch('/approvals/bulk-reject', {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          approvalIds: Array.from(selectedIds),
+          reason: reason || undefined,
+        }),
+      });
+      notify.success(t('bulkRejectSuccess'));
+      setSelectedIds(new Set());
+      await load(filters.status);
+    } catch (err) {
+      notify.error(getApiErrorMessage(err, t('bulkRejectFailed')));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const openDelegate = async (approvalId: string) => {
+    setDelegatingId(approvalId);
+    if (delegateUsers.length > 0) return;
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const data = await apiFetch<PaginatedResponse<DelegateUser> | DelegateUser[]>('/users?limit=200', { token });
+      setDelegateUsers(normalizePaginated(data).items);
+    } catch {
+      setDelegateUsers([]);
+    }
+  };
+
+  const submitDelegate = async (approvalId: string, userId: string) => {
+    const token = getAccessToken();
+    if (!token) return;
+    setDelegateBusy(true);
+    try {
+      await apiFetch(`/approvals/${approvalId}/delegate`, {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ userId }),
+      });
+      notify.success(t('delegated'));
+      setDelegatingId(null);
+      await load(filters.status);
+    } catch (err) {
+      notify.error(getApiErrorMessage(err, t('delegateFailed')));
+    } finally {
+      setDelegateBusy(false);
+    }
+  };
+
+  /* ─── Type badge helper ─── */
+  const TypeBadge = ({ actionType }: { actionType: string }) => {
+    const cfg = ACTION_TYPE_ICONS[actionType] ?? { icon: 'TriangleAlert' as IconName, color: 'text-[var(--nvi-text-muted)]', bg: 'bg-[var(--nvi-surface-alt)]' };
+    return (
+      <div className={`inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 ${cfg.bg}`}>
+        <Icon name={cfg.icon} size={13} className={cfg.color} />
+        <span className={`text-[11px] font-semibold ${cfg.color}`}>
+          {approvalActionTypeLabels[actionType] ?? actionType}
+        </span>
       </div>
-      <div className="command-card nvi-panel nvi-reveal p-4">
-        <ListFilters
-          searchValue={searchDraft}
-          onSearchChange={setSearchDraft}
-          onSearchSubmit={() => pushFilters({ search: searchDraft })}
-          onReset={() => resetFilters()}
-          isLoading={isLoading}
-          showAdvanced={showAdvanced}
-          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+    );
+  };
+
+  /* ─── Action buttons (shared between card + table) ─── */
+  const ActionButtons = ({ approval }: { approval: Approval }) => {
+    if (approval.status !== 'PENDING') return null;
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => approve(approval.id)}
+          className="nvi-press nvi-decision-btn nvi-decision-approve"
+          disabled={!canApprove || actionBusy[approval.id] === 'approve'}
+          title={!canApprove ? noAccess('title') : undefined}
         >
-          <SmartSelect
-            instanceId="approvals-filter-status"
-            value={filters.status}
-            onChange={(value) => pushFilters({ status: value })}
-            options={statusOptions}
-            placeholder={common('status')}
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            instanceId="approvals-filter-type"
-            value={filters.actionType}
-            onChange={(value) => pushFilters({ actionType: value })}
-            options={actionOptions}
-            placeholder={t('actionType')}
-            className="nvi-select-container"
-          />
-          <DatePickerInput
-            value={filters.from}
-            onChange={(value) => pushFilters({ from: value })}
-            placeholder={common('fromDate')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <DatePickerInput
-            value={filters.to}
-            onChange={(value) => pushFilters({ to: value })}
-            placeholder={common('toDate')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-        </ListFilters>
-      </div>
-
-      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
-        {viewMode === 'table' ? (
-          approvals.length === 0 ? (
-            <StatusBanner message={t('noApprovals')} />
+          {actionBusy[approval.id] === 'approve' ? (
+            <Spinner size="xs" variant="pulse" />
           ) : (
-            <div className="overflow-auto">
-              <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
-                <thead className="text-xs uppercase text-gold-400">
-                  <tr>
-                    <th className="px-3 py-2">{t('actionType')}</th>
-                    <th className="px-3 py-2">{t('targetLabel')}</th>
-                    <th className="px-3 py-2">{t('statusLabel')}</th>
-                    <th className="px-3 py-2">{t('requestedByLabel')}</th>
-                    <th className="px-3 py-2">{t('amountLabel')}</th>
-                    <th className="px-3 py-2">{t('createdAt')}</th>
-                    <th className="px-3 py-2">{t('actionsLabel')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {approvals.map((approval) => (
-                    <tr key={approval.id} className="border-t border-gold-700/20">
-                      <td className="px-3 py-2 font-semibold">{approvalActionTypeLabels[approval.actionType] ?? approval.actionType}</td>
-                      <td className="px-3 py-2">
-                        {approval.targetType || t('targetFallback')} ·{' '}
-                        {formatEntityLabel(
-                          { name: approval.targetName ?? null, id: approval.targetId ?? null },
-                          t('targetFallback'),
-                        )}
-                      </td>
-                      <td className="px-3 py-2">{approvalStatusLabels[approval.status] ?? approval.status}</td>
-                      <td className="px-3 py-2">
-                        {formatEntityLabel(
-                          {
-                            name: approval.requestedByName ?? null,
-                            id: approval.requestedByUserId,
-                          },
-                          common('unknown'),
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        {formatApprovalQuantity(approval) ?? '—'}
-                      </td>
-                      <td className="px-3 py-2">
-                        {formatDateTime(approval.requestedAt)}
-                      </td>
-                      <td className="px-3 py-2">
-                        {approval.status === 'PENDING' ? (
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => approve(approval.id)}
-                              className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-                              disabled={!canApprove || actionBusy[approval.id] === 'approve'}
-                              title={!canApprove ? noAccess('title') : undefined}
-                            >
-                              {actionBusy[approval.id] === 'approve' ? (
-                                <Spinner size="xs" variant="pulse" />
-                              ) : null}
-                              {actionBusy[approval.id] === 'approve'
-                                ? t('approving')
-                                : actions('approve')}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => reject(approval.id)}
-                              className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-                              disabled={!canApprove || actionBusy[approval.id] === 'reject'}
-                              title={!canApprove ? noAccess('title') : undefined}
-                            >
-                              {actionBusy[approval.id] === 'reject' ? (
-                                <Spinner size="xs" variant="dots" />
-                              ) : null}
-                              {actionBusy[approval.id] === 'reject'
-                                ? t('rejecting')
-                                : actions('reject')}
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gold-400">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        ) : approvals.length === 0 ? (
-          <StatusBanner message={t('noApprovals')} />
-        ) : (
-          <div className="space-y-3 nvi-stagger">
-          {approvals.map((approval) => (
-            <div
-              key={approval.id}
-              className="command-card nvi-panel p-4 space-y-2 nvi-reveal"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm text-gold-100">{approvalActionTypeLabels[approval.actionType] ?? approval.actionType}</p>
-                  <p className="text-xs text-gold-400">
-                    {approval.targetType || t('targetFallback')} ·{' '}
-                    {formatEntityLabel(
-                      { name: approval.targetName ?? null, id: approval.targetId ?? null },
-                      t('targetFallback'),
-                    )}
-                  </p>
-                </div>
-                <p className="text-xs text-gold-400">{approvalStatusLabels[approval.status] ?? approval.status}</p>
+            <Icon name="CircleCheck" size={14} />
+          )}
+          {actionBusy[approval.id] === 'approve' ? t('approving') : actions('approve')}
+        </button>
+        <button
+          type="button"
+          onClick={() => reject(approval.id)}
+          className="nvi-press nvi-decision-btn nvi-decision-reject"
+          disabled={!canApprove || actionBusy[approval.id] === 'reject'}
+          title={!canApprove ? noAccess('title') : undefined}
+        >
+          {actionBusy[approval.id] === 'reject' ? (
+            <Spinner size="xs" variant="dots" />
+          ) : (
+            <Icon name="CircleX" size={14} />
+          )}
+          {actionBusy[approval.id] === 'reject' ? t('rejecting') : actions('reject')}
+        </button>
+        <button
+          type="button"
+          onClick={() => openDelegate(approval.id)}
+          className="nvi-press nvi-decision-btn nvi-decision-delegate"
+          disabled={!canApprove}
+          title={!canApprove ? noAccess('title') : undefined}
+        >
+          <Icon name="Forward" size={14} />
+          {t('delegate')}
+        </button>
+      </div>
+    );
+  };
+
+  /* ═══════════════════════════════════════════════════════ */
+  /* KPI STRIP — Decision dashboard                        */
+  /* ═══════════════════════════════════════════════════════ */
+  const kpiStrip = (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+      {(
+        [
+          { icon: 'Clock' as const,       tone: 'amber' as const,   label: t('kpiPendingNow'),    value: pendingCount,            accent: 'text-amber-400'   },
+          { icon: 'CircleCheck' as const, tone: 'emerald' as const, label: t('kpiApprovedToday'), value: approvedTodayCount,      accent: 'text-emerald-400' },
+          { icon: 'CircleX' as const,     tone: 'red' as const,     label: t('kpiRejected'),      value: rejectedCount,           accent: 'text-red-400'     },
+          { icon: 'ListTodo' as const,    tone: 'blue' as const,    label: t('kpiTotalQueue'),    value: total ?? approvals.length, accent: 'text-blue-400'  },
+        ]
+      ).map((k) => (
+        <Card key={k.label} padding="md" as="article">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-[var(--nvi-text-muted)]">{k.label}</p>
+              <div className={`mt-2 text-3xl font-bold ${k.accent}`}>
+                <FlipCounter value={k.value} digits={4} size="md" />
               </div>
-              {approval.reason ? (
-                <p className="text-xs text-gold-300">
-                  {t('reason')}: {approval.reason}
-                </p>
-              ) : null}
-              {formatApprovalQuantity(approval) ? (
-                <p className="text-xs text-gold-300">
-                  {t('amountLabel')}: {formatApprovalQuantity(approval)}
-                </p>
-              ) : null}
-              <p className="text-xs text-gold-500">
-                {t('requestedBy', {
-                  userId: formatEntityLabel(
+            </div>
+            <div className={`nvi-kpi-icon nvi-kpi-icon--${k.tone}`}>
+              <Icon name={k.icon} size={18} />
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+
+  /* ═══════════════════════════════════════════════════════ */
+  /* FILTER BAR                                            */
+  /* ═══════════════════════════════════════════════════════ */
+  const filterBar = (
+    <ListFilters
+      searchValue={searchDraft}
+      onSearchChange={setSearchDraft}
+      onSearchSubmit={() => pushFilters({ search: searchDraft })}
+      onReset={() => resetFilters()}
+      isLoading={isLoading}
+      showAdvanced={showAdvanced}
+      onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+    >
+      <SmartSelect
+        instanceId="approvals-filter-status"
+        value={filters.status}
+        onChange={(value) => pushFilters({ status: value })}
+        options={statusOptions}
+        placeholder={common('status')}
+        className="nvi-select-container"
+      />
+      <SmartSelect
+        instanceId="approvals-filter-type"
+        value={filters.actionType}
+        onChange={(value) => pushFilters({ actionType: value })}
+        options={actionOptions}
+        placeholder={t('actionType')}
+        className="nvi-select-container"
+      />
+      <DatePickerInput
+        value={filters.from}
+        onChange={(value) => pushFilters({ from: value })}
+        placeholder={common('fromDate')}
+        className="rounded-xl border border-[var(--nvi-border)] bg-[var(--nvi-bg)] px-3 py-2 text-[var(--nvi-text)]"
+      />
+      <DatePickerInput
+        value={filters.to}
+        onChange={(value) => pushFilters({ to: value })}
+        placeholder={common('toDate')}
+        className="rounded-xl border border-[var(--nvi-border)] bg-[var(--nvi-bg)] px-3 py-2 text-[var(--nvi-text)]"
+      />
+    </ListFilters>
+  );
+
+  /* ═══════════════════════════════════════════════════════ */
+  /* BULK ACTIONS BAR (beforeContent slot)                 */
+  /* ═══════════════════════════════════════════════════════ */
+  const bulkBar = selectedIds.size > 0 ? (
+    <Card padding="sm" className="nvi-slide-in-bottom">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="nvi-pop inline-flex items-center gap-1.5 rounded-xl bg-[var(--nvi-accent)]/10 px-3 py-1.5 text-xs font-bold text-[var(--nvi-accent)]">
+          <Icon name="SquareCheck" size={14} />
+          {t('selected', { count: selectedIds.size })}
+        </span>
+        <button
+          type="button"
+          onClick={bulkApprove}
+          disabled={bulkBusy || !canApprove}
+          className="nvi-press nvi-decision-btn nvi-decision-approve"
+        >
+          {bulkBusy ? <Spinner size="xs" variant="pulse" /> : <Icon name="CircleCheck" size={14} />}
+          {t('bulkApprove')}
+        </button>
+        <button
+          type="button"
+          onClick={bulkReject}
+          disabled={bulkBusy || !canApprove}
+          className="nvi-press nvi-decision-btn nvi-decision-reject"
+        >
+          {bulkBusy ? <Spinner size="xs" variant="dots" /> : <Icon name="CircleX" size={14} />}
+          {t('bulkReject')}
+        </button>
+      </div>
+    </Card>
+  ) : null;
+
+  /* ═══════════════════════════════════════════════════════ */
+  /* TABLE VIEW                                            */
+  /* ═══════════════════════════════════════════════════════ */
+  const tableView = (
+    <Card padding="sm">
+      <div className="overflow-auto">
+        <table className="min-w-[800px] w-full text-left text-sm text-[var(--nvi-text)]">
+          <thead className="text-xs uppercase text-[var(--nvi-text-muted)]">
+            <tr>
+              <th className="w-8 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={pendingApprovals.length > 0 && pendingApprovals.every((a) => selectedIds.has(a.id))}
+                  onChange={toggleSelectAll}
+                  title={t('selectAll')}
+                  className="accent-[var(--nvi-accent)]"
+                />
+              </th>
+              <SortableTableHeader label={t('actionType')} sortKey="actionType" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} />
+              <SortableTableHeader label={t('targetLabel')} sortKey="target" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} />
+              <SortableTableHeader label={t('statusLabel')} sortKey="status" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} />
+              <SortableTableHeader label={t('requestedByLabel')} sortKey="requestedBy" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} />
+              <SortableTableHeader label={t('amountLabel')} sortKey="amount" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} align="right" />
+              <SortableTableHeader label={t('createdAt')} sortKey="requestedAt" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} />
+              <th className="px-3 py-2">{t('actionsLabel')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {approvals.map((approval) => (
+              <tr key={approval.id} className="border-t border-[var(--nvi-border)] transition-colors hover:bg-[var(--nvi-surface-alt)]/50">
+                <td className="px-3 py-2">
+                  {approval.status === 'PENDING' ? (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(approval.id)}
+                      onChange={() => toggleSelected(approval.id)}
+                      className="accent-[var(--nvi-accent)]"
+                    />
+                  ) : null}
+                </td>
+                <td className="px-3 py-2">
+                  <TypeBadge actionType={approval.actionType} />
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-col gap-0.5">
+                    {approval.referenceNumber ? (
+                      <span className="font-mono text-[11px] text-white/40">{approval.referenceNumber}</span>
+                    ) : null}
+                    <span className="text-xs">
+                      {formatEntityLabel(
+                        { name: approval.targetName ?? null, id: approval.targetId ?? null },
+                        t('targetFallback'),
+                      )}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <div className={`h-2 w-2 rounded-full ${STATUS_DOT[approval.status] ?? 'bg-[var(--nvi-text-muted)]'}`} />
+                    <span className={`text-xs ${approval.status !== 'PENDING' ? 'nvi-status-fade' : ''}`}>
+                      {approvalStatusLabels[approval.status] ?? approval.status}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.05] px-2 py-1 text-xs">
+                    <Icon name="User" size={12} className="text-[var(--nvi-text-muted)]" />
+                    {formatEntityLabel(
+                      {
+                        name: approval.requestedByName ?? null,
+                        id: approval.requestedByUserId,
+                      },
+                      common('unknown'),
+                    )}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-xs font-bold">
+                  {formatApprovalQuantity(approval) ?? '\u2014'}
+                </td>
+                <td className="px-3 py-2 text-xs text-[var(--nvi-text-muted)]">
+                  {formatDateTime(approval.requestedAt)}
+                </td>
+                <td className="px-3 py-2">
+                  <ActionButtons approval={approval} />
+                  {approval.status !== 'PENDING' ? (
+                    <span className="text-xs text-[var(--nvi-text-muted)]">\u2014</span>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+
+  /* ═══════════════════════════════════════════════════════ */
+  /* CARD VIEW — Decision cards                            */
+  /* ═══════════════════════════════════════════════════════ */
+  const cardView = (
+    <div className="grid gap-4 md:grid-cols-2 nvi-stagger">
+      {approvals.map((approval) => {
+        const qty = formatApprovalQuantity(approval);
+        const stripe = STATUS_STRIPE[approval.status] ?? 'border-l-[var(--nvi-border)]';
+
+        return (
+          <Card
+            key={approval.id}
+            as="article"
+            className={`nvi-card-hover border-l-4 ${stripe} space-y-3`}
+          >
+            {/* Top row: type badge + status + checkbox */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {approval.status === 'PENDING' ? (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(approval.id)}
+                    onChange={() => toggleSelected(approval.id)}
+                    className="accent-[var(--nvi-accent)]"
+                  />
+                ) : null}
+                <TypeBadge actionType={approval.actionType} />
+              </div>
+              <StatusBadge
+                status={approval.status}
+                label={approvalStatusLabels[approval.status]}
+                size="xs"
+                className={approval.status !== 'PENDING' ? 'nvi-status-fade' : ''}
+              />
+            </div>
+
+            {/* Reference number */}
+            {approval.referenceNumber ? (
+              <p className="font-mono text-[11px] text-white/40">
+                {approval.referenceNumber}
+              </p>
+            ) : null}
+
+            {/* Hero number — the impact of this decision */}
+            {qty ? (
+              <p className="text-xl font-bold text-[var(--nvi-text)]">{qty}</p>
+            ) : null}
+
+            {/* Target */}
+            <p className="text-xs text-[var(--nvi-text)]">
+              {formatEntityLabel(
+                { name: approval.targetName ?? null, id: approval.targetId ?? null },
+                t('targetFallback'),
+              )}
+            </p>
+
+            {/* Reason (if rejected) */}
+            {approval.reason ? (
+              <p className="text-[11px] italic text-[var(--nvi-text-muted)]">
+                {t('reason')}: {approval.reason}
+              </p>
+            ) : null}
+
+            {/* Requester + relative time */}
+            <div className="flex items-center gap-2 text-[11px] text-[var(--nvi-text-muted)]">
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.05] px-2 py-1">
+                <Icon name="User" size={12} />
+                <span>
+                  {formatEntityLabel(
                     {
                       name: approval.requestedByName ?? null,
                       id: approval.requestedByUserId,
                     },
                     common('unknown'),
-                  ),
-                  date: formatDateTime(approval.requestedAt),
-                })}
-              </p>
-              {approval.status === 'PENDING' ? (
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => approve(approval.id)}
-                    className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-                    disabled={!canApprove || actionBusy[approval.id] === 'approve'}
-                    title={!canApprove ? noAccess('title') : undefined}
-                  >
-                    {actionBusy[approval.id] === 'approve' ? (
-                      <Spinner size="xs" variant="pulse" />
-                    ) : null}
-                    {actionBusy[approval.id] === 'approve'
-                      ? t('approving')
-                      : actions('approve')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => reject(approval.id)}
-                    className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-                    disabled={!canApprove || actionBusy[approval.id] === 'reject'}
-                    title={!canApprove ? noAccess('title') : undefined}
-                  >
-                    {actionBusy[approval.id] === 'reject' ? (
-                      <Spinner size="xs" variant="dots" />
-                    ) : null}
-                    {actionBusy[approval.id] === 'reject'
-                      ? t('rejecting')
-                      : actions('reject')}
-                  </button>
-                </div>
-              ) : null}
+                  )}
+                </span>
+              </span>
+              <span className="ml-auto">{relativeTime(approval.requestedAt)}</span>
             </div>
-          ))}
-          </div>
-        )}
-      </div>
-      <PaginationControls
-        page={page}
-        pageSize={pageSize}
-        total={total}
-        itemCount={approvals.length}
-        availablePages={Object.keys(pageCursors).map(Number)}
-        hasNext={Boolean(nextCursor)}
-        hasPrev={page > 1}
-        isLoading={isLoading}
-        onPageChange={(nextPage) => load(filters.status, nextPage)}
-        onPageSizeChange={(size) => {
-          setPageSize(size);
-          setPage(1);
-          setPageCursors({ 1: null });
-          setTotal(null);
-          load(filters.status, 1, size);
-        }}
-      />
-    </section>
+
+            {/* Action buttons */}
+            <ActionButtons approval={approval} />
+          </Card>
+        );
+      })}
+    </div>
+  );
+
+  /* ═══════════════════════════════════════════════════════ */
+  /* PAGINATION                                            */
+  /* ═══════════════════════════════════════════════════════ */
+  const paginationBlock = (
+    <PaginationControls
+      page={page}
+      pageSize={pageSize}
+      total={total}
+      itemCount={approvals.length}
+      availablePages={Object.keys(pageCursors).map(Number)}
+      hasNext={Boolean(nextCursor)}
+      hasPrev={page > 1}
+      isLoading={isLoading}
+      onPageChange={(nextPage) => load(filters.status, nextPage)}
+      onPageSizeChange={(size) => {
+        setPageSize(size);
+        setPage(1);
+        setPageCursors({ 1: null });
+        setTotal(null);
+        load(filters.status, 1, size);
+      }}
+    />
+  );
+
+  /* ═══════════════════════════════════════════════════════ */
+  /* RENDER                                                */
+  /* ═══════════════════════════════════════════════════════ */
+  const delegatingApproval = approvals.find((a) => a.id === delegatingId) ?? null;
+  const delegateSummary = delegatingApproval
+    ? `${approvalActionTypeLabels[delegatingApproval.actionType] ?? delegatingApproval.actionType}${delegatingApproval.targetName ? ` · ${delegatingApproval.targetName}` : ''}`
+    : null;
+
+  return (
+    <>
+    <ListPage
+      title={t('title')}
+      subtitle={t('subtitle')}
+      eyebrow={t('eyebrow')}
+      badges={
+        <>
+          <span className="nvi-badge">{t('badgeApprovals')}</span>
+          <span className="nvi-badge">{t('badgeLive')}</span>
+        </>
+      }
+      headerActions={
+        <ViewToggle
+          value={viewMode}
+          onChange={setViewMode}
+          labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+        />
+      }
+      isLoading={isLoading}
+      banner={bannerMsg ? <Banner message={bannerMsg.message} severity={bannerMsg.severity} onDismiss={() => setBannerMsg(null)} /> : null}
+      kpis={kpiStrip}
+      filters={filterBar}
+      beforeContent={bulkBar}
+      viewMode={viewMode}
+      table={tableView}
+      cards={cardView}
+      isEmpty={!approvals.length}
+      emptyIcon={
+        <div className="nvi-float">
+          <Icon name="CircleCheck" size={40} className="text-emerald-400/40" />
+        </div>
+      }
+      emptyTitle={t('emptyTitle')}
+      emptyDescription={t('emptyDescription')}
+      pagination={paginationBlock}
+    />
+
+    <ApprovalDelegateModal
+      open={Boolean(delegatingId)}
+      onClose={() => setDelegatingId(null)}
+      approvalId={delegatingId}
+      approvalSummary={delegateSummary}
+      users={delegateUsers}
+      isBusy={delegateBusy}
+      onSubmit={submitDelegate}
+    />
+    </>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { IntelligenceView } from '@/components/platform/views/intelligence/IntelligenceView';
 
 export function PlatformIntelligenceView() {
-  return <PlatformConsole view="intelligence" />;
+  return <IntelligenceView />;
 }

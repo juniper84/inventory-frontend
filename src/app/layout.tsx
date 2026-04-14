@@ -24,7 +24,21 @@ export default async function RootLayout({
   const cookieStore = await cookies();
   const locale = cookieStore.get('NEXT_LOCALE')?.value ?? 'en';
   return (
-    <html lang={locale}>
+    <html lang={locale} suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var s = localStorage.getItem('nvi.font-scale');
+                var map = { small: 0.9, default: 1, large: 1.1, xl: 1.25 };
+                var v = map[s] || 1;
+                document.documentElement.style.setProperty('--font-scale', v);
+              } catch(e) {}
+            `,
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

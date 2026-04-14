@@ -6,8 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
-import { StatusBanner } from '@/components/StatusBanner';
+import { Banner } from '@/components/notifications/Banner';
+import { FontScaleSelector } from '@/components/ui/FontScaleSelector';
 
 export default function AcceptInvitePage() {
   const auth = useTranslations('auth');
@@ -17,6 +17,7 @@ export default function AcceptInvitePage() {
   const searchParams = useSearchParams();
   const [token, setToken] = useState('');
   const [tokenFromUrl, setTokenFromUrl] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -28,8 +29,16 @@ export default function AcceptInvitePage() {
     if (urlToken) {
       setToken(urlToken);
       setTokenFromUrl(true);
+      apiFetch<{ email: string }>('/auth/invite/info', {
+        method: 'POST',
+        body: JSON.stringify({ token: urlToken }),
+      }).then((info) => {
+        setInviteEmail(info.email);
+      }).catch(() => {
+        setMessage({ action: 'auth', outcome: 'failure', message: t('tokenInvalid') });
+      });
     }
-  }, [searchParams]);
+  }, [searchParams, t]);
 
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -66,79 +75,90 @@ export default function AcceptInvitePage() {
   };
 
   return (
-    <div className="space-y-6 nvi-reveal">
-      <PremiumPageHeader
-        eyebrow={t('eyebrow')}
-        title={t('title')}
-        subtitle={t('subtitle')}
-        badges={
-          <>
-            <span className="nvi-badge">{t('badgeTokenFlow')}</span>
-            <span className="nvi-badge">{token.trim() ? t('badgeTokenSet') : t('badgeTokenMissing')}</span>
-          </>
-        }
-      />
-
-      <div className="grid gap-3 sm:grid-cols-3 nvi-stagger">
-        <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiToken')}</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{token.trim() ? t('kpiTokenProvided') : t('kpiTokenRequired')}</p>
-        </article>
-        <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiName')}</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{name.trim() ? t('kpiNameSet') : t('kpiNamePending')}</p>
-        </article>
-        <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiStatus')}</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('submitting') : t('kpiStatusReady')}</p>
-        </article>
+    <div className="auth-login-inner">
+      <div className="auth-login-topline">
+        <span className="auth-login-pill">{t('title').toUpperCase()}</span>
       </div>
 
-      <form className="command-card nvi-panel space-y-4 p-4" onSubmit={submit}>
-        <input
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          readOnly={tokenFromUrl}
-          placeholder={t('tokenPlaceholder')}
-          className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 read-only:opacity-60"
-        />
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder={t('namePlaceholder')}
-          className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-        <div className="space-y-2">
-          <div className="relative">
+      <h3>{t('title')}</h3>
+      <p>{t('subtitle')}</p>
+
+      {inviteEmail ? (
+        <div className="auth-login-business">
+          <span className="text-xs">{t('invitedAs')}</span>
+          <span className="font-medium">{inviteEmail}</span>
+        </div>
+      ) : null}
+
+      <form className="auth-login-form" onSubmit={submit}>
+        <div className="auth-login-field">
+          <label htmlFor="token">{t('tokenPlaceholder')}</label>
+          <div className="auth-login-control">
             <input
+              id="token"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              readOnly={tokenFromUrl}
+              placeholder={t('tokenPlaceholder')}
+            />
+          </div>
+        </div>
+
+        <div className="auth-login-field">
+          <label htmlFor="name">{t('namePlaceholder')}</label>
+          <div className="auth-login-control">
+            <input
+              id="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={t('namePlaceholder')}
+            />
+          </div>
+        </div>
+
+        <div className="auth-login-field">
+          <label htmlFor="password">{auth('password')}</label>
+          <div className="auth-login-control">
+            <input
+              id="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder={t('passwordPlaceholder')}
+              placeholder="••••••••"
               type={showPassword ? 'text' : 'password'}
-              className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 pr-12 text-gold-100"
             />
             <button
               type="button"
               onClick={() => setShowPassword((prev) => !prev)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gold-300"
+              className="auth-login-link"
             >
               {showPassword ? auth('hidePassword') : auth('showPassword')}
             </button>
           </div>
           <p className="text-xs text-gold-400">{auth('passwordRequirements')}</p>
         </div>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="nvi-cta w-full rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
-        >
+
+        <div className="space-y-2 mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-white/50">
+            Display size (optional)
+          </p>
+          <FontScaleSelector showHint />
+        </div>
+
+        <button type="submit" disabled={isSubmitting} className="auth-login-submit nvi-press">
           <span className="inline-flex items-center justify-center gap-2">
             {isSubmitting ? <Spinner variant="dots" size="xs" /> : null}
             {isSubmitting ? t('submitting') : t('submit')}
           </span>
         </button>
-        {message ? <StatusBanner message={message} /> : null}
+
+        {message ? <Banner message={message} /> : null}
       </form>
+
+      <div className="auth-login-foot">
+        <span>
+          <a href={`/${locale}/login`}>{auth('signIn')}</a>
+        </span>
+      </div>
     </div>
   );
 }

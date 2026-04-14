@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { AccessSupportView } from '@/components/platform/views/access/AccessSupportView';
 
 export function PlatformAccessView() {
-  return <PlatformConsole view="access" />;
+  return <AccessSupportView />;
 }

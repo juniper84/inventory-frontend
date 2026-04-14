@@ -8,11 +8,9 @@ import { BrowserMultiFormatReader } from '@zxing/browser';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
-import { PageSkeleton } from '@/components/PageSkeleton';
 import { SmartSelect } from '@/components/SmartSelect';
 import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { PaginationControls } from '@/components/PaginationControls';
-import { StatusBanner } from '@/components/StatusBanner';
 import { CurrencyInput } from '@/components/CurrencyInput';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
@@ -26,9 +24,13 @@ import { installBarcodeScanner } from '@/lib/barcode-scanner';
 import { formatVariantLabel } from '@/lib/display';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
-import { useDebouncedValue } from '@/lib/use-debounced-value';
+
 import { useBranchScope } from '@/lib/use-branch-scope';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { Banner } from '@/components/notifications/Banner';
+import { Checkbox } from '@/components/Checkbox';
+import { PageHeader, Card, Icon, TextInput, EmptyState, ListPage, StatusBadge, ActionButtons, SortableTableHeader, SortDirection } from '@/components/ui';
+import { VariantCreateModal } from '@/components/catalog/VariantCreateModal';
+import { VariantEditModal } from '@/components/catalog/VariantEditModal';
 
 type Product = { id: string; name: string };
 type Branch = { id: string; name: string };
@@ -51,6 +53,7 @@ type Variant = {
   product?: { name: string } | null;
   baseUnit?: Unit | null;
   sellUnit?: Unit | null;
+  totalStock?: number;
   barcodes: Barcode[];
   availability: Availability[];
 };
@@ -137,8 +140,31 @@ export default function VariantsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingVariant, setEditingVariant] = useState<Variant | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<SortDirection>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
+  const [expandedBarcodes, setExpandedBarcodes] = useState<Set<string>>(new Set());
+  const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set());
+  const toggleBarcodes = useCallback((id: string) => {
+    setExpandedBarcodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+  const toggleBranches = useCallback((id: string) => {
+    setExpandedBranches((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
@@ -149,15 +175,6 @@ export default function VariantsPage() {
   const [isReassigning, setIsReassigning] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [uploadingVariantId, setUploadingVariantId] = useState<string | null>(null);
-  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
-  const toggleCardExpand = useCallback((id: string) => {
-    setExpandedCards((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [barcodeAction, setBarcodeAction] = useState<{ variantId: string; type: 'generate' } | null>(
     null,
@@ -214,7 +231,23 @@ export default function VariantsPage() {
   });
   const { activeBranch } = useBranchScope();
   const [searchDraft, setSearchDraft] = useState(filters.search);
-  const debouncedSearch = useDebouncedValue(searchDraft, 350);
+
+
+  const handleSort = (key: string, dir: SortDirection) => {
+    setSortKey(dir ? key : null);
+    setSortDir(dir);
+  };
+
+  const sortedVariants = useMemo(() => {
+    if (!sortKey || !sortDir) return variants;
+    return [...variants].sort((a, b) => {
+      const va = (a as Record<string, unknown>)[sortKey] ?? '';
+      const vb = (b as Record<string, unknown>)[sortKey] ?? '';
+      return sortDir === 'asc'
+        ? String(va).localeCompare(String(vb), undefined, { numeric: true })
+        : String(vb).localeCompare(String(va), undefined, { numeric: true });
+    });
+  }, [variants, sortKey, sortDir]);
 
   const vatModeLabels = useMemo<Record<string, string>>(
     () => ({
@@ -273,11 +306,7 @@ export default function VariantsPage() {
     setSearchDraft(filters.search);
   }, [filters.search]);
 
-  useEffect(() => {
-    if (debouncedSearch !== filters.search) {
-      pushFilters({ search: debouncedSearch });
-    }
-  }, [debouncedSearch, filters.search, pushFilters]);
+
 
   const loadReferenceData = useCallback(async () => {
     const token = getAccessToken();
@@ -457,6 +486,7 @@ export default function VariantsPage() {
         trackStock: true,
       });
       setNewVariantBranchIds(branches.map((b) => b.id));
+      setFormOpen(false);
       await load(1);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
     } catch (err) {
@@ -711,8 +741,25 @@ export default function VariantsPage() {
   const stopScan = () => {
     resetScanner(scannerRef.current);
     scannerRef.current = null;
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
     setScanActive(false);
   };
+
+  // Cleanup camera on unmount or navigation
+  useEffect(() => {
+    return () => {
+      resetScanner(scannerRef.current);
+      scannerRef.current = null;
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   const unitOptions = units.map((unit) => ({
     value: unit.id,
@@ -855,482 +902,157 @@ export default function VariantsPage() {
     };
   }, []);
 
-  if (isLoading) {
-    return <PageSkeleton title={t('title')} lines={4} blocks={3} />;
-  }
-
   return (
-    <section className="nvi-page">
-      <PremiumPageHeader
-        eyebrow={t('eyebrow')}
+    <>
+      <ListPage
         title={t('title')}
         subtitle={t('subtitle')}
+        eyebrow={t('eyebrow')}
         badges={
           <>
             <span className="status-chip">{t('badgeBarcodeReady')}</span>
             <span className="status-chip">{t('badgeMultiBranch')}</span>
           </>
         }
-        actions={
-          <ViewToggle
-            value={viewMode}
-            onChange={setViewMode}
-            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-          />
-        }
-      />
-      {message ? <StatusBanner message={message} /> : null}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiVariants')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{variants.length}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActive')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeVariants}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiWithBarcode')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{barcodeCoverage}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiBranches')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
-        </article>
-      </div>
-
-      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('newVariant')}</h3>
-        <div className="grid gap-3 md:grid-cols-3">
-          <AsyncSmartSelect
-            instanceId="variant-create-product"
-            value={form.productId ? { value: form.productId, label: products.find((p) => p.id === form.productId)?.name ?? '' } : null}
-            onChange={(opt) => setForm({ ...form, productId: opt?.value ?? '' })}
-            loadOptions={loadProductOptions}
-            defaultOptions={products.map((p) => ({ value: p.id, label: p.name }))}
-            placeholder={t('selectProduct')}
-            className="nvi-select-container"
-          />
-          <input
-            value={form.name}
-            onChange={(event) =>
-              setForm({ ...form, name: event.target.value })
-            }
-            placeholder={t('variantName')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={form.sku}
-            onChange={(event) => setForm({ ...form, sku: event.target.value })}
-            placeholder={t('skuOptional')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={form.barcode}
-            onChange={(event) =>
-              setForm({ ...form, barcode: event.target.value })
-            }
-            placeholder={t('barcodeOptional')}
-            className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <button
-            type="button"
-            onClick={() => startScan('assignNew')}
-            disabled={!canWrite}
-            title={!canWrite ? noAccess('title') : undefined}
-            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:opacity-70"
-          >
-            {t('scanAssignNew')}
-          </button>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {(() => {
-            const sellUnit = form.sellUnitId ? units.find((u) => u.id === form.sellUnitId) : null;
-            const perLabel = sellUnit ? ` (${t('perUnit', { unit: sellUnit.label || sellUnit.code })})` : '';
-            return (
-              <>
-                <CurrencyInput
-                  value={form.defaultPrice}
-                  onChange={(value) =>
-                    setForm({ ...form, defaultPrice: value })
-                  }
-                  placeholder={`${t('defaultPrice')}${perLabel}`}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                />
-                <CurrencyInput
-                  value={form.minPrice}
-                  onChange={(value) =>
-                    setForm({ ...form, minPrice: value })
-                  }
-                  placeholder={`${t('minPrice')}${perLabel}`}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                />
-                <CurrencyInput
-                  value={form.defaultCost}
-                  onChange={(value) =>
-                    setForm({ ...form, defaultCost: value })
-                  }
-                  placeholder={`${t('defaultCost')}${perLabel}`}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-                />
-              </>
-            );
-          })()}
-          <SmartSelect
-            instanceId="variant-create-vat-mode"
-            value={form.vatMode}
-            onChange={(value) => setForm({ ...form, vatMode: value })}
-            options={[
-              { value: 'INCLUSIVE', label: t('vatInclusive') },
-              { value: 'EXCLUSIVE', label: t('vatExclusive') },
-              { value: 'EXEMPT', label: t('vatExempt') },
-            ]}
-            className="nvi-select-container"
-          />
-        </div>
-        <label className="flex items-center gap-2 text-xs text-gold-200">
-          <input
-            type="checkbox"
-            checked={form.trackStock}
-            onChange={(event) => setForm({ ...form, trackStock: event.target.checked })}
-          />
-          {t('trackStock')}
-        </label>
-        {branches.length > 1 ? (
-          <div className="space-y-2">
-            <p className="text-xs text-gold-400">{t('availableAtBranches')}</p>
-            <div className="flex flex-wrap gap-3 text-xs text-gold-200">
-              {branches.map((branch) => (
-                <label key={branch.id} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={newVariantBranchIds.includes(branch.id)}
-                    onChange={(event) =>
-                      setNewVariantBranchIds((prev) =>
-                        event.target.checked
-                          ? [...prev, branch.id]
-                          : prev.filter((id) => id !== branch.id),
-                      )
-                    }
-                    disabled={!canWrite}
-                  />
-                  {branch.name}
-                </label>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        <div className="grid gap-3 md:grid-cols-3">
-          <label className="space-y-1 text-xs text-gold-300">
-            <span className="text-gold-400">{t('baseUnit')}</span>
-            <SmartSelect
-              instanceId="variant-create-base-unit"
-              value={form.baseUnitId}
-              onChange={(value) =>
-                setForm((prev) => {
-                  const sellUnitId = prev.sellUnitId || value;
-                  const conversionFactor =
-                    sellUnitId === value ? '1' : prev.conversionFactor;
-                  return {
-                    ...prev,
-                    baseUnitId: value,
-                    sellUnitId,
-                    conversionFactor,
-                  };
-                })
-              }
-              options={unitOptions}
-              placeholder={t('baseUnit')}
-              className="nvi-select-container"
-            />
-          </label>
-          <label className="space-y-1 text-xs text-gold-300">
-            <span className="text-gold-400">{t('sellUnit')}</span>
-            <SmartSelect
-              instanceId="variant-create-sell-unit"
-              value={form.sellUnitId}
-              onChange={(value) =>
-                setForm((prev) => ({
-                  ...prev,
-                  sellUnitId: value,
-                  conversionFactor:
-                    value === prev.baseUnitId ? '1' : prev.conversionFactor,
-                }))
-              }
-              options={unitOptions}
-              placeholder={t('sellUnit')}
-              className="nvi-select-container"
-            />
-          </label>
-          <label className="space-y-1 text-xs text-gold-300">
-            <span className="text-gold-400">{t('sellToBaseFactor')}</span>
-            <input
-              value={form.conversionFactor}
-              onChange={(event) =>
-                setForm({ ...form, conversionFactor: event.target.value })
-              }
-              placeholder={t('sellToBaseFactor')}
-              disabled={form.sellUnitId === form.baseUnitId}
-              className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 disabled:opacity-70"
-            />
-            <p className="text-[10px] text-gold-400">{t('conversionHint')}</p>
-          </label>
-        </div>
-        <button
-          type="button"
-          onClick={createVariant}
-          disabled={!canWrite || isCreating}
-          title={!canWrite ? noAccess('title') : undefined}
-          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
-        >
-          <span className="inline-flex items-center gap-2">
-            {isCreating ? <Spinner variant="orbit" size="xs" /> : null}
-            {isCreating ? t('creating') : t('createVariant')}
-          </span>
-        </button>
-      </div>
-
-      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">
-          {t('barcodeReassignTitle')}
-        </h3>
-        <div className="grid gap-3 md:grid-cols-3">
-          <SmartSelect
-            instanceId="variant-barcode-reassign-barcode"
-            value={barcodeReassign.barcodeId}
-            onChange={(value) =>
-              setBarcodeReassign({
-                ...barcodeReassign,
-                barcodeId: value,
-              })
-            }
-            options={barcodeOptions.map((barcode) => ({
-              value: barcode.id,
-              label: `${barcode.code} · ${formatVariantLabel(
-                {
-                  id: barcode.variantId,
-                  name: barcode.variantName,
-                  productName: barcode.productName,
-                },
-                common('unknown'),
-              )}`,
-            }))}
-            placeholder={t('selectBarcode')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            instanceId="variant-barcode-reassign-target"
-            value={barcodeReassign.variantId}
-            onChange={(value) =>
-              setBarcodeReassign({
-                ...barcodeReassign,
-                variantId: value,
-              })
-            }
-            options={variants.map((variant) => ({
-              value: variant.id,
-              label: formatVariantLabel({
-                id: variant.id,
-                name: variant.name,
-                productName: variant.product?.name ?? null,
-              }),
-            }))}
-            placeholder={t('selectNewVariant')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <input
-            value={barcodeReassign.reason}
-            onChange={(event) =>
-              setBarcodeReassign({
-                ...barcodeReassign,
-                reason: event.target.value,
-              })
-            }
-            placeholder={t('reason')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-        </div>
-        <button
-          type="button"
-          onClick={() =>
-            reassignBarcode().catch((err) =>
-              setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('barcodeReassignFailed')) }),
-            )
-          }
-          disabled={!canWrite || isReassigning}
-          title={!canWrite ? noAccess('title') : undefined}
-          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
-        >
-          <span className="inline-flex items-center gap-2">
-            {isReassigning ? <Spinner variant="dots" size="xs" /> : null}
-            {isReassigning ? t('submitting') : t('submitReassignment')}
-          </span>
-        </button>
-      </div>
-
-      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('scanTitle')}</h3>
-        <p className="text-xs text-gold-300">
-          {scanMode === 'lookup'
-            ? t('scanSubtitle')
-            : scanMode === 'assignExisting'
-              ? t('scanAssignExistingSubtitle', { variant: scanTargetLabel })
-              : t('scanAssignNewSubtitle')}
-        </p>
-        {scanMessage ? (
-          <p className="text-xs text-gold-300">{scanMessage}</p>
-        ) : null}
-        {scanLookup ? (
-          <div
-            ref={scanResultRef}
-            className="rounded border border-gold-700/40 bg-black/70 p-3 text-xs text-gold-100"
-          >
-            <p>{t('scanProduct', { value: scanLookup.productName })}</p>
-            <p>{t('scanVariant', { value: scanLookup.variantName })}</p>
-            <p>{t('scanSku', { value: scanLookup.sku || '—' })}</p>
-          </div>
-        ) : null}
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              startScan(
-                scanMode,
-                scanMode === 'assignExisting' ? scanTargetVariantId ?? undefined : undefined,
-              )
-            }
-            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black"
-          >
-            {scanActive ? t('scanRestart') : t('scanStart')}
-          </button>
-          {scanActive ? (
+        headerActions={
+          <div className="flex flex-wrap items-center gap-2">
+            {canWrite ? (
+              <button
+                type="button"
+                onClick={() => setFormOpen(true)}
+                className="nvi-cta nvi-press inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-black"
+              >
+                <Icon name="Plus" size={14} />
+                {t('createVariant')}
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={stopScan}
-              className="rounded border border-gold-700/50 px-4 py-2 text-sm text-gold-100"
+              onClick={() => setReassignOpen(true)}
+              className="nvi-press inline-flex items-center gap-1.5 rounded-lg border border-[var(--nvi-border)] px-3 py-1.5 text-xs text-gold-200 hover:border-gold-500 transition-colors"
             >
-              {t('scanStop')}
+              <Icon name="ArrowRightLeft" size={14} className="text-amber-400" />
+              {t('barcodeReassignTitle')}
             </button>
-          ) : null}
-        </div>
-        <div className="overflow-hidden rounded border border-gold-700/40 bg-black/80">
-          <video ref={videoRef} className="w-full" />
-        </div>
-      </div>
-
-      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">
-          {t('labelsTitle')}
-        </h3>
-        <p className="text-xs text-gold-300">
-          {t('labelsSubtitle')}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              printLabels('A4').catch((err) =>
-                setMessage({ action: 'export', outcome: 'failure', message: getApiErrorMessage(err, t('labelsPrintFailed')) }),
-              )
-            }
-            disabled={isPrinting}
-            className="nvi-cta rounded px-4 py-2 text-sm font-semibold text-black disabled:opacity-70"
-          >
-            <span className="inline-flex items-center gap-2">
-              {isPrinting ? <Spinner variant="ring" size="xs" /> : null}
-              {isPrinting ? t('preparing') : t('printA4')}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              printLabels('THERMAL').catch((err) =>
-                setMessage({ action: 'export', outcome: 'failure', message: getApiErrorMessage(err, t('labelsPrintFailed')) }),
-              )
-            }
-            disabled={isPrinting}
-            className="rounded border border-gold-700/60 px-4 py-2 text-sm text-gold-100 disabled:opacity-70"
-          >
-            <span className="inline-flex items-center gap-2">
-              {isPrinting ? <Spinner variant="ring" size="xs" /> : null}
-              {isPrinting ? t('preparing') : t('printThermal')}
-            </span>
-          </button>
-        </div>
-        {labelData.length > 0 ? (
-          <div className="text-xs text-gold-300">
-            {t('labelsReady', { count: labelData.length })}
+            <button
+              type="button"
+              onClick={() => { setScanMode('lookup'); setScanTargetVariantId(null); setScannerOpen(true); }}
+              className="nvi-press inline-flex items-center gap-1.5 rounded-lg border border-[var(--nvi-border)] px-3 py-1.5 text-xs text-gold-200 hover:border-gold-500 transition-colors"
+            >
+              <Icon name="ScanBarcode" size={14} className="text-purple-400" />
+              {t('scanTitle')}
+            </button>
+            {selectedLabels.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setPrintOpen(true)}
+                className="nvi-press inline-flex items-center gap-1.5 rounded-lg border border-[var(--nvi-border)] px-3 py-1.5 text-xs text-gold-200 hover:border-gold-500 transition-colors"
+              >
+                <Icon name="Printer" size={14} className="text-blue-400" />
+                {t('labelsTitle')}
+                <span className="ml-1 rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-blue-300">{selectedLabels.length}</span>
+              </button>
+            )}
+            <ViewToggle
+              value={viewMode}
+              onChange={setViewMode}
+              labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+            />
           </div>
-        ) : null}
-      </div>
-
-      <div className="command-card nvi-reveal nvi-panel p-4">
-        <ListFilters
-          searchValue={searchDraft}
-          onSearchChange={setSearchDraft}
-          onSearchSubmit={() => pushFilters({ search: searchDraft })}
-          onReset={() => resetFilters()}
-          isLoading={isLoading}
-          showAdvanced={showAdvanced}
-          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-        >
-          <SmartSelect
-            instanceId="variants-filter-status"
-            value={filters.status}
-            onChange={(value) => pushFilters({ status: value })}
-            options={statusOptions}
-            placeholder={common('status')}
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            instanceId="variants-filter-branch"
-            value={filters.branchId}
-            onChange={(value) => pushFilters({ branchId: value })}
-            options={branchOptions}
-            placeholder={common('branch')}
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            instanceId="variants-filter-availability"
-            value={filters.availability}
-            onChange={(value) => pushFilters({ availability: value })}
-            options={availabilityOptions}
-            placeholder={t('availability')}
-            className="nvi-select-container"
-          />
-        </ListFilters>
-      </div>
-
-      {viewMode === 'table' ? (
-        <div className="command-card nvi-panel p-4 nvi-reveal">
-          {variants.length === 0 ? (
-            <StatusBanner message={t('noVariants')} />
-          ) : (
+        }
+        isLoading={isLoading}
+        banner={message ? <Banner message={message} /> : null}
+        kpis={
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+            {(
+              [
+                { icon: 'Layers' as const,      tone: 'blue' as const,    label: t('kpiVariants'),    value: total ?? variants.length },
+                { icon: 'CircleCheck' as const, tone: 'emerald' as const, label: t('kpiActive'),      value: activeVariants },
+                { icon: 'ScanBarcode' as const, tone: 'purple' as const,  label: t('kpiWithBarcode'), value: barcodeCoverage },
+                { icon: 'Building2' as const,   tone: 'amber' as const,   label: t('kpiBranches'),    value: branches.length },
+              ]
+            ).map((k) => (
+              <Card key={k.label} padding="md" as="article">
+                <div className="flex items-center gap-3">
+                  <div className={`nvi-kpi-icon nvi-kpi-icon--${k.tone}`}>
+                    <Icon name={k.icon} size={18} />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-[var(--nvi-text-muted)]">{k.label}</p>
+                    <p className="text-2xl font-bold text-[var(--nvi-text)]">{k.value}</p>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        }
+        filters={
+          <ListFilters
+            searchValue={searchDraft}
+            onSearchChange={setSearchDraft}
+            onSearchSubmit={() => pushFilters({ search: searchDraft })}
+            onReset={() => resetFilters()}
+            isLoading={isLoading}
+            showAdvanced={showAdvanced}
+            onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+          >
+            <SmartSelect
+              instanceId="variants-filter-status"
+              value={filters.status}
+              onChange={(value) => pushFilters({ status: value })}
+              options={statusOptions}
+              placeholder={common('status')}
+              className="nvi-select-container"
+            />
+            <SmartSelect
+              instanceId="variants-filter-branch"
+              value={filters.branchId}
+              onChange={(value) => pushFilters({ branchId: value })}
+              options={branchOptions}
+              placeholder={common('branch')}
+              className="nvi-select-container"
+            />
+            <SmartSelect
+              instanceId="variants-filter-availability"
+              value={filters.availability}
+              onChange={(value) => pushFilters({ availability: value })}
+              options={availabilityOptions}
+              placeholder={t('availability')}
+              className="nvi-select-container"
+            />
+          </ListFilters>
+        }
+        viewMode={viewMode}
+        isEmpty={!sortedVariants.length}
+        emptyIcon={<div className="nvi-float"><Icon name="Layers" size={32} className="text-gold-500/40" /></div>}
+        emptyTitle={t('noVariants')}
+        table={
+          <Card padding="md">
             <div className="overflow-auto">
               <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
                 <thead className="text-xs uppercase text-gold-400">
                   <tr>
                     <th className="px-3 py-2 w-12" aria-label={t('variantImage')} />
-                    <th className="px-3 py-2">{t('product')}</th>
-                    <th className="px-3 py-2">{t('variantName')}</th>
-                    <th className="px-3 py-2">{t('sku')}</th>
-                    <th className="px-3 py-2">{t('price')}</th>
-                    <th className="px-3 py-2">{t('defaultCost')}</th>
-                    <th className="px-3 py-2">{t('margin')}</th>
+                    <SortableTableHeader label={t('product')} sortKey="product" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} />
+                    <SortableTableHeader label={t('variantName')} sortKey="name" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} />
+                    <SortableTableHeader label={t('sku')} sortKey="sku" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} />
+                    <th className="px-3 py-2">{t('barcode')}</th>
+                    <SortableTableHeader label={t('price')} sortKey="defaultPrice" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} className="text-right" />
+                    <SortableTableHeader label={t('defaultCost')} sortKey="defaultCost" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} className="text-right" />
+                    <th className="px-3 py-2 text-right">{t('margin')}</th>
                     <th className="px-3 py-2">{t('vat')}</th>
-                    <th className="px-3 py-2">{common('status')}</th>
+                    <th className="px-3 py-2">{t('baseUnit')}</th>
+                    <SortableTableHeader label={common('status')} sortKey="status" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} />
                     <th className="px-3 py-2">{t('trackStock')}</th>
+                    <SortableTableHeader label={t('stockLevel')} sortKey="totalStock" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} className="text-right" />
+                    <th className="px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody>
-                  {variants.map((variant) => (
-                    <tr key={variant.id} className="border-t border-gold-700/20">
+                  {sortedVariants.map((variant) => (
+                    <tr key={variant.id} className="border-t border-[var(--nvi-border)]">
                       <td className="px-3 py-2">
-                        <div className="h-8 w-8 overflow-hidden rounded border border-gold-700/40 bg-black">
+                        <div className="nvi-img-zoom h-8 w-8 overflow-hidden rounded-lg border border-[var(--nvi-border)] bg-black">
                           {variant.imageUrl ? (
                             <img
                               src={variant.imageUrl}
@@ -1349,223 +1071,277 @@ export default function VariantsPage() {
                       </td>
                       <td className="px-3 py-2 font-semibold">{variant.name}</td>
                       <td className="px-3 py-2">{variant.sku ?? '—'}</td>
-                      <td className="px-3 py-2">{variant.defaultPrice ?? '—'}</td>
-                      <td className="px-3 py-2 text-gold-400">
-                        {variant.defaultCost != null ? variant.defaultCost : '—'}
-                      </td>
-                      <td className="px-3 py-2">
-                        {variant.defaultPrice != null && variant.defaultCost != null && variant.defaultPrice > 0
+                      <td className="px-3 py-2 font-mono text-xs">{variant.barcodes?.[0]?.code ?? '—'}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-emerald-400">{variant.defaultPrice != null ? Number(variant.defaultPrice).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '—'}</td>
+                      <td className="px-3 py-2 text-right text-gold-300">{variant.defaultCost != null ? Number(variant.defaultCost).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '—'}</td>
+                      <td className="px-3 py-2 text-right">
+                        {variant.defaultPrice != null && variant.defaultCost != null && Number(variant.defaultPrice) > 0
                           ? (
                             <span className={
-                              ((variant.defaultPrice - variant.defaultCost) / variant.defaultPrice) * 100 < 0
+                              ((Number(variant.defaultPrice) - Number(variant.defaultCost)) / Number(variant.defaultPrice)) * 100 < 0
                                 ? 'text-red-400'
                                 : 'text-emerald-400'
                             }>
-                              {(((variant.defaultPrice - variant.defaultCost) / variant.defaultPrice) * 100).toFixed(1)}%
+                              {Math.round(((Number(variant.defaultPrice) - Number(variant.defaultCost)) / Number(variant.defaultPrice)) * 100)}%
                             </span>
                           )
                           : '—'}
                       </td>
                       <td className="px-3 py-2">{vatModeLabels[variant.vatMode] ?? variant.vatMode}</td>
-                      <td className="px-3 py-2">{variantStatusLabels[variant.status] ?? variant.status}</td>
+                      <td className="px-3 py-2">{variant.baseUnit?.label ?? variant.baseUnit?.code ?? '—'}</td>
+                      <td className="px-3 py-2"><StatusBadge status={variant.status} size="xs" /></td>
                       <td className="px-3 py-2">
                         {variant.trackStock ? common('yes') : common('no')}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <span className={Number(variant.totalStock ?? 0) <= 5 ? 'text-red-400' : ''}>
+                          {variant.totalStock ?? 0}
+                        </span>
+                        {Number(variant.totalStock ?? 0) <= 5 && variant.trackStock ? (
+                          <span className="ml-1 inline-flex" title={t('lowStockWarning')}>
+                            <Icon name="TriangleAlert" size={12} className="text-red-400" />
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2">
+                        <ActionButtons
+                          actions={[
+                            {
+                              key: 'edit',
+                              icon: <Icon name="Pencil" size={14} className="text-blue-400" />,
+                              label: actions('edit'),
+                              onClick: () => setEditingVariant(variant),
+                              disabled: !canWrite,
+                            },
+                          ]}
+                          size="xs"
+                        />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
-      ) : null}
-
-      {viewMode === 'cards' ? (
-        <div className="space-y-3">
-          {variants.length === 0 ? (
-            <StatusBanner message={t('noVariants')} />
-          ) : (
-            variants.map((variant) => {
-              const isExpanded = expandedCards.has(variant.id);
+          </Card>
+        }
+        cards={
+          <div className="grid gap-4 md:grid-cols-2 nvi-stagger">
+            {sortedVariants.map((variant) => {
+              const barcodesExpanded = expandedBarcodes.has(variant.id);
+              const branchesExpanded = expandedBranches.has(variant.id);
               const margin =
                 variant.defaultPrice != null &&
                 variant.defaultCost != null &&
                 variant.defaultPrice > 0
                   ? (((variant.defaultPrice - variant.defaultCost) / variant.defaultPrice) * 100).toFixed(1)
                   : null;
+              const activeBarcodeCount = variant.barcodes.filter((b) => b.isActive).length;
+              const activeBranchCount = variant.availability.filter((a) => a.isActive).length;
               return (
-                <div key={variant.id} className="command-card nvi-panel nvi-reveal overflow-hidden">
-                  {/* ── Header ── */}
-                  <div className="flex items-start gap-3 p-4">
-                    <input
-                      type="checkbox"
-                      className="mt-1 shrink-0"
+                <Card key={variant.id} padding="md" className="space-y-2 nvi-card-hover overflow-hidden">
+                  {/* -- Compact header -- */}
+                  <div className="flex items-start gap-3">
+                    <Checkbox
                       checked={selectedLabels.includes(variant.id)}
                       onChange={() => toggleLabelSelection(variant.id)}
                     />
                     {variant.imageUrl ? (
-                      <img
-                        src={variant.imageUrl}
-                        alt={variant.name}
-                        className="h-14 w-14 shrink-0 rounded border border-gold-700/40 object-cover"
-                      />
+                      <div className="nvi-img-zoom shrink-0">
+                        <img
+                          src={variant.imageUrl}
+                          alt={variant.name}
+                          className="h-10 w-10 shrink-0 rounded-lg border border-[var(--nvi-border)] object-cover"
+                        />
+                      </div>
                     ) : (
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded border border-gold-800/40 bg-gold-950/30" />
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gold-800/40 bg-gold-950/30 text-gold-700">
+                        <Icon name="Package" size={16} />
+                      </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <h4 className="truncate text-base font-semibold text-gold-100">
-                        {variant.name}
-                      </h4>
+                      <div className="flex items-center gap-2">
+                        <h4 className="truncate text-sm font-semibold text-gold-100">
+                          {variant.name}
+                        </h4>
+                        <StatusBadge status={variant.status} size="xs" />
+                      </div>
                       <p className="truncate text-xs text-gold-500">
                         {variant.product?.name ?? common('unknown')}
+                        {variant.sku ? <span className="ml-2 text-gold-600">SKU: {variant.sku}</span> : null}
                       </p>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                        <span className="text-gold-200">
-                          <span className="mr-1 text-gold-500">{t('defaultPrice')}</span>
-                          {variant.defaultPrice ?? '—'}
-                        </span>
-                        <span className="text-gold-200">
-                          <span className="mr-1 text-gold-500">{t('defaultCost')}</span>
-                          {variant.defaultCost ?? '—'}
-                        </span>
-                        {margin !== null ? (
-                          <span className="text-gold-200">
-                            <span className="mr-1 text-gold-500">{t('margin')}</span>
-                            {margin}%
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-gold-500">
-                        <span>{t('skuLabel', { value: variant.sku || '—' })}</span>
-                        <span>·</span>
-                        <span>{vatModeLabels[variant.vatMode] ?? variant.vatMode}</span>
-                        {variant.minPrice != null ? (
-                          <>
-                            <span>·</span>
-                            <span>{t('minPriceLabel', { value: variant.minPrice })}</span>
-                          </>
-                        ) : null}
-                      </div>
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-2">
-                      <SmartSelect
-                        instanceId={`variant-status-${variant.id}`}
-                        value={variant.status}
-                        onChange={(value) =>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <p className="text-lg font-bold text-emerald-400">
+                        {variant.defaultPrice != null
+                          ? Number(variant.defaultPrice).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+                          : '—'}
+                      </p>
+                      {margin !== null ? (
+                        <span className={`text-xs font-medium ${Number(margin) < 0 ? 'text-red-400' : 'text-emerald-400/70'}`}>
+                          {Number(margin) > 0 ? '+' : ''}{margin}% {t('margin').toLowerCase()}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* -- Compact info row -- */}
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    {variant.defaultCost != null ? (
+                      <span className="text-gold-400">
+                        {t('defaultCost')}: {Number(variant.defaultCost).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      </span>
+                    ) : null}
+                    <span className="text-gold-600">{vatModeLabels[variant.vatMode] ?? variant.vatMode}</span>
+                    <span className={`inline-flex items-center gap-1 ${Number(variant.totalStock ?? 0) <= 5 && variant.trackStock ? 'text-red-400 font-semibold' : 'text-gold-400'}`}>
+                      {Number(variant.totalStock ?? 0) <= 5 && variant.trackStock ? (
+                        <Icon name="TriangleAlert" size={11} className="text-red-400" />
+                      ) : null}
+                      {t('stockLevel')}: {variant.totalStock ?? 0}
+                    </span>
+                  </div>
+
+                  {/* -- Compact pill row with expandable sections -- */}
+                  <div className="flex flex-wrap items-center gap-2 border-t border-gold-800/40 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleBarcodes(variant.id)}
+                      className={`nvi-press inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${barcodesExpanded ? 'border-purple-500/40 bg-purple-500/10 text-purple-300' : 'border-gold-800/40 text-gold-400 hover:border-gold-600'}`}
+                    >
+                      <Icon name="ScanBarcode" size={11} />
+                      {activeBarcodeCount} {t('barcodes').toLowerCase()}
+                      <Icon name="ChevronDown" size={10} className={barcodesExpanded ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                    </button>
+                    {branches.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleBranches(variant.id)}
+                        className={`nvi-press inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${branchesExpanded ? 'border-amber-500/40 bg-amber-500/10 text-amber-300' : 'border-gold-800/40 text-gold-400 hover:border-gold-600'}`}
+                      >
+                        <Icon name="Building2" size={11} />
+                        {activeBranchCount} / {branches.length}
+                        <Icon name="ChevronDown" size={10} className={branchesExpanded ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                      </button>
+                    ) : null}
+                    <SmartSelect
+                      instanceId={`variant-status-${variant.id}`}
+                      value={variant.status}
+                      onChange={(value) =>
+                        updateVariant(variant.id, {
+                          status: value as Variant['status'],
+                        }).catch((err) =>
+                          setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
+                        )
+                      }
+                      options={[
+                        { value: 'ACTIVE', label: t('statusActive') },
+                        { value: 'INACTIVE', label: t('statusInactive') },
+                        { value: 'ARCHIVED', label: t('statusArchived') },
+                      ]}
+                      className="nvi-select-container w-28"
+                    />
+                    <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-gold-400 ml-auto">
+                      <Checkbox
+                        checked={variant.trackStock}
+                        onChange={(checked) =>
                           updateVariant(variant.id, {
-                            status: value as Variant['status'],
+                            trackStock: checked,
                           }).catch((err) =>
                             setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
                           )
                         }
-                        options={[
-                          { value: 'ACTIVE', label: t('statusActive') },
-                          { value: 'INACTIVE', label: t('statusInactive') },
-                          { value: 'ARCHIVED', label: t('statusArchived') },
-                        ]}
-                        className="nvi-select-container w-32"
                       />
-                      <label className="flex cursor-pointer items-center gap-2 text-xs text-gold-300">
+                      {t('trackStock')}
+                    </label>
+                  </div>
+
+                  {/* -- Expandable: Barcodes -- */}
+                  {barcodesExpanded ? (
+                    <div className="space-y-2 rounded-lg border border-purple-500/20 bg-purple-500/5 p-2.5">
+                      {variant.barcodes.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {variant.barcodes.map((barcode) => (
+                            <span
+                              key={barcode.id}
+                              className={`rounded-lg border px-2 py-0.5 font-mono text-[11px] ${
+                                barcode.isActive
+                                  ? 'border-purple-500/30 text-gold-100'
+                                  : 'border-gold-900/40 text-gold-600 line-through'
+                              }`}
+                            >
+                              {barcode.code}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap gap-1.5">
                         <input
-                          type="checkbox"
-                          checked={variant.trackStock}
-                          onChange={(event) =>
-                            updateVariant(variant.id, {
-                              trackStock: event.target.checked,
-                            }).catch((err) =>
-                              setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
-                            )
-                          }
+                          placeholder={t('addBarcode')}
+                          className="rounded-lg border border-[var(--nvi-border)] bg-black px-2.5 py-1 text-[11px] text-gold-100"
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              addBarcode(variant.id, event.currentTarget.value).catch(
+                                (err) =>
+                                  setMessage(
+                                    getApiErrorMessage(err, t('addBarcodeFailed')),
+                                  ),
+                              );
+                              event.currentTarget.value = '';
+                            }
+                          }}
+                          disabled={!canWrite}
                         />
-                        {t('trackStock')}
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* ── Barcodes ── */}
-                  <div className="border-t border-gold-800/40 px-4 py-3 space-y-2">
-                    <p className="text-xs font-medium text-gold-400">{t('barcodes')}</p>
-                    {variant.barcodes.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {variant.barcodes.map((barcode) => (
-                          <span
-                            key={barcode.id}
-                            className={`rounded border px-2 py-0.5 text-xs ${
-                              barcode.isActive
-                                ? 'border-gold-600/60 text-gold-100'
-                                : 'border-gold-900/60 text-gold-500'
-                            }`}
-                          >
-                            {barcode.code}
+                        <button
+                          type="button"
+                          onClick={() => { setScanMode('assignExisting'); setScanTargetVariantId(variant.id); setScannerOpen(true); }}
+                          disabled={!canWrite}
+                          title={!canWrite ? noAccess('title') : undefined}
+                          className="nvi-press rounded-lg border border-[var(--nvi-border)] px-2 py-1 text-[11px] text-gold-200 disabled:opacity-70"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            <Icon name="Scan" size={10} className="text-purple-400" />
+                            {t('scanAssign')}
                           </span>
-                        ))}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => generateBarcode(variant.id)}
+                          disabled={!canWrite || barcodeAction?.variantId === variant.id}
+                          title={!canWrite ? noAccess('title') : undefined}
+                          className="nvi-press rounded-lg border border-[var(--nvi-border)] px-2 py-1 text-[11px] text-gold-200 disabled:opacity-70"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {barcodeAction?.variantId === variant.id ? (
+                              <Spinner variant="pulse" size="xs" />
+                            ) : (
+                              <Icon name="Sparkles" size={10} className="text-amber-400" />
+                            )}
+                            {barcodeAction?.variantId === variant.id
+                              ? t('generating')
+                              : t('generate')}
+                          </span>
+                        </button>
                       </div>
-                    ) : null}
-                    <div className="flex flex-wrap gap-2">
-                      <input
-                        placeholder={t('addBarcode')}
-                        className="rounded border border-gold-700/50 bg-black px-3 py-1 text-xs text-gold-100"
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            addBarcode(variant.id, event.currentTarget.value).catch(
-                              (err) =>
-                                setMessage(
-                                  getApiErrorMessage(err, t('addBarcodeFailed')),
-                                ),
-                            );
-                            event.currentTarget.value = '';
-                          }
-                        }}
-                        disabled={!canWrite}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => startScan('assignExisting', variant.id)}
-                        disabled={!canWrite}
-                        title={!canWrite ? noAccess('title') : undefined}
-                        className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
-                      >
-                        {t('scanAssign')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => generateBarcode(variant.id)}
-                        disabled={!canWrite || barcodeAction?.variantId === variant.id}
-                        title={!canWrite ? noAccess('title') : undefined}
-                        className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:opacity-70"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          {barcodeAction?.variantId === variant.id ? (
-                            <Spinner variant="pulse" size="xs" />
-                          ) : null}
-                          {barcodeAction?.variantId === variant.id
-                            ? t('generating')
-                            : t('generate')}
-                        </span>
-                      </button>
                     </div>
-                  </div>
+                  ) : null}
 
-                  {/* ── Branch availability ── */}
-                  {branches.length > 1 ? (
-                    <div className="border-t border-gold-800/40 px-4 py-3 space-y-2">
-                      <p className="text-xs font-medium text-gold-400">{t('branchAvailability')}</p>
-                      <div className="flex flex-wrap gap-3 text-xs text-gold-200">
+                  {/* -- Expandable: Branches -- */}
+                  {branchesExpanded && branches.length > 1 ? (
+                    <div className="space-y-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
+                      <div className="flex flex-wrap gap-2.5 text-[11px] text-gold-200">
                         {branches.map((branch) => {
                           const current =
                             variant.availability.find(
                               (item) => item.branchId === branch.id,
                             )?.isActive ?? true;
                           return (
-                            <label key={branch.id} className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
+                            <label key={branch.id} className="flex items-center gap-1.5">
+                              <Checkbox
                                 checked={current}
-                                onChange={(event) =>
+                                onChange={(checked) =>
                                   updateAvailability(
                                     variant.id,
                                     branch.id,
-                                    event.target.checked,
+                                    checked,
                                   ).catch((err) =>
                                     setMessage(
                                       getApiErrorMessage(err, t('availabilityFailed')),
@@ -1582,164 +1358,47 @@ export default function VariantsPage() {
                     </div>
                   ) : null}
 
-                  {/* ── Advanced (collapsible) ── */}
-                  <div className="border-t border-gold-800/40">
+                  {/* -- Edit action (opens VariantEditModal) -- */}
+                  <div className="flex items-center justify-end border-t border-gold-800/40 pt-2">
                     <button
                       type="button"
-                      className="flex w-full items-center justify-between px-4 py-2 text-xs text-gold-500 hover:text-gold-200 transition-colors"
-                      onClick={() => toggleCardExpand(variant.id)}
+                      onClick={() => setEditingVariant(variant)}
+                      disabled={!canWrite}
+                      title={!canWrite ? noAccess('title') : undefined}
+                      className="nvi-press inline-flex items-center gap-1.5 rounded-lg border border-[var(--nvi-border)] px-3 py-1 text-[11px] text-gold-200 hover:border-gold-500 transition-colors disabled:opacity-70"
                     >
-                      <span>{t('advanced')}</span>
-                      <span className="text-[10px]">{isExpanded ? '▲' : '▼'}</span>
+                      <Icon name="Pencil" size={11} />
+                      {t('advanced')}
                     </button>
-                    {isExpanded ? (
-                      <div className="space-y-4 px-4 pb-4">
-                        <div className="grid gap-3 text-xs text-gold-200 md:grid-cols-3">
-                          <label className="space-y-1">
-                            <span className="text-gold-400">{t('baseUnit')}</span>
-                            <SmartSelect
-                              instanceId={`variant-base-unit-${variant.id}`}
-                              value={variant.baseUnitId ?? ''}
-                              onChange={(value) =>
-                                updateVariant(variant.id, {
-                                  baseUnitId: value,
-                                  sellUnitId:
-                                    variant.sellUnitId && variant.sellUnitId !== value
-                                      ? variant.sellUnitId
-                                      : value,
-                                  conversionFactor:
-                                    variant.sellUnitId === value ? 1 : variant.conversionFactor ?? 1,
-                                }).catch((err) =>
-                                  setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
-                                )
-                              }
-                              options={unitOptions}
-                              placeholder={t('baseUnit')}
-                              className="nvi-select-container"
-                            />
-                          </label>
-                          <label className="space-y-1">
-                            <span className="text-gold-400">{t('sellUnit')}</span>
-                            <SmartSelect
-                              instanceId={`variant-sell-unit-${variant.id}`}
-                              value={variant.sellUnitId ?? variant.baseUnitId ?? ''}
-                              onChange={(value) =>
-                                updateVariant(variant.id, {
-                                  sellUnitId: value,
-                                  conversionFactor:
-                                    value === variant.baseUnitId ? 1 : variant.conversionFactor ?? 1,
-                                }).catch((err) =>
-                                  setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
-                                )
-                              }
-                              options={unitOptions}
-                              placeholder={t('sellUnit')}
-                              className="nvi-select-container"
-                            />
-                          </label>
-                          <label className="space-y-1">
-                            <span className="text-gold-400">{t('sellToBaseFactor')}</span>
-                            <input
-                              value={variant.conversionFactor ?? 1}
-                              onChange={(event) =>
-                                updateVariant(variant.id, {
-                                  conversionFactor: Number(event.target.value || 1),
-                                }).catch((err) =>
-                                  setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('updateFailed')) }),
-                                )
-                              }
-                              disabled={(variant.sellUnitId ?? variant.baseUnitId) === variant.baseUnitId}
-                              className="rounded border border-gold-700/50 bg-black px-3 py-2 text-xs text-gold-100 disabled:opacity-70"
-                            />
-                            <p className="text-[10px] text-gold-400">{t('conversionHint')}</p>
-                          </label>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs text-gold-400">{t('skuReassignTitle')}</p>
-                          <input
-                            placeholder={t('newSku')}
-                            className="rounded border border-gold-700/50 bg-black px-3 py-1 text-xs text-gold-100"
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter') {
-                                const sku = event.currentTarget.value.trim();
-                                if (!sku) return;
-                                promptAction({
-                                  message: t('skuReassignPrompt'),
-                                  placeholder: t('requiredPlaceholder'),
-                                }).then((reason) => {
-                                  if (!reason) {
-                                    setMessage({ action: 'save', outcome: 'warning', message: t('skuReasonRequired') });
-                                    return;
-                                  }
-                                  reassignSku(variant.id, sku, reason).catch((err) =>
-                                    setMessage(
-                                      getApiErrorMessage(err, t('skuReassignFailed')),
-                                    ),
-                                  );
-                                });
-                                event.currentTarget.value = '';
-                              }
-                            }}
-                            disabled={!canWrite}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs text-gold-400">{t('variantImage')}</p>
-                          <label className="inline-flex cursor-pointer items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-200 hover:border-gold-500 transition-colors">
-                            <input
-                              type="file"
-                              accept="image/png,image/jpeg"
-                              className="sr-only"
-                              onChange={(event) => {
-                                const file = event.target.files?.[0];
-                                if (file) {
-                                  uploadVariantImage(variant.id, file).catch((err) =>
-                                    setMessage(
-                                      getApiErrorMessage(err, t('variantImageFailed')),
-                                    ),
-                                  );
-                                }
-                              }}
-                              disabled={!canWrite}
-                            />
-                            {uploadingVariantId === variant.id ? (
-                              <span className="inline-flex items-center gap-2">
-                                <Spinner variant="dots" size="xs" />
-                                {t('uploadingImage')}
-                              </span>
-                            ) : (
-                              t('uploadImage')
-                            )}
-                          </label>
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
-                </div>
+                </Card>
               );
-            })
-          )}
-        </div>
-      ) : null}
-      <PaginationControls
-        page={page}
-        pageSize={pageSize}
-        total={total}
-        itemCount={variants.length}
-        availablePages={Object.keys(pageCursors).map((value) => Number(value))}
-        hasNext={Boolean(nextCursor)}
-        hasPrev={page > 1}
-        isLoading={isLoading}
-        onPageChange={(targetPage) => load(targetPage)}
-        onPageSizeChange={(nextPageSize) => {
-          setPageSize(nextPageSize);
-          setTotal(null);
-          setPage(1);
-          setPageCursors({ 1: null });
-          load(1, nextPageSize);
-        }}
+            })}
+          </div>
+        }
+        pagination={
+          <PaginationControls
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            itemCount={variants.length}
+            availablePages={Object.keys(pageCursors).map((value) => Number(value))}
+            hasNext={Boolean(nextCursor)}
+            hasPrev={page > 1}
+            isLoading={isLoading}
+            onPageChange={(targetPage) => load(targetPage)}
+            onPageSizeChange={(nextPageSize) => {
+              setPageSize(nextPageSize);
+              setTotal(null);
+              setPage(1);
+              setPageCursors({ 1: null });
+              load(1, nextPageSize);
+            }}
+          />
+        }
       />
 
+      {/* Print area — must remain OUTSIDE ListPage */}
       <div
         id="print-area"
         data-print-mode={printMode}
@@ -1773,6 +1432,244 @@ export default function VariantsPage() {
         </div>
       </div>
 
+      {/* ── Barcode Reassign Modal ── */}
+      {reassignOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setReassignOpen(false)}>
+          <Card padding="lg" className="w-full max-w-lg mx-4 space-y-4 nvi-slide-in-bottom" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-base font-semibold text-gold-100">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10">
+                  <Icon name="ArrowRightLeft" size={16} className="text-amber-400" />
+                </div>
+                {t('barcodeReassignTitle')}
+              </h3>
+              <button type="button" onClick={() => setReassignOpen(false)} className="nvi-press rounded-lg p-1.5 text-gold-400 hover:text-gold-100 transition-colors">
+                <Icon name="X" size={16} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <SmartSelect
+                instanceId="variant-barcode-reassign-barcode"
+                value={barcodeReassign.barcodeId}
+                onChange={(value) =>
+                  setBarcodeReassign({
+                    ...barcodeReassign,
+                    barcodeId: value,
+                  })
+                }
+                options={barcodeOptions.map((barcode) => ({
+                  value: barcode.id,
+                  label: `${barcode.code} -- ${formatVariantLabel(
+                    {
+                      id: barcode.variantId,
+                      name: barcode.variantName,
+                      productName: barcode.productName,
+                    },
+                    common('unknown'),
+                  )}`,
+                }))}
+                placeholder={t('selectBarcode')}
+                isClearable
+                className="nvi-select-container"
+              />
+              <SmartSelect
+                instanceId="variant-barcode-reassign-target"
+                value={barcodeReassign.variantId}
+                onChange={(value) =>
+                  setBarcodeReassign({
+                    ...barcodeReassign,
+                    variantId: value,
+                  })
+                }
+                options={variants.map((variant) => ({
+                  value: variant.id,
+                  label: formatVariantLabel({
+                    id: variant.id,
+                    name: variant.name,
+                    productName: variant.product?.name ?? null,
+                  }),
+                }))}
+                placeholder={t('selectNewVariant')}
+                isClearable
+                className="nvi-select-container"
+              />
+              <TextInput
+                value={barcodeReassign.reason}
+                onChange={(event) =>
+                  setBarcodeReassign({
+                    ...barcodeReassign,
+                    reason: event.target.value,
+                  })
+                }
+                placeholder={t('reason')}
+                label={t('reason')}
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  reassignBarcode()
+                    .then(() => setReassignOpen(false))
+                    .catch((err) =>
+                      setMessage({ action: 'update', outcome: 'failure', message: getApiErrorMessage(err, t('barcodeReassignFailed')) }),
+                    );
+                }}
+                disabled={!canWrite || isReassigning}
+                title={!canWrite ? noAccess('title') : undefined}
+                className="nvi-cta nvi-press rounded-xl px-4 py-2 font-semibold text-black disabled:opacity-70"
+              >
+                <span className="inline-flex items-center gap-2">
+                  {isReassigning ? <Spinner variant="dots" size="xs" /> : <Icon name="Check" size={14} />}
+                  {isReassigning ? t('submitting') : t('submitReassignment')}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setReassignOpen(false)}
+                className="nvi-press rounded-xl border border-[var(--nvi-border)] px-4 py-2 text-sm text-gold-300"
+              >
+                {actions('cancel')}
+              </button>
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
+      {/* ── Scanner Modal ── */}
+      {scannerOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { stopScan(); setScannerOpen(false); }}>
+          <Card padding="lg" className="w-full max-w-md mx-4 space-y-4 nvi-slide-in-bottom" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-base font-semibold text-gold-100">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/10">
+                  <Icon name="ScanBarcode" size={16} className="text-purple-400" />
+                </div>
+                {t('scanTitle')}
+              </h3>
+              <button type="button" onClick={() => { stopScan(); setScannerOpen(false); }} className="nvi-press rounded-lg p-1.5 text-gold-400 hover:text-gold-100 transition-colors">
+                <Icon name="X" size={16} />
+              </button>
+            </div>
+            <p className="text-xs text-gold-300">
+              {scanMode === 'lookup'
+                ? t('scanSubtitle')
+                : scanMode === 'assignExisting'
+                  ? t('scanAssignExistingSubtitle', { variant: scanTargetLabel })
+                  : t('scanAssignNewSubtitle')}
+            </p>
+            {scanMessage ? (
+              <p className="text-xs text-gold-300 nvi-bounce-in">{scanMessage}</p>
+            ) : null}
+            {scanLookup ? (
+              <div
+                ref={scanResultRef}
+                className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-gold-100 nvi-bounce-in"
+              >
+                <p>{t('scanProduct', { value: scanLookup.productName })}</p>
+                <p>{t('scanVariant', { value: scanLookup.variantName })}</p>
+                <p>{t('scanSku', { value: scanLookup.sku || '\u2014' })}</p>
+              </div>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  startScan(
+                    scanMode,
+                    scanMode === 'assignExisting' ? scanTargetVariantId ?? undefined : undefined,
+                  )
+                }
+                className="nvi-cta nvi-press rounded-xl px-4 py-2 text-sm font-semibold text-black"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon name="Play" size={14} />
+                  {scanActive ? t('scanRestart') : t('scanStart')}
+                </span>
+              </button>
+              {scanActive ? (
+                <button
+                  type="button"
+                  onClick={stopScan}
+                  className="nvi-press rounded-xl border border-[var(--nvi-border)] px-4 py-2 text-sm text-gold-100"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Icon name="Square" size={14} />
+                    {t('scanStop')}
+                  </span>
+                </button>
+              ) : null}
+            </div>
+            <div className="overflow-hidden rounded-xl border border-[var(--nvi-border)] bg-black/80">
+              <video ref={videoRef} className="w-full rounded-xl" />
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
+      {/* ── Print Labels Modal ── */}
+      {printOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPrintOpen(false)}>
+          <Card padding="lg" className="w-full max-w-sm mx-4 space-y-4 nvi-slide-in-bottom" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-base font-semibold text-gold-100">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
+                  <Icon name="Printer" size={16} className="text-blue-400" />
+                </div>
+                {t('labelsTitle')}
+              </h3>
+              <button type="button" onClick={() => setPrintOpen(false)} className="nvi-press rounded-lg p-1.5 text-gold-400 hover:text-gold-100 transition-colors">
+                <Icon name="X" size={16} />
+              </button>
+            </div>
+            <p className="text-xs text-gold-300">
+              {t('labelsSubtitle')} <span className="font-semibold text-gold-100">{selectedLabels.length} selected</span>
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  printLabels('A4')
+                    .then(() => setPrintOpen(false))
+                    .catch((err) =>
+                      setMessage({ action: 'export', outcome: 'failure', message: getApiErrorMessage(err, t('labelsPrintFailed')) }),
+                    )
+                }
+                disabled={isPrinting}
+                className="nvi-cta nvi-press rounded-xl px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-70"
+              >
+                <span className="inline-flex items-center gap-2">
+                  {isPrinting ? <Spinner variant="ring" size="xs" /> : <Icon name="Printer" size={14} />}
+                  {isPrinting ? t('preparing') : t('printA4')}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  printLabels('THERMAL')
+                    .then(() => setPrintOpen(false))
+                    .catch((err) =>
+                      setMessage({ action: 'export', outcome: 'failure', message: getApiErrorMessage(err, t('labelsPrintFailed')) }),
+                    )
+                }
+                disabled={isPrinting}
+                className="nvi-press rounded-xl border border-[var(--nvi-border)] px-4 py-2.5 text-sm text-gold-100 disabled:opacity-70"
+              >
+                <span className="inline-flex items-center gap-2">
+                  {isPrinting ? <Spinner variant="ring" size="xs" /> : <Icon name="Printer" size={14} />}
+                  {isPrinting ? t('preparing') : t('printThermal')}
+                </span>
+              </button>
+            </div>
+            {labelData.length > 0 ? (
+              <div className="text-xs text-gold-300">
+                {t('labelsReady', { count: labelData.length })}
+              </div>
+            ) : null}
+          </Card>
+        </div>
+      ) : null}
+
       <style jsx global>{`
         @media print {
           body * {
@@ -1801,6 +1698,46 @@ export default function VariantsPage() {
           }
         }
       `}</style>
-    </section>
+
+      <VariantCreateModal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        form={form}
+        onFormChange={setForm}
+        products={products}
+        branches={branches}
+        units={units}
+        newVariantBranchIds={newVariantBranchIds}
+        onNewVariantBranchIdsChange={setNewVariantBranchIds}
+        loadProductOptions={loadProductOptions}
+        onSubmit={createVariant}
+        isCreating={isCreating}
+        canWrite={canWrite}
+        onOpenScanner={() => {
+          setScanMode('assignNew');
+          setScannerOpen(true);
+        }}
+      />
+
+      <VariantEditModal
+        open={Boolean(editingVariant)}
+        onClose={() => setEditingVariant(null)}
+        variant={editingVariant}
+        units={units}
+        canWrite={canWrite}
+        onUpdate={(id, data) =>
+          updateVariant(id, data as Partial<Variant>)
+        }
+        onReassignSku={reassignSku}
+        onUploadImage={uploadVariantImage}
+        uploadingVariantId={uploadingVariantId}
+        onError={(m) =>
+          setMessage({ action: 'update', outcome: 'failure', message: m })
+        }
+        onWarn={(m) =>
+          setMessage({ action: 'save', outcome: 'warning', message: m })
+        }
+      />
+    </>
   );
 }

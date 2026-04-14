@@ -63,7 +63,7 @@ export function SmartSelect({
       }
       menuPosition="fixed"
       styles={{
-        menuPortal: (base) => ({ ...base, zIndex: 120 }),
+        menuPortal: (base) => ({ ...base, zIndex: 300 }),
       }}
       onChange={(next) => onChange(next?.value ?? '')}
     />

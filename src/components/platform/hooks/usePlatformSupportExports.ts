@@ -50,11 +50,16 @@ type SupportSession = {
 type SubscriptionRequest = {
   id: string;
   businessId: string;
-  type: 'UPGRADE' | 'DOWNGRADE' | 'CANCEL';
+  type: 'UPGRADE' | 'DOWNGRADE' | 'CANCEL' | 'SUBSCRIBE';
   requestedTier?: string | null;
+  requestedDurationMonths?: number | null;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   reason?: string | null;
   responseNote?: string | null;
+  approvedDurationMonths?: number | null;
+  approvedTier?: string | null;
+  isPaid?: boolean | null;
+  amountDue?: number | null;
   createdAt: string;
 };
 
@@ -131,6 +136,12 @@ export function usePlatformSupportExports({
   const [supportSessions, setSupportSessions] = useState<SupportSession[]>([]);
   const [subscriptionRequests, setSubscriptionRequests] = useState<SubscriptionRequest[]>([]);
   const [subscriptionResponseNotes, setSubscriptionResponseNotes] = useState<Record<string, string>>({});
+  const [subscriptionApprovalForms, setSubscriptionApprovalForms] = useState<Record<string, {
+    durationMonths: string;
+    isPaid: boolean;
+    amountDue: string;
+    tier: string;
+  }>>({});
   const [nextSupportCursor, setNextSupportCursor] = useState<string | null>(null);
   const [nextSupportSessionCursor, setNextSupportSessionCursor] = useState<string | null>(null);
   const [supportForm, setSupportForm] = useState<SupportForm>({
@@ -427,13 +438,27 @@ export function usePlatformSupportExports({
       return;
     }
     try {
+      const approvalForm = subscriptionApprovalForms[requestId];
+      const body: Record<string, unknown> = { responseNote: note };
+      if (action === 'approve' && approvalForm) {
+        const duration = parseInt(approvalForm.durationMonths, 10);
+        if (duration > 0) body.durationMonths = duration;
+        body.isPaid = approvalForm.isPaid;
+        const amount = parseFloat(approvalForm.amountDue);
+        if (!isNaN(amount) && amount >= 0) body.amountDue = amount;
+      }
       await apiFetch(`/platform/subscription-requests/${requestId}/${action}`, {
         token,
         method: 'POST',
-        body: JSON.stringify({ responseNote: note }),
+        body: JSON.stringify(body),
       });
       await loadSubscriptionRequests();
       setSubscriptionResponseNotes((prev) => ({ ...prev, [requestId]: '' }));
+      setSubscriptionApprovalForms((prev) => {
+        const next = { ...prev };
+        delete next[requestId];
+        return next;
+      });
       setMessage(
         action === 'approve'
           ? t('subscriptionRequestApproved')
@@ -635,6 +660,8 @@ export function usePlatformSupportExports({
     subscriptionRequests,
     subscriptionResponseNotes,
     setSubscriptionResponseNotes,
+    subscriptionApprovalForms,
+    setSubscriptionApprovalForms,
     supportForm,
     setSupportForm,
     supportFilters,

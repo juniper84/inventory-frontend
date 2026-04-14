@@ -1,7 +1,12 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { BusinessRegistryView } from '@/components/platform/views/businesses/BusinessRegistryView';
+import { BusinessWorkspaceProvider } from '@/components/platform/views/businesses/context/BusinessWorkspaceContext';
 
 export function PlatformBusinessesView() {
-  return <PlatformConsole view="businesses" />;
+  return (
+    <BusinessWorkspaceProvider>
+      <BusinessRegistryView />
+    </BusinessWorkspaceProvider>
+  );
 }

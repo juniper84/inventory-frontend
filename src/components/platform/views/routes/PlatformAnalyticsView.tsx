@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { AnalyticsView } from '@/components/platform/views/analytics/AnalyticsView';
 
 export function PlatformAnalyticsView() {
-  return <PlatformConsole view="analytics" />;
+  return <AnalyticsView />;
 }

@@ -1,28 +1,42 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useBranchScope } from '@/lib/use-branch-scope';
-import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
-import { SmartSelect } from '@/components/SmartSelect';
-import { StatusBanner } from '@/components/StatusBanner';
-import { CurrencyInput } from '@/components/CurrencyInput';
+import { Banner } from '@/components/notifications/Banner';
+import { OpenShiftModal } from '@/components/shifts/OpenShiftModal';
+import { CloseShiftModal } from '@/components/shifts/CloseShiftModal';
 import {
   buildCursorQuery,
   normalizePaginated,
   PaginatedResponse,
 } from '@/lib/pagination';
 import { getPermissionSet } from '@/lib/permissions';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { useFormatDate } from '@/lib/business-context';
+// FlipCounter/FlipClock removed in favor of colored text values
+import {
+  ListPage,
+  Card,
+  Icon,
+  StatusBadge,
+  SortableTableHeader,
+  ProgressBar,
+} from '@/components/ui';
+import type { SortDirection } from '@/components/ui';
+import { formatCurrency, useCurrency } from '@/lib/business-context';
+import { PaginationControls } from '@/components/PaginationControls';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 type Branch = { id: string; name: string };
 type Shift = {
   id: string;
+  referenceNumber?: string | null;
   branchId: string;
   openedAt: string;
   openingCash: number | string;
@@ -36,9 +50,66 @@ type ShiftCloseResponse = {
   approvalRequired?: boolean;
 };
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function relativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}h ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  const diffMonth = Math.floor(diffDay / 30);
+  if (diffMonth < 12) return `${diffMonth}mo ago`;
+  return `${Math.floor(diffMonth / 12)}y ago`;
+}
+
+function getDurationMs(openedAt: string, closedAt?: string | null): number {
+  const start = new Date(openedAt).getTime();
+  const end = closedAt ? new Date(closedAt).getTime() : Date.now();
+  return Math.max(0, end - start);
+}
+
+function formatDuration(openedAt: string, closedAt?: string | null): string {
+  const diffMs = getDurationMs(openedAt, closedAt);
+  const hours = Math.floor(diffMs / 3_600_000);
+  const minutes = Math.floor((diffMs % 3_600_000) / 60_000);
+  return `${hours}h ${minutes}m`;
+}
+
+function getDurationHours(openedAt: string, closedAt?: string | null): number {
+  return getDurationMs(openedAt, closedAt) / 3_600_000;
+}
+
+function durationColor(hours: number): 'green' | 'amber' | 'red' {
+  if (hours > 10) return 'red';
+  if (hours > 8) return 'amber';
+  return 'green';
+}
+
+function parseVariance(variance: number | string | null | undefined): number | null {
+  if (variance === null || variance === undefined) return null;
+  const num = typeof variance === 'string' ? Number.parseFloat(variance) : variance;
+  if (Number.isNaN(num)) return null;
+  return num;
+}
+
+function varianceColorClass(v: number): string {
+  if (v < 0) return 'text-red-400';
+  if (v > 0) return 'text-emerald-400';
+  return 'text-[var(--nvi-text-muted)]';
+}
+
+// ─── Page ───────────────────────────────────────────────────────────────────
+
 export default function ShiftsPage() {
-  const locale = useLocale();
   const { formatDateTime } = useFormatDate();
+  const currency = useCurrency();
   const t = useTranslations('shiftsPage');
   const actions = useTranslations('actions');
   const noAccess = useTranslations('noAccess');
@@ -53,13 +124,20 @@ export default function ShiftsPage() {
   const canOpen = permissions.has('shifts.open');
   const canClose = permissions.has('shifts.close');
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isOpening, setIsOpening] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [message, setMessage] = useToastState();
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
+    1: null,
+  });
+  const pageCursorsRef = useRef(pageCursors);
+  pageCursorsRef.current = pageCursors;
+  const [total, setTotal] = useState<number | null>(null);
   const [openForm, setOpenForm] = useState({
     branchId: '',
     openingCash: '',
@@ -72,26 +150,56 @@ export default function ShiftsPage() {
     closingCash: '',
     varianceReason: '',
   });
-  const openCount = shifts.filter((shift) => shift.status === 'OPEN').length;
-  const closedCount = shifts.filter((shift) => shift.status === 'CLOSED').length;
+  const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  const [openFormOpen, setOpenFormOpen] = useState(false);
+  const [closeFormOpen, setCloseFormOpen] = useState(false);
+  const [shiftPerformance, setShiftPerformance] = useState<Record<string, { saleCount: number; saleTotal: number; avgTransaction: number } | null>>({});
+  const [perfLoading, setPerfLoading] = useState<string | null>(null);
+  const [expandedPerf, setExpandedPerf] = useState<Set<string>>(new Set());
 
-  const load = useCallback(async (cursor?: string, append = false) => {
-    if (append) {
-      setIsLoadingMore(true);
-    } else {
-      setIsLoading(true);
-    }
+  // ─── Derived ──────────────────────────────────────────────────────────────
+
+  const openShifts = useMemo(() => shifts.filter((s) => s.status === 'OPEN'), [shifts]);
+  const openCount = openShifts.length;
+
+  const todaySalesTotal = useMemo(() => {
+    return Object.values(shiftPerformance).reduce((sum, p) => sum + (p?.saleTotal ?? 0), 0);
+  }, [shiftPerformance]);
+
+  const todayAvgTx = useMemo(() => {
+    const perfs = Object.values(shiftPerformance).filter(Boolean) as { avgTransaction: number }[];
+    if (perfs.length === 0) return 0;
+    return perfs.reduce((sum, p) => sum + p.avgTransaction, 0) / perfs.length;
+  }, [shiftPerformance]);
+
+  // Find the earliest open shift for the FlipClock
+  const earliestOpenShift = useMemo(() => {
+    if (openShifts.length === 0) return null;
+    return openShifts.reduce((earliest, s) =>
+      new Date(s.openedAt).getTime() < new Date(earliest.openedAt).getTime() ? s : earliest,
+    );
+  }, [openShifts]);
+
+  // ─── Data loading ─────────────────────────────────────────────────────────
+
+  const load = useCallback(async (targetPage = 1, nextPageSize?: number) => {
+    setIsLoading(true);
     const token = getAccessToken();
     if (!token) {
-      if (append) {
-        setIsLoadingMore(false);
-      } else {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
       return;
     }
     try {
-      const query = buildCursorQuery({ limit: 20, cursor });
+      const effectivePageSize = nextPageSize ?? pageSize;
+      const cursor =
+        targetPage === 1 ? null : pageCursorsRef.current[targetPage] ?? null;
+      const query = buildCursorQuery({
+        limit: effectivePageSize,
+        cursor: cursor ?? undefined,
+        includeTotal: targetPage === 1 ? '1' : undefined,
+      });
       const [branchData, shiftData] = await Promise.all([
         apiFetch<PaginatedResponse<Branch> | Branch[]>('/branches?limit=200', {
           token,
@@ -102,10 +210,20 @@ export default function ShiftsPage() {
       ]);
       setBranches(normalizePaginated(branchData).items);
       const shiftResult = normalizePaginated(shiftData);
-      setShifts((prev) =>
-        append ? [...prev, ...shiftResult.items] : shiftResult.items,
-      );
+      setShifts(shiftResult.items);
       setNextCursor(shiftResult.nextCursor);
+      if (typeof shiftResult.total === 'number') {
+        setTotal(shiftResult.total);
+      }
+      setPage(targetPage);
+      setPageCursors((prev) => {
+        const nextState: Record<number, string | null> =
+          targetPage === 1 ? { 1: null } : { ...prev };
+        if (shiftResult.nextCursor) {
+          nextState[targetPage + 1] = shiftResult.nextCursor;
+        }
+        return nextState;
+      });
     } catch (err) {
       setMessage({
         action: 'load',
@@ -113,16 +231,15 @@ export default function ShiftsPage() {
         message: getApiErrorMessage(err, t('loadFailed')),
       });
     } finally {
-      if (append) {
-        setIsLoadingMore(false);
-      } else {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
-  }, [t]);
+  }, [pageSize, t]);
 
   useEffect(() => {
-    load();
+    setPage(1);
+    setPageCursors({ 1: null });
+    setTotal(null);
+    load(1);
   }, [load]);
 
   useEffect(() => {
@@ -130,6 +247,8 @@ export default function ShiftsPage() {
       setOpenForm((prev) => ({ ...prev, branchId: activeBranch.id }));
     }
   }, [activeBranch?.id, openForm.branchId]);
+
+  // ─── Actions ──────────────────────────────────────────────────────────────
 
   const openShift = async () => {
     const token = getAccessToken();
@@ -149,6 +268,7 @@ export default function ShiftsPage() {
         }),
       });
       setOpenForm({ branchId: '', openingCash: '', notes: '' });
+      setOpenFormOpen(false);
       setMessage({ action: 'create', outcome: 'success', message: t('opened') });
       await load();
     } catch (err) {
@@ -187,6 +307,7 @@ export default function ShiftsPage() {
         return;
       }
       setCloseForm({ shiftId: '', closingCash: '', varianceReason: '' });
+      setCloseFormOpen(false);
       setMessage({ action: 'update', outcome: 'success', message: t('closed') });
       await load();
     } catch (err) {
@@ -200,192 +321,526 @@ export default function ShiftsPage() {
     }
   };
 
-  if (isLoading) {
-    return <PageSkeleton />;
-  }
+  const togglePerformance = async (shiftId: string) => {
+    // Toggle expand/collapse for already loaded data
+    if (shiftPerformance[shiftId] !== undefined) {
+      setExpandedPerf((prev) => {
+        const next = new Set(prev);
+        if (next.has(shiftId)) {
+          next.delete(shiftId);
+        } else {
+          next.add(shiftId);
+        }
+        return next;
+      });
+      return;
+    }
+    const token = getAccessToken();
+    if (!token) return;
+    setPerfLoading(shiftId);
+    try {
+      const data = await apiFetch<{ saleCount: number; saleTotal: number; avgTransaction: number }>(
+        `/shifts/${shiftId}/performance`,
+        { token },
+      );
+      setShiftPerformance((prev) => ({ ...prev, [shiftId]: data }));
+      setExpandedPerf((prev) => new Set(prev).add(shiftId));
+    } catch {
+      setShiftPerformance((prev) => ({ ...prev, [shiftId]: null }));
+      setMessage({
+        action: 'load',
+        outcome: 'failure',
+        message: t('performanceFailed'),
+      });
+    } finally {
+      setPerfLoading(null);
+    }
+  };
+
+  // ─── KPI strip ────────────────────────────────────────────────────────────
+
+  const kpiStrip = (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+      {/* Active shifts */}
+      <Card padding="md" as="article">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-[var(--nvi-text-muted)]">{t('kpiActiveShifts')}</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-400">{openCount}</p>
+          </div>
+          <div className="nvi-kpi-icon nvi-kpi-icon--emerald">
+            <Icon name="Clock" size={18} />
+          </div>
+        </div>
+      </Card>
+
+      {/* Today's sales */}
+      <Card padding="md" as="article">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-[var(--nvi-text-muted)]">{t('kpiTodaySales')}</p>
+            <p className="mt-2 text-2xl font-bold text-blue-400">
+              {todaySalesTotal > 0 ? formatCurrency(todaySalesTotal, currency) : '---'}
+            </p>
+          </div>
+          <div className="nvi-kpi-icon nvi-kpi-icon--blue">
+            <Icon name="ShoppingCart" size={18} />
+          </div>
+        </div>
+      </Card>
+
+      {/* Avg transaction */}
+      <Card padding="md" as="article">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-[var(--nvi-text-muted)]">{t('kpiAvgTransaction')}</p>
+            <p className="mt-2 text-2xl font-bold text-purple-400">
+              {todayAvgTx > 0 ? formatCurrency(todayAvgTx, currency) : '---'}
+            </p>
+          </div>
+          <div className="nvi-kpi-icon nvi-kpi-icon--purple">
+            <Icon name="TrendingUp" size={18} />
+          </div>
+        </div>
+      </Card>
+
+      {/* Current shift duration */}
+      <Card padding="md" as="article">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-[var(--nvi-text-muted)]">{t('kpiShiftDuration')}</p>
+            <div className="mt-2">
+              {earliestOpenShift ? (
+                <p className="text-2xl font-bold text-amber-400">{formatDuration(earliestOpenShift.openedAt)}</p>
+              ) : (
+                <p className="text-2xl font-bold text-[var(--nvi-text-muted)]">---</p>
+              )}
+            </div>
+          </div>
+          <div className="nvi-kpi-icon nvi-kpi-icon--amber">
+            <Icon name="Clock" size={18} />
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+
+  // ─── Modals ───────────────────────────────────────────────────────────────
+
+  const modals = (
+    <>
+      <OpenShiftModal
+        open={openFormOpen}
+        onClose={() => setOpenFormOpen(false)}
+        form={openForm}
+        onFormChange={setOpenForm}
+        branches={branches}
+        onSubmit={openShift}
+        isOpening={isOpening}
+        canOpen={canOpen}
+      />
+      <CloseShiftModal
+        open={closeFormOpen}
+        onClose={() => setCloseFormOpen(false)}
+        form={closeForm}
+        onFormChange={setCloseForm}
+        openShifts={openShifts}
+        branches={branches}
+        onSubmit={closeShift}
+        isClosing={isClosing}
+        canClose={canClose}
+      />
+    </>
+  );
+
+  // ─── Shift session cards ──────────────────────────────────────────────────
+
+  const shiftCards = (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 nvi-stagger">
+      {shifts.map((shift) => {
+        const branchName = branches.find((b) => b.id === shift.branchId)?.name ?? t('branchFallback');
+        const varianceNum = parseVariance(shift.variance);
+        const hours = getDurationHours(shift.openedAt, shift.closedAt);
+        const isOpen = shift.status === 'OPEN';
+        const perf = shiftPerformance[shift.id];
+        const perfExpanded = expandedPerf.has(shift.id);
+
+        return (
+          <Card key={shift.id} padding="md" className="nvi-card-hover">
+            {/* Header: status dot + branch */}
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {/* Status dot */}
+                <span
+                  className={`h-3 w-3 shrink-0 rounded-full ${
+                    isOpen
+                      ? 'bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
+                      : 'bg-white/[0.06]'
+                  }`}
+                />
+                <div className="min-w-0">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-0.5">
+                    <Icon name="Building2" size={13} className="shrink-0 text-blue-400" />
+                    <span className="text-sm font-semibold text-blue-300 truncate">{branchName}</span>
+                  </span>
+                  {shift.referenceNumber && (
+                    <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-[var(--nvi-border)]/30 px-1.5 py-0.5 text-[10px] text-[var(--nvi-text-muted)]">
+                      <Icon name="Hash" size={10} />
+                      {shift.referenceNumber}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <StatusBadge status={shift.status} label={shiftStatusLabels[shift.status]} size="xs" />
+            </div>
+
+            {/* Duration section */}
+            <div className="mt-3">
+              {isOpen ? (
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10">
+                    <Icon name="Clock" size={14} className="text-amber-400" />
+                  </span>
+                  <span className="text-lg font-bold text-amber-400">{formatDuration(shift.openedAt)}</span>
+                  <span className="text-xs text-[var(--nvi-text-muted)]">{t('durationBar')}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-[var(--nvi-text-muted)]">{t('durationBar')}</span>
+                    <span className="text-xs font-medium text-[var(--nvi-text)]">{formatDuration(shift.openedAt, shift.closedAt)}</span>
+                  </div>
+                  <ProgressBar
+                    value={Math.min(hours, 12)}
+                    max={12}
+                    height={6}
+                    color={durationColor(hours)}
+                    formatValue={(v) => t('durationHours', { hours: v.toFixed(1) })}
+                  />
+                </>
+              )}
+            </div>
+
+            {/* Cash summary */}
+            <div className="mt-3 rounded-lg bg-[var(--nvi-border)]/10 px-3 py-2">
+              <div className="flex items-center gap-2 text-sm">
+                <div className="flex items-center gap-1.5">
+                  <Icon name="DollarSign" size={13} className="text-[var(--nvi-text-muted)]" />
+                  <span className="font-medium text-[var(--nvi-text)]">{formatCurrency(Number(shift.openingCash), currency)}</span>
+                </div>
+                {shift.status === 'CLOSED' && shift.closingCash != null && (
+                  <>
+                    <Icon name="ArrowRight" size={14} className="text-[var(--nvi-text-muted)]" />
+                    <span className="font-semibold text-[var(--nvi-text)]">{formatCurrency(Number(shift.closingCash), currency)}</span>
+                  </>
+                )}
+                {varianceNum !== null && (
+                  <span className={`ml-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${
+                    varianceNum === 0
+                      ? 'bg-emerald-500/10 text-emerald-400'
+                      : Math.abs(varianceNum) < 1000
+                        ? 'bg-amber-500/10 text-amber-400'
+                        : 'bg-red-500/10 text-red-400'
+                  }`}>
+                    {varianceNum !== 0 && (
+                      <Icon name="TriangleAlert" size={11} />
+                    )}
+                    {varianceNum > 0 ? '+' : ''}{formatCurrency(Math.abs(varianceNum), currency)}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Timestamps */}
+            <div className="mt-2 space-y-0.5">
+              <div className="flex items-center gap-1.5 text-xs text-[var(--nvi-text-muted)]">
+                <Icon name="Clock" size={11} />
+                <span>{t('openedAt', { value: relativeTime(shift.openedAt) })}</span>
+              </div>
+              {shift.closedAt && (
+                <div className="flex items-center gap-1.5 text-xs text-[var(--nvi-text-muted)]">
+                  <Icon name="Clock" size={11} />
+                  <span>{t('closedAtLabel', { value: relativeTime(shift.closedAt) })}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Performance section (expandable) */}
+            {shift.status === 'CLOSED' && (
+              <div className="mt-3 border-t border-[var(--nvi-border)] pt-2">
+                <button
+                  type="button"
+                  onClick={() => togglePerformance(shift.id)}
+                  className="flex w-full items-center justify-between text-xs font-medium text-[var(--nvi-text-muted)] hover:text-[var(--nvi-text)] transition-colors"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Icon name="TrendingUp" size={12} />
+                    {t('viewPerformance')}
+                  </span>
+                  <span className={`transition-transform duration-200 ${perfExpanded ? 'rotate-180' : ''}`}>
+                    ▾
+                  </span>
+                </button>
+                {perfLoading === shift.id && (
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--nvi-text-muted)]">
+                    <Spinner size="xs" variant="dots" />
+                    {t('performanceLoading')}
+                  </div>
+                )}
+                {perfExpanded && perf !== undefined && (
+                  <div className="nvi-expand">
+                    {perf ? (
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        <div className="rounded-lg bg-emerald-500/10 p-2.5 text-center">
+                          <p className="text-lg font-bold text-emerald-400">{perf.saleCount}</p>
+                          <p className="text-[10px] uppercase tracking-wide text-[var(--nvi-text-muted)]">{t('perfSalesLabel')}</p>
+                        </div>
+                        <div className="rounded-lg bg-blue-500/10 p-2.5 text-center">
+                          <p className="text-sm font-bold text-blue-400">{formatCurrency(perf.saleTotal, currency)}</p>
+                          <p className="text-[10px] uppercase tracking-wide text-[var(--nvi-text-muted)]">{t('perfRevenueLabel')}</p>
+                        </div>
+                        <div className="rounded-lg bg-purple-500/10 p-2.5 text-center">
+                          <p className="text-sm font-bold text-purple-400">{formatCurrency(perf.avgTransaction, currency)}</p>
+                          <p className="text-[10px] uppercase tracking-wide text-[var(--nvi-text-muted)]">{t('perfAvgLabel')}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-red-400">{t('performanceFailed')}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
+
+  // ─── Table view ───────────────────────────────────────────────────────────
+
+  const shiftTable = (
+    <Card padding="lg">
+      <table className="min-w-[900px] w-full text-left text-sm text-[var(--nvi-text)]">
+        <thead className="text-xs uppercase text-[var(--nvi-text-muted)]">
+          <tr>
+            <th className="px-3 py-2 w-6" />
+            <SortableTableHeader label={t('branch')} sortKey="branch" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} />
+            <SortableTableHeader label={t('openedAtCol')} sortKey="openedAt" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} />
+            <SortableTableHeader label={t('closedAtCol')} sortKey="closedAt" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} />
+            <th className="px-3 py-2">{t('durationCol')}</th>
+            <SortableTableHeader label={t('openingCash')} sortKey="openingCash" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} align="right" />
+            <SortableTableHeader label={t('closingCash')} sortKey="closingCash" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} align="right" />
+            <SortableTableHeader label={t('varianceCol')} sortKey="variance" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} align="right" />
+            <SortableTableHeader label={common('status')} sortKey="status" currentSortKey={sortKey} currentDirection={sortDirection} onSort={(k, d) => { setSortKey(k); setSortDirection(d); }} />
+            <th className="px-3 py-2">
+              <Icon name="TrendingUp" size={14} className="text-[var(--nvi-text-muted)]" />
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {shifts.map((shift) => {
+            const varianceNum = parseVariance(shift.variance);
+            const hours = getDurationHours(shift.openedAt, shift.closedAt);
+            const isOpen = shift.status === 'OPEN';
+            return (
+              <tr key={shift.id} className="border-t border-[var(--nvi-border)]">
+                {/* Status dot */}
+                <td className="px-3 py-2">
+                  <span
+                    className={`inline-block h-2.5 w-2.5 rounded-full ${
+                      isOpen
+                        ? 'bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
+                        : 'bg-white/[0.06]'
+                    }`}
+                  />
+                </td>
+                {/* Branch */}
+                <td className="px-3 py-2">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="flex h-5 w-5 items-center justify-center rounded bg-blue-500/10">
+                      <Icon name="Building2" size={12} className="text-blue-400" />
+                    </span>
+                    <span className="font-semibold text-[var(--nvi-text)]">
+                      {branches.find((b) => b.id === shift.branchId)?.name ?? t('branchFallback')}
+                    </span>
+                  </span>
+                  {shift.referenceNumber && (
+                    <p className="text-[11px] text-[var(--nvi-text-muted)]/60">{shift.referenceNumber}</p>
+                  )}
+                </td>
+                {/* Opened */}
+                <td className="px-3 py-2">
+                  <span className="text-xs">{relativeTime(shift.openedAt)}</span>
+                  <p className="text-[11px] text-[var(--nvi-text-muted)]/50">{formatDateTime(shift.openedAt)}</p>
+                </td>
+                {/* Closed */}
+                <td className="px-3 py-2">
+                  {shift.closedAt ? (
+                    <>
+                      <span className="text-xs">{relativeTime(shift.closedAt)}</span>
+                      <p className="text-[11px] text-[var(--nvi-text-muted)]/50">{formatDateTime(shift.closedAt)}</p>
+                    </>
+                  ) : (
+                    <span className="text-xs text-[var(--nvi-text-muted)]">---</span>
+                  )}
+                </td>
+                {/* Duration */}
+                <td className="px-3 py-2">
+                  <span className="text-xs">{formatDuration(shift.openedAt, shift.closedAt)}</span>
+                  <ProgressBar
+                    value={Math.min(hours, 12)}
+                    max={12}
+                    height={4}
+                    color={durationColor(hours)}
+                    className="mt-1 w-20"
+                  />
+                </td>
+                {/* Opening cash */}
+                <td className="px-3 py-2 text-right">{formatCurrency(Number(shift.openingCash), currency)}</td>
+                {/* Closing cash */}
+                <td className="px-3 py-2 text-right">{shift.closingCash != null ? formatCurrency(Number(shift.closingCash), currency) : '---'}</td>
+                {/* Variance */}
+                <td className="px-3 py-2 text-right">
+                  {varianceNum !== null ? (
+                    <span className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-bold ${
+                      varianceNum === 0
+                        ? 'bg-emerald-500/10 text-emerald-400'
+                        : Math.abs(varianceNum) < 1000
+                          ? 'bg-amber-500/10 text-amber-400'
+                          : 'bg-red-500/10 text-red-400'
+                    }`}>
+                      {varianceNum !== 0 && <Icon name="TriangleAlert" size={11} />}
+                      {varianceNum > 0 ? '+' : ''}{formatCurrency(Math.abs(varianceNum), currency)}
+                    </span>
+                  ) : '---'}
+                </td>
+                {/* Status */}
+                <td className="px-3 py-2">
+                  <StatusBadge status={shift.status} label={shiftStatusLabels[shift.status]} size="xs" />
+                </td>
+                {/* Performance action */}
+                <td className="px-3 py-2">
+                  {shift.status === 'CLOSED' && (
+                    <button
+                      type="button"
+                      onClick={() => togglePerformance(shift.id)}
+                      className="rounded-lg p-1.5 text-[var(--nvi-text-muted)] hover:bg-[var(--nvi-border)]/20 hover:text-[var(--nvi-text)] transition-colors"
+                      title={t('viewPerformance')}
+                    >
+                      {perfLoading === shift.id ? (
+                        <Spinner size="xs" variant="dots" />
+                      ) : (
+                        <Icon name="TrendingUp" size={14} />
+                      )}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Card>
+  );
+
+  // ─── Banner ───────────────────────────────────────────────────────────────
+
+  const bannerNode = message ? (
+    <Banner
+      message={typeof message === 'string' ? message : message.message}
+      severity={
+        typeof message === 'string'
+          ? 'info'
+          : message.outcome === 'success'
+            ? 'success'
+            : message.outcome === 'warning'
+              ? 'warning'
+              : 'error'
+      }
+      onDismiss={() => setMessage(null)}
+    />
+  ) : null;
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <section className="nvi-page">
-      <PremiumPageHeader
-        eyebrow={t('eyebrow')}
-        title={t('title')}
-        subtitle={t('subtitle')}
-        badges={
-          <>
-            <span className="status-chip">{t('badgeCashDesk')}</span>
-            <span className="status-chip">{t('badgeLive')}</span>
-          </>
-        }
-      />
-      {message ? <StatusBanner message={message} /> : null}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiShiftRecords')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{shifts.length}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiOpen')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{openCount}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiClosed')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{closedCount}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiBranches')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{branches.length}</p>
-        </article>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-          <h3 className="text-lg font-semibold text-gold-100">{t('openTitle')}</h3>
-          <SmartSelect
-            instanceId="shift-open-branch"
-            value={openForm.branchId}
-            onChange={(value) =>
-              setOpenForm({ ...openForm, branchId: value })
-            }
-            placeholder={t('selectBranch')}
-            options={branches.map((branch) => ({
-              value: branch.id,
-              label: branch.name,
-            }))}
-          />
-          <CurrencyInput
-            value={openForm.openingCash}
-            onChange={(value) =>
-              setOpenForm({ ...openForm, openingCash: value })
-            }
-            placeholder={t('openingCash')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={openForm.notes}
-            onChange={(event) =>
-              setOpenForm({ ...openForm, notes: event.target.value })
-            }
-            placeholder={t('notesOptional')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <button
-            type="button"
-            onClick={openShift}
-            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isOpening || !canOpen}
-            title={!canOpen ? noAccess('title') : undefined}
-          >
-            {isOpening ? <Spinner size="xs" variant="orbit" /> : null}
-            {isOpening ? t('opening') : t('openAction')}
-          </button>
-        </div>
-
-        <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-          <h3 className="text-lg font-semibold text-gold-100">{t('closeTitle')}</h3>
-          <SmartSelect
-            instanceId="shift-close-select"
-            value={closeForm.shiftId}
-            onChange={(value) =>
-              setCloseForm({ ...closeForm, shiftId: value })
-            }
-            placeholder={t('selectOpenShift')}
-            options={shifts
-              .filter((shift) => shift.status === 'OPEN')
-              .map((shift) => ({
-                value: shift.id,
-                label: `${
-                  branches.find((branch) => branch.id === shift.branchId)?.name ??
-                  t('branchFallback')
-                } · ${formatDateTime(shift.openedAt)}`,
-              }))}
-          />
-          <CurrencyInput
-            value={closeForm.closingCash}
-            onChange={(value) =>
-              setCloseForm({ ...closeForm, closingCash: value })
-            }
-            placeholder={t('closingCash')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={closeForm.varianceReason}
-            onChange={(event) =>
-              setCloseForm({ ...closeForm, varianceReason: event.target.value })
-            }
-            placeholder={t('varianceReasonOptional')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <button
-            type="button"
-            onClick={closeShift}
-            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isClosing || !canClose}
-            title={!canClose ? noAccess('title') : undefined}
-          >
-            {isClosing ? <Spinner size="xs" variant="pulse" /> : null}
-            {isClosing ? t('closing') : t('closeAction')}
-          </button>
-        </div>
-      </div>
-
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('historyTitle')}</h3>
-        {shifts.length === 0 ? (
-          <StatusBanner message={t('noShifts')} />
-        ) : (
-          shifts.map((shift) => (
-            <div
-              key={shift.id}
-              className="rounded border border-gold-700/30 bg-black/40 p-3 text-sm text-gold-200"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-gold-100">
-                    {branches.find((branch) => branch.id === shift.branchId)?.name ??
-                      shift.branchId}
-                  </p>
-                  <p className="text-xs text-gold-400">
-                    {t('openedAt', {
-                      value: formatDateTime(shift.openedAt),
-                    })}
-                  </p>
-                </div>
-                <span
-                  className={
-                    shift.status === 'OPEN' ? 'text-green-400' : 'text-gold-400'
-                  }
-                >
-                  {shiftStatusLabels[shift.status] ?? shift.status}
-                </span>
-              </div>
-              <p className="text-xs text-gold-400">
-                {t('openingCashLabel', { value: shift.openingCash })}
-              </p>
-              {shift.status === 'CLOSED' ? (
-                <p className="text-xs text-gold-400">
-                  {t('closingCashLabel', {
-                    value: shift.closingCash ?? '',
-                    variance: shift.variance ?? 0,
-                  })}
-                </p>
-              ) : null}
-            </div>
-          ))
-        )}
-        {nextCursor ? (
-          <div className="flex justify-center pt-2">
+    <>
+    <ListPage
+      title={t('title')}
+      subtitle={t('subtitle')}
+      eyebrow={t('eyebrow')}
+      badges={
+        <>
+          <span className="nvi-badge">{t('badgeCashDesk')}</span>
+          <span className="nvi-badge">{t('badgeLive')}</span>
+        </>
+      }
+      headerActions={
+        <>
+          {canOpen ? (
             <button
               type="button"
-              onClick={() => load(nextCursor, true)}
-              className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-4 py-2 text-sm text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-              disabled={isLoadingMore}
+              onClick={() => setOpenFormOpen(true)}
+              className="nvi-press inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25"
             >
-              {isLoadingMore ? <Spinner size="xs" variant="grid" /> : null}
-              {isLoadingMore ? actions('loading') : actions('loadMore')}
+              <Icon name="Play" size={14} />
+              {t('openAction')}
             </button>
-          </div>
-        ) : null}
-      </div>
-    </section>
+          ) : null}
+          {canClose && openShifts.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setCloseFormOpen(true)}
+              className="nvi-press inline-flex items-center gap-1.5 rounded-xl bg-red-500/15 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-500/25"
+            >
+              <Icon name="Square" size={14} />
+              {t('closeAction')}
+            </button>
+          ) : null}
+          <ViewToggle
+            value={viewMode}
+            onChange={setViewMode}
+            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+          />
+        </>
+      }
+      isLoading={isLoading}
+      banner={bannerNode}
+      kpis={kpiStrip}
+      viewMode={viewMode}
+      isEmpty={!shifts.length}
+      emptyIcon={
+        <div className="nvi-float">
+          <Icon name="Clock" size={32} className="text-[var(--nvi-text-muted)]" />
+        </div>
+      }
+      emptyTitle={t('noShifts')}
+      emptyDescription={t('emptyDescription')}
+      table={shiftTable}
+      cards={shiftCards}
+      pagination={
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          itemCount={shifts.length}
+          availablePages={Object.keys(pageCursors).map(Number)}
+          hasNext={Boolean(nextCursor)}
+          hasPrev={page > 1}
+          isLoading={isLoading}
+          onPageChange={(nextPage) => load(nextPage)}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+            setPageCursors({ 1: null });
+            setTotal(null);
+            load(1, size);
+          }}
+        />
+      }
+    />
+    {modals}
+    </>
   );
 }

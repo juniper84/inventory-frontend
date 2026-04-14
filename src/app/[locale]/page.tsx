@@ -18,8 +18,12 @@ import {
   getBranchModeForPathname,
   resolveBranchIdForMode,
 } from '@/lib/branch-policy';
-import { useCurrency, useFormatDate } from '@/lib/business-context';
+import { useCurrency, useFormatDate, useTimezone } from '@/lib/business-context';
 import { ZERO_DECIMAL_CURRENCIES } from '@/lib/currencies';
+import { FlipCounter, TapeMeter, ThermometerGauge } from '@/components/analog';
+import { ProgressBar, StatusBadge } from '@/components/ui';
+import { Icon } from '@/components/ui/Icon';
+import { RingGauge } from '@/components/RingGauge';
 
 type Branch = { id: string; name: string };
 type SaleRow = {
@@ -125,12 +129,20 @@ type SearchResults = {
   }[];
 };
 
-const toLocalDateIso = (date: Date) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
+/** Get a YYYY-MM-DD string representing what "today" (or any date) is in the business timezone */
+function toBusinessDateIso(date: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const p of parts) map[p.type] = p.value;
+  return `${map['year']}-${map['month']}-${map['day']}`;
+}
+
+type DateRange = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
 
 function Sparkline({
   points,
@@ -158,6 +170,7 @@ function Sparkline({
     const areaPath = `${linePath} L ${last.x},100 L ${first.x},100 Z`;
     return (
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" className={className}>
+        <style>{`@keyframes sparkline-draw { to { stroke-dashoffset: 0; } }`}</style>
         <defs>
           <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="currentColor" stopOpacity="0.32" />
@@ -172,6 +185,11 @@ function Sparkline({
           strokeLinecap="round"
           strokeLinejoin="round"
           points={polylinePoints}
+          style={{
+            strokeDasharray: 300,
+            strokeDashoffset: 300,
+            animation: 'sparkline-draw 1.5s ease forwards',
+          }}
         />
       </svg>
     );
@@ -179,6 +197,7 @@ function Sparkline({
 
   return (
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" className={className}>
+      <style>{`@keyframes sparkline-draw { to { stroke-dashoffset: 0; } }`}</style>
       <polyline
         fill="none"
         stroke="currentColor"
@@ -186,6 +205,11 @@ function Sparkline({
         strokeLinecap="round"
         strokeLinejoin="round"
         points={polylinePoints}
+        style={{
+          strokeDasharray: 300,
+          strokeDashoffset: 300,
+          animation: 'sparkline-draw 1.5s ease forwards',
+        }}
       />
     </svg>
   );
@@ -224,6 +248,7 @@ export default function DashboardPage() {
   const locale = useLocale();
   const numberLocale = locale === 'sw' ? 'sw-TZ' : 'en-TZ';
   const currency = useCurrency();
+  const timezone = useTimezone();
   const { formatTime, formatDateTime } = useFormatDate();
   const activeBranch = useActiveBranch();
   const branchMode = useMemo(() => getBranchModeForPathname(pathname), [pathname]);
@@ -251,6 +276,10 @@ export default function DashboardPage() {
   const [alertsCount, setAlertsCount] = useState(0);
   const [openShiftCount, setOpenShiftCount] = useState(0);
   const [pendingSync, setPendingSync] = useState(0);
+
+  const [dateRange, setDateRange] = useState<DateRange>('today');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
@@ -345,19 +374,61 @@ export default function DashboardPage() {
     }
 
     const today = new Date();
-    const todayIso = toLocalDateIso(today);
+    const todayIso = toBusinessDateIso(today, timezone);
+
+    // Trend: always last 30 days regardless of filter
     const trendStart = new Date(today);
     trendStart.setDate(trendStart.getDate() - 29);
-    const trendStartIso = toLocalDateIso(trendStart);
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthStartIso = toLocalDateIso(monthStart);
-    const weekStart = new Date(today);
-    weekStart.setDate(weekStart.getDate() - 6);
-    const weekStartIso = toLocalDateIso(weekStart);
+    const trendStartIso = toBusinessDateIso(trendStart, timezone);
+
+    // Month start in business timezone
+    const nowParts = new Intl.DateTimeFormat('en', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+    }).formatToParts(today);
+    const nowMap: Record<string, string> = {};
+    for (const p of nowParts) nowMap[p.type] = p.value;
+    const monthStartIso = `${nowMap['year']}-${nowMap['month']}-01`;
+
+    // Week start in business timezone
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 6);
+    const weekStartIso = toBusinessDateIso(weekAgo, timezone);
+
+    // Determine KPI date range based on filter
+    let startIso: string;
+    let endIso: string;
+    switch (dateRange) {
+      case 'today':
+        startIso = todayIso;
+        endIso = todayIso;
+        break;
+      case 'yesterday': {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yIso = toBusinessDateIso(yesterday, timezone);
+        startIso = yIso;
+        endIso = yIso;
+        break;
+      }
+      case 'week':
+        startIso = weekStartIso;
+        endIso = todayIso;
+        break;
+      case 'month':
+        startIso = monthStartIso;
+        endIso = todayIso;
+        break;
+      case 'custom':
+        startIso = customStart || todayIso;
+        endIso = customEnd || todayIso;
+        break;
+    }
 
     const dayParams = new URLSearchParams({
-      startDate: todayIso,
-      endDate: todayIso,
+      startDate: startIso,
+      endDate: endIso,
     });
     const trendParams = new URLSearchParams({
       startDate: trendStartIso,
@@ -513,7 +584,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     load();
-  }, [effectiveBranchId]);
+  }, [effectiveBranchId, dateRange, customStart, customEnd]);
 
   const runSearch = async (queryText = searchQuery) => {
     const token = getAccessToken();
@@ -622,427 +693,273 @@ export default function DashboardPage() {
       return false;
     }
     const dt = new Date(item.createdAt);
-    return toLocalDateIso(new Date(dt)) === toLocalDateIso(new Date());
+    return toBusinessDateIso(new Date(dt), timezone) === toBusinessDateIso(new Date(), timezone);
   }).length;
 
+  const storedUser = typeof window !== 'undefined' ? (() => { try { const u = localStorage.getItem('nvi.user'); return u ? JSON.parse(u) : null; } catch { return null; } })() : null;
+  const userName = storedUser?.name ?? 'there';
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return t('greetingMorning');
+    if (h < 17) return t('greetingAfternoon');
+    return t('greetingEvening');
+  })();
+
+  const stockHealthPct = stockValueSummary
+    ? Math.round(((stockValueSummary.trackedVariants - lowStock.length) / Math.max(stockValueSummary.trackedVariants, 1)) * 100)
+    : 0;
+
+  const expenseBudgetPct = pnlMtd
+    ? Math.min(Math.round((pnlMtd.totals.expenses / Math.max(pnlMtd.totals.revenue, 1)) * 100), 100)
+    : 0;
+
   return (
-    <section className="nvi-page dashboard-lux">
-      <div className="command-card nvi-panel p-5 nvi-reveal dashboard-main-panel">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-3xl font-semibold text-[color:var(--foreground)]">
-              {t('executiveOverviewTitle')}
-            </h2>
-            <p className="mt-1 text-sm text-[color:var(--muted)]">
-              {t('executiveOverviewSubtitle')}
-            </p>
+    <section className="nvi-page">
+      <div className="mc-grid">
+        {/* ── Row 1: Greeting + Status ── */}
+        <div className="mc-card mc-span-full mc-delay-1">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold sm:text-2xl" style={{ color: 'var(--foreground)' }}>
+                {greeting}, <span style={{ color: '#f6d37a' }}>{userName}</span>
+              </h2>
+              <p className="mt-1 text-sm" style={{ color: 'rgba(167,163,160,0.6)' }}>
+                {t('executiveOverviewSubtitle')}
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>{nowLabel}</div>
+            </div>
           </div>
-          <span className="status-chip">{nowLabel}</span>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="mc-chip mc-chip--live"><span className="mc-pulse" /> {t('statusLive')}</span>
+            <span className="mc-chip mc-chip--info">{t('statusMultiBranch')}</span>
+            {approvalsCount > 0 && <span className="mc-chip mc-chip--warn">{t('attentionApprovals', { count: approvalsCount })}</span>}
+            <span className="mc-chip mc-chip--info">{t('attentionAlerts', { count: alertsCount })}</span>
+            <button
+              type="button"
+              onClick={() => load(true)}
+              disabled={isRefreshing}
+              className="ml-auto rounded-lg px-3 py-1.5 text-xs"
+              style={{ border: '1px solid rgba(227,178,51,0.12)', color: 'var(--foreground)', background: 'rgba(255,255,255,0.025)' }}
+            >
+              {isRefreshing ? <Spinner size="xs" variant="dots" /> : t('refresh')}
+            </button>
+          </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="status-chip">{t('statusLive')}</span>
-          <span className="status-chip">{t('statusMultiBranch')}</span>
-          <span className="status-chip">
-            {t('attentionApprovals', { count: approvalsCount })}
-          </span>
-          <span className="status-chip">
-            {t('attentionAlerts', { count: alertsCount })}
-          </span>
-          <button
-            type="button"
-            onClick={() => load(true)}
-            className="ml-auto rounded border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--foreground)]"
-            disabled={isRefreshing}
-          >
-            {isRefreshing ? <Spinner size="xs" variant="dots" /> : t('refresh')}
-          </button>
+
+        {message ? <p role="alert" className="mc-span-full text-sm text-red-400">{typeof message === 'string' ? message : ''}</p> : null}
+
+        {/* ── Date Range Filter ── */}
+        <div className="mc-span-full flex flex-wrap items-center gap-2">
+          {(['today', 'yesterday', 'week', 'month', 'custom'] as const).map((range) => (
+            <button
+              key={range}
+              type="button"
+              onClick={() => { if (range !== 'custom') { setDateRange(range); setCustomStart(''); setCustomEnd(''); } else { setDateRange('custom'); } }}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${dateRange === range ? 'bg-gold-500/20 text-gold-200 border border-gold-500/40' : 'text-white/50 border border-white/[0.08] hover:text-white/70 hover:border-white/[0.15]'}`}
+            >
+              {t(`range${range.charAt(0).toUpperCase()}${range.slice(1)}` as 'rangeToday')}
+            </button>
+          ))}
+          {dateRange === 'custom' && (
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="rounded border border-white/[0.12] bg-transparent px-2 py-1 text-xs text-white/70 outline-none"
+              />
+              <span className="text-xs text-white/40">—</span>
+              <input
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="rounded border border-white/[0.12] bg-transparent px-2 py-1 text-xs text-white/70 outline-none"
+              />
+            </div>
+          )}
         </div>
-      </div>
 
-      {message ? <p role="alert" className="text-sm text-red-400">{message}</p> : null}
-
-      <div className="command-card nvi-panel p-4 nvi-reveal dashboard-toolbar">
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="text-xs uppercase tracking-[0.22em] text-[color:var(--muted)] dashboard-toolbar__label">
-            {common('branch')}
-          </label>
-          <select
-            value={selectedBranchId}
-            onChange={(event) => setSelectedBranchId(event.target.value)}
-            className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2 text-sm text-[color:var(--foreground)] dashboard-toolbar__select"
-          >
-            {branchOptions.map((branch) => (
-              <option key={branch.id || 'all'} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </select>
-          <span className="ml-auto text-xs text-[color:var(--muted)] dashboard-toolbar__meta">
-            {t('pendingSync')}: {pendingSync} • {t('openShifts')}: {openShiftCount}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 nvi-stagger dashboard-kpi-grid">
-        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
-          <span className="lux-shine" />
+        {/* ── Row 2: KPI Cards ── */}
+        {/* Sales */}
+        <div className="mc-card mc-span-full mc-span-t3 mc-span-d3 mc-delay-1" style={{ borderImage: 'linear-gradient(135deg, rgba(246,211,122,0.25), rgba(45,212,191,0.15), rgba(246,211,122,0.08)) 1' }}>
           <div className="flex items-center justify-between">
-            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('salesToday')}</p>
+            <span className="mc-kpi-label">{t(dateRange === 'today' ? 'salesToday' : dateRange === 'yesterday' ? 'salesYesterday' : dateRange === 'week' ? 'salesThisWeek' : dateRange === 'month' ? 'salesThisMonth' : 'salesCustom')}</span>
             {salesDayTrendPct !== 0 && (
-              <span className={`lux-trend-chip ${salesDayTrendPct > 0 ? 'lux-trend-chip--up' : 'lux-trend-chip--down'}`}>
+              <span className={`mc-trend ${salesDayTrendPct > 0 ? 'mc-trend--up' : 'mc-trend--down'}`}>
                 {salesDayTrendPct > 0 ? '▲' : '▼'} {Math.abs(salesDayTrendPct)}%
               </span>
             )}
           </div>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            <CountUpValue value={salesTotal} formatter={tzsFormatter} />
-          </p>
-          <p className="text-xs text-[color:var(--muted)]">{t('grossSalesTzs')}</p>
-          <Sparkline points={trendPoints.slice(-8)} className="mt-3 h-8 w-full text-gold-300" filled />
+          <div className="mc-kpi-value"><CountUpValue value={salesTotal} formatter={tzsFormatter} /></div>
+          <p className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>{t('grossSalesTzs')}</p>
+          <Sparkline points={trendPoints.slice(-8)} className="mt-2 h-9 w-full text-gold-300" filled />
         </div>
 
-        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
-          <span className="lux-shine" />
+        {/* Revenue MTD */}
+        <div className="mc-card mc-span-full mc-span-t3 mc-span-d3 mc-delay-2">
           <div className="flex items-center justify-between">
-            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('revenueMtd')}</p>
-            {marginPct !== 0 && (
-              <span className="lux-trend-chip lux-trend-chip--neutral">{marginPct}% margin</span>
-            )}
+            <span className="mc-kpi-label">{t('revenueMtd')}</span>
+            {marginPct !== 0 && <span className="mc-trend mc-trend--neutral">{marginPct}% margin</span>}
           </div>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            <CountUpValue value={pnlMtd?.totals.revenue ?? 0} formatter={tzsFormatter} />
-          </p>
-          <p className="text-xs text-[color:var(--muted)]">{t('revenueMtdHint')}</p>
+          <div className="mc-kpi-value"><CountUpValue value={pnlMtd?.totals.revenue ?? 0} formatter={tzsFormatter} /></div>
+          <p className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>{t('revenueMtdHint')}</p>
+          <Sparkline points={trendPoints.slice(-8)} className="mt-2 h-9 w-full text-teal-300" />
         </div>
 
-        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
-          <span className="lux-shine" />
-          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('expensesMtd')}</p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            <CountUpValue value={pnlMtd?.totals.expenses ?? 0} formatter={tzsFormatter} />
-          </p>
-          <p className="text-xs text-[color:var(--muted)]">{t('expensesMtdHint')}</p>
-        </div>
-
-        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
-          <span className="lux-shine" />
-          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('stockValue')}</p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">
-            <CountUpValue value={stockValueSummary?.stockValue ?? 0} formatter={tzsFormatter} />
-          </p>
-          <p className="text-xs text-[color:var(--muted)]">
-            {t('trackedSkuCount', {
-              count: integerFormatter.format(stockValueSummary?.trackedVariants ?? 0),
-            })}
-          </p>
-        </div>
-
-        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
-          <span className="lux-shine" />
-          <div className="flex items-center justify-between">
-            <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('lowStock')}</p>
-            {criticalLowStockCount > 0 && (
-              <span className="lux-trend-chip lux-trend-chip--down">{criticalLowStockCount} critical</span>
-            )}
+        {/* Stock Health Ring */}
+        <div className="mc-card mc-span-full mc-span-t3 mc-span-d3 mc-delay-3">
+          <div className="mc-ring-wrap">
+            <RingGauge value={stockHealthPct} size={72} color="#f6d37a" />
+            <div className="mc-ring-info">
+              <span className="mc-kpi-label">{t('stockValue')}</span>
+              <span className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
+                {integerFormatter.format(stockValueSummary?.trackedVariants ?? 0)} SKUs
+              </span>
+              <span className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>
+                {criticalLowStockCount} {t('critical').toLowerCase()}
+              </span>
+            </div>
           </div>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">{lowStock.length}</p>
-          <p className="text-xs text-[color:var(--muted)]">
-            {t('criticalLowStockCount', { count: integerFormatter.format(criticalLowStockCount) })}
-          </p>
         </div>
 
-        <div className="kpi-card nvi-tile p-5 dashboard-kpi">
-          <span className="lux-shine" />
-          <p className="text-xs uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('activeBranches')}</p>
-          <p className="mt-2 text-3xl font-semibold text-[color:var(--foreground)]">{activeBranchesCount}</p>
-          <p className="text-xs text-[color:var(--muted)]">
-            {t('transfersTodayCount', { count: integerFormatter.format(todayTransfers) })}
-          </p>
-        </div>
-      </div>
-
-      <div className="grid gap-4 2xl:grid-cols-3 nvi-stagger dashboard-main-grid">
-        <div className="command-card nvi-panel p-5 lg:col-span-2 nvi-reveal dashboard-main-panel">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{t('revenueSalesTrendTitle')}</h3>
-            <span className="status-chip">{t('last30Days')}</span>
+        {/* Expenses Ring */}
+        <div className="mc-card mc-span-full mc-span-t3 mc-span-d3 mc-delay-4">
+          <div className="mc-ring-wrap">
+            <RingGauge value={expenseBudgetPct} size={72} color="#2dd4bf" />
+            <div className="mc-ring-info">
+              <span className="mc-kpi-label">{t('expensesMtd')}</span>
+              <span className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
+                <CountUpValue value={pnlMtd?.totals.expenses ?? 0} formatter={tzsFormatter} />
+              </span>
+              <span className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>{t('expensesMtdHint')}</span>
+            </div>
           </div>
-          <p className="text-sm text-[color:var(--muted)]">{t('revenueSalesTrendSubtitle')}</p>
-          <div className="mt-4 rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] p-4">
+        </div>
+
+        {/* ── Row 3: Revenue Chart + Top Products ── */}
+        <div className="mc-card mc-span-full mc-span-t6 mc-span-d8 mc-delay-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>{t('revenueSalesTrendTitle')}</span>
+            <span className="mc-chip mc-chip--info">{t('last30Days')}</span>
+          </div>
+          <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.3)' }}>
             <Sparkline points={trendPoints} className="h-40 w-full text-gold-300" filled />
           </div>
         </div>
 
-        <div className="grid gap-4">
-          <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">{t('topProductsTitle')}</h3>
-              <span className="status-chip">{t('thisWeek')}</span>
-            </div>
-            <p className="text-sm text-[color:var(--muted)]">{t('topProductsSubtitle')}</p>
-            <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
-              {topProductsPreview.length ? (
-                topProductsPreview.map((item, index) => {
-                  const pct = Math.max(
-                    8,
-                    Math.round((item.totalRevenue / maxTopProductRevenue) * 100),
-                  );
-                  return (
-                    <div key={item.variantId} className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--border)] text-xs">
-                          {index + 1}
-                        </span>
-                        <p className="text-xs font-medium text-[color:var(--foreground)]">
-                          {item.productName ?? item.variantName ?? common('unknown')}
-                        </p>
-                      </div>
-                      <div className="mt-2 flex items-center gap-2">
-                        <div className="h-2 flex-1 rounded-full bg-white/10">
-                          <div
-                            className="h-2 rounded-full bg-gold-300"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <p className="text-xs text-[color:var(--foreground)]">
-                          {tzsFormatter.format(item.totalRevenue)}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-[color:var(--muted)]">{t('noTopProducts')}</p>
-              )}
-            </div>
+        <div className="mc-card mc-span-full mc-span-t6 mc-span-d4 mc-delay-5">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>{t('topProductsTitle')}</span>
+            <span className="mc-chip mc-chip--info">{t('thisWeek')}</span>
           </div>
-
-          <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">{t('lowStockAlertsTitle')}</h3>
-              <span className="status-chip">{t('critical')}</span>
-            </div>
-            <p className="text-sm text-[color:var(--muted)]">{t('lowStockAlertsSubtitle')}</p>
-            <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
-              {lowStockPreview.length ? (
-                lowStockPreview.map((row) => {
-                  const isCritical = Number(row.quantity ?? 0) <= 2;
-                  const label = row.variant
-                    ? formatVariantLabel(
-                        {
-                          id: row.variant.id,
-                          name: row.variant.name ?? null,
-                          productName: row.variant.product?.name ?? null,
-                        },
-                        common('unknown'),
-                      )
-                    : `${common('unknown')} • ${row.id.slice(0, 8)}`;
-                  return (
-                    <div key={row.id} className="rounded border border-red-400/30 bg-red-500/5 px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-[color:var(--foreground)]">{label}</p>
-                        {isCritical && <span className="lux-pulse" />}
-                      </div>
-                      <p className="text-xs text-[color:var(--muted)]">
-                        {(row.branch?.name ?? common('unknown')) +
-                          ` • ${t('qtyShort', {
-                            count: integerFormatter.format(Number(row.quantity ?? 0)),
-                          })}`}
-                      </p>
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-[color:var(--muted)]">{t('stableStock')}</p>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3 nvi-stagger dashboard-secondary-grid">
-        <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{t('salesByBranchTitle')}</h3>
-            <span className="status-chip">{t('revenueMtd')}</span>
-          </div>
-          <p className="text-sm text-[color:var(--muted)]">{t('salesByBranchSubtitle')}</p>
-          <div className="mt-4 space-y-3">
-            {salesByBranchPreview.length ? (
-              salesByBranchPreview.map((item) => {
-                const pct = Math.max(
-                  6,
-                  Math.round((item.totalSales / maxBranchSales) * 100),
-                );
-                return (
-                  <div key={item.branchId}>
-                    <div className="mb-1 flex items-center justify-between text-xs">
-                      <span>{item.branchName ?? common('unknown')}</span>
-                      <span>{tzsFormatter.format(item.totalSales)}</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-white/10">
-                      <div className="h-2 rounded-full bg-cyan-300" style={{ width: `${pct}%` }} />
-                    </div>
+          <div className="space-y-1.5">
+            {topProductsPreview.length ? topProductsPreview.map((item, index) => {
+              const label = item.productName ?? item.variantName ?? common('unknown');
+              const pct = Math.round((item.totalRevenue / maxTopProductRevenue) * 100);
+              return (
+                <div key={item.variantId} className="mc-list-item">
+                  <span className="mc-list-rank">{index + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold truncate" style={{ color: 'var(--foreground)' }}>{label}</p>
+                    <div className="mc-list-bar" style={{ width: `${pct}%` }} />
                   </div>
-                );
-              })
-            ) : (
-              <p className="text-sm text-[color:var(--muted)]">{t('noBranches')}</p>
-            )}
+                  <span className="text-xs font-bold flex-shrink-0" style={{ color: 'var(--foreground)', fontVariantNumeric: 'tabular-nums' }}>{tzsFormatter.format(item.totalRevenue)}</span>
+                </div>
+              );
+            }) : <p className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>{t('noTopProducts')}</p>}
           </div>
         </div>
 
-        <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{t('expenseBreakdownTitle')}</h3>
-            <span className="status-chip">{t('revenueMtd')}</span>
+        {/* ── Row 4: Low Stock Alerts ── */}
+        <div className="mc-card mc-span-full mc-span-t6 mc-span-d8 mc-delay-5">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>{t('lowStockAlertsTitle')}</span>
+            {criticalLowStockCount > 0 && <span className="mc-chip mc-chip--warn">{criticalLowStockCount} {t('critical').toLowerCase()}</span>}
           </div>
-          <p className="text-sm text-[color:var(--muted)]">{t('expenseBreakdownSubtitle')}</p>
-          <div className="mt-4 space-y-2 text-sm">
-            {expenseBreakdownPreview.length ? (
-              expenseBreakdownPreview.map((item) => (
-                <div key={item.category} className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs">{item.category}</p>
-                    <p className="text-xs">{tzsFormatter.format(item.amount)}</p>
-                  </div>
-                  <p className="text-xs text-[color:var(--muted)]">
-                    {item.percent.toFixed(1)}%
+          <div className="mc-alert-scroll">
+            {lowStockPreview.length ? lowStockPreview.map((row) => {
+              const qty = Number(row.quantity ?? 0);
+              const isCritical = qty <= 2;
+              const label = row.variant
+                ? formatVariantLabel({ id: row.variant.id, name: row.variant.name ?? null, productName: row.variant.product?.name ?? null }, common('unknown'))
+                : `${common('unknown')}`;
+              return (
+                <div key={row.id} className={`mc-alert-item ${isCritical ? 'mc-alert-item--critical' : 'mc-alert-item--warn'}`}>
+                  <p className="text-xs font-semibold truncate" style={{ color: 'var(--foreground)' }}>{label}</p>
+                  <p className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>{row.branch?.name ?? common('unknown')}</p>
+                  <p className={`text-sm font-extrabold ${isCritical ? 'text-red-400' : 'text-amber-400'}`}>
+                    {t('qtyShort', { count: integerFormatter.format(qty) })}
                   </p>
                 </div>
-              ))
-            ) : (
-              <p className="text-sm text-[color:var(--muted)]">{t('expensesHint')}</p>
-            )}
+              );
+            }) : <p className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>{t('stableStock')}</p>}
           </div>
         </div>
 
-        <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{t('recentActivityTitle')}</h3>
-            <span className="status-chip">{t('statusLive')}</span>
+        {/* ── Row 5: Activity Feed + Quick Actions ── */}
+        <div className="mc-card mc-span-full mc-span-t3 mc-span-d4 mc-delay-5">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>{t('recentActivityTitle')}</span>
+            <span className="mc-chip mc-chip--live"><span className="mc-pulse" /> {t('statusLive')}</span>
           </div>
-          <p className="text-sm text-[color:var(--muted)]">{t('recentActivitySubtitle')}</p>
-          <div className="mt-4 space-y-2 text-sm">
-            {recentActivity.length ? (
-              recentActivity.map((item) => {
-                const { icon, cls } = activityIconFor(item.type);
-                return (
-                  <div key={item.id} className="rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2">
-                    <div className="flex items-start gap-2">
-                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-current bg-current/10 text-xs font-bold ${cls}`}>{icon}</span>
-                      <div className="min-w-0">
-                        <p className="text-xs text-[color:var(--foreground)]">{item.title}</p>
-                        <p className="text-xs text-[color:var(--muted)]">
-                          {(item.detail ?? common('unknown'))} •{' '}
-                          {formatTime(item.createdAt)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <p className="text-sm text-[color:var(--muted)]">{t('noRecentActivity')}</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3 nvi-stagger dashboard-footer-grid">
-        {/* Recent Sales Table */}
-        <div className="command-card nvi-panel p-5 xl:col-span-2 nvi-reveal dashboard-main-panel">
-          <span className="lux-shine" />
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{t('recentSalesTitle')}</h3>
-            <Link
-              href={`/${locale}/sales`}
-              className="text-xs text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
-            >
-              {t('viewAll')}
-            </Link>
-          </div>
-          <div className="mt-4">
-            <div className="lux-table-row mb-1 border-transparent bg-transparent">
-              <span className="text-[10px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
-                {t('colOrder')}
-              </span>
-              <span className="text-[10px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
-                {t('colTime')}
-              </span>
-              <span className="text-[10px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
-                {t('colTotal')}
-              </span>
-            </div>
-            <div className="space-y-1">
-              {recentReceipts.length ? (
-                recentReceipts.map((receipt) => (
-                  <div key={receipt.id} className="lux-table-row">
-                    <span className="text-xs text-[color:var(--foreground)] truncate">
-                      {receipt.receiptNumber}
-                    </span>
-                    <span className="text-xs text-[color:var(--muted)]">
-                      {formatTime(receipt.issuedAt)}
-                    </span>
-                    <span className="text-xs font-semibold text-[color:var(--foreground)]">
-                      {tzsFormatter.format(Number(receipt.sale?.total ?? 0))}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-[color:var(--muted)]">{t('noSalesToday')}</p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Actions + Mini Search */}
-        <div className="flex flex-col gap-4">
-          <div className="command-card nvi-panel p-5 nvi-reveal dashboard-side-panel">
-            <span className="lux-shine" />
-            <h3 className="text-base font-semibold text-[color:var(--foreground)]">{t('globalSearch')}</h3>
-            <div className="mt-3 flex gap-2">
-              <TypeaheadInput
-                value={searchQuery}
-                onChange={setSearchQuery}
-                onSelect={(option) => {
-                  setSearchQuery(option.label);
-                  runSearch(option.label);
-                }}
-                onEnter={() => runSearch()}
-                options={searchSuggestions}
-                className="min-w-0 flex-1 rounded border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-3 py-2 text-sm text-[color:var(--foreground)]"
-              />
-              <button
-                type="button"
-                onClick={() => runSearch()}
-                className="inline-flex items-center gap-1 rounded border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--foreground)]"
-                disabled={isSearching}
-              >
-                {isSearching ? <Spinner size="xs" variant="orbit" /> : '↵'}
-              </button>
-            </div>
-            {searchResults ? (
-              <div className="mt-3 space-y-1 text-xs text-[color:var(--muted)]">
-                <p>
-                  {t('products')}: {searchResults.products.length} •{' '}
-                  {t('receipts')}: {searchResults.receipts.length} •{' '}
-                  {t('customers')}: {searchResults.customers.length}
-                </p>
-                {searchResults.products.slice(0, 3).map((item) => (
-                  <p key={item.id} className="text-[color:var(--foreground)]">
-                    {item.name}
-                  </p>
-                ))}
+          <div className="space-y-1">
+            {recentActivity.length ? recentActivity.map((item) => (
+              <div key={item.id} className="mc-feed-item">
+                <span className={`mc-feed-dot mc-feed-dot--${item.type}`} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>{item.title}</p>
+                  <p className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>{item.detail ?? common('unknown')}</p>
+                </div>
+                <span className="text-xs flex-shrink-0" style={{ color: 'rgba(167,163,160,0.35)' }}>{formatTime(item.createdAt)}</span>
               </div>
-            ) : null}
-            <Link
-              href={`/${locale}/search`}
-              className="mt-2 block text-xs text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
-            >
-              {t('openFullSearch')}
+            )) : <p className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>{t('noRecentActivity')}</p>}
+          </div>
+        </div>
+
+        <div className="mc-card mc-span-full mc-span-t3 mc-span-d4 mc-delay-6">
+          <span className="text-sm font-bold" style={{ color: 'var(--foreground)', display: 'block', marginBottom: 8 }}>{t('quickActions')}</span>
+          <div className="space-y-2">
+            <Link href={`/${locale}/pos`} className="mc-action">
+              <span className="mc-action-icon mc-action-icon--sale">+</span>
+              <div><p className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>{t('quickNewSale')}</p><p className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>Open point of sale</p></div>
+            </Link>
+            <Link href={`/${locale}/transfers`} className="mc-action">
+              <span className="mc-action-icon mc-action-icon--transfer">&#8644;</span>
+              <div><p className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>{t('quickNewTransfer')}</p><p className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>Move stock between branches</p></div>
+            </Link>
+            <Link href={`/${locale}/stock/counts`} className="mc-action">
+              <span className="mc-action-icon mc-action-icon--count">&#9745;</span>
+              <div><p className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>{t('quickStockCount')}</p><p className="text-xs" style={{ color: 'rgba(167,163,160,0.6)' }}>Verify physical inventory</p></div>
             </Link>
           </div>
+        </div>
+
+        {/* ── Row 6: Recent Sales ── */}
+        <div className="mc-card mc-span-full mc-span-t6 mc-span-d8 mc-delay-6">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>{t('recentSalesTitle')}</span>
+            <Link href={`/${locale}/receipts`} className="text-xs hover:underline" style={{ color: '#f6d37a' }}>{t('viewAll')} &rarr;</Link>
+          </div>
+          <table className="mc-tbl">
+            <thead><tr>
+              <th>{t('colOrder')}</th>
+              <th>{t('colTime')}</th>
+              <th>{t('colTotal')}</th>
+              <th>{t('colStatus') ?? common('status')}</th>
+            </tr></thead>
+            <tbody>
+              {recentReceipts.length ? recentReceipts.map((receipt) => (
+                <tr key={receipt.id}>
+                  <td className="truncate" style={{ maxWidth: 180 }}>{receipt.receiptNumber}</td>
+                  <td>{formatTime(receipt.issuedAt)}</td>
+                  <td style={{ fontWeight: 700, color: 'var(--foreground)' }}>{tzsFormatter.format(Number(receipt.sale?.total ?? 0))}</td>
+                  <td><StatusBadge status={(receipt as Record<string, unknown>).status as string ?? 'COMPLETED'} size="xs" /></td>
+                </tr>
+              )) : <tr><td colSpan={4} className="text-center py-4">{t('noSalesToday')}</td></tr>}
+            </tbody>
+          </table>
         </div>
       </div>
     </section>

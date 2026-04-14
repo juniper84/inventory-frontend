@@ -5,24 +5,22 @@ export function usePlatformConsoleViewFlags(
   focusBusinessId?: string,
 ) {
   const showOverview = view === 'overview';
-  const showHealth = view === 'health';
   const showBusinesses = view === 'businesses';
-  const showSupport = view === 'support';
-  const showExports = view === 'exports';
+  const showOperations = view === 'operations';
+  const showAccess = view === 'access';
   const showAnnouncements = view === 'announcements';
-  const showAudit = view === 'audit';
-  const showIncidents = view === 'incidents';
+  const showAnalytics = view === 'analytics';
+  const showIntelligence = view === 'intelligence';
   const showBusinessDetailPage = showBusinesses && Boolean(focusBusinessId);
 
   return {
     showOverview,
-    showHealth,
     showBusinesses,
-    showSupport,
-    showExports,
+    showOperations,
+    showAccess,
     showAnnouncements,
-    showAudit,
-    showIncidents,
+    showAnalytics,
+    showIntelligence,
     showBusinessDetailPage,
   };
 }

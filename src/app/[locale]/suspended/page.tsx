@@ -3,6 +3,8 @@
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { clearSession } from '@/lib/auth';
+import { AlertTriangle } from 'lucide-react';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export default function SuspendedPage() {
   const t = useTranslations('suspended');
@@ -15,17 +17,15 @@ export default function SuspendedPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-6">
-      <div className="max-w-md w-full text-center space-y-6">
-        <div className="space-y-3">
-          <div className="text-5xl">⚠️</div>
-          <h1 className="text-2xl font-semibold text-foreground">{t('title')}</h1>
-          <p className="text-muted-foreground">{t('description')}</p>
+    <div className="auth-suspended-root">
+      <div className="auth-suspended-card">
+        <div className="mb-4">
+          <BrandLogo variant="vision" size="sm" animated={false} />
         </div>
-        <button
-          onClick={handleSignOut}
-          className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
+        <div className="auth-suspended-icon"><AlertTriangle size={32} /></div>
+        <h1 className="mt-4 text-2xl font-bold text-red-200">{t('title')}</h1>
+        <p className="mt-3 text-sm text-red-300/70 leading-relaxed">{t('description')}</p>
+        <button onClick={handleSignOut} className="auth-suspended-btn nvi-press">
           {t('signOut')}
         </button>
       </div>

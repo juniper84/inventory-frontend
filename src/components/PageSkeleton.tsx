@@ -1,6 +1,7 @@
 'use client';
 
 import { Skeleton } from '@/components/Skeleton';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export function PageSkeleton({
   title = 'Loading',
@@ -14,9 +15,12 @@ export function PageSkeleton({
   return (
     <section className="space-y-4">
       <div className="space-y-2">
-        <p className="text-xs uppercase tracking-[0.4em] text-gold-400">
-          {title}
-        </p>
+        <div className="flex items-center gap-3">
+          <BrandLogo variant="blocks" size="sm" />
+          <p className="text-xs uppercase tracking-[0.4em] text-gold-400">
+            {title}
+          </p>
+        </div>
         <Skeleton className="h-7 w-1/3" />
       </div>
       <div className="space-y-3 rounded border border-gold-700/40 bg-black/50 p-6">

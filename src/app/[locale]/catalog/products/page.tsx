@@ -1,18 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { useToastState } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useBranchScope } from '@/lib/use-branch-scope';
+
 import { Spinner } from '@/components/Spinner';
-import { PageSkeleton } from '@/components/PageSkeleton';
+
 import { SmartSelect } from '@/components/SmartSelect';
 import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
 import { PaginationControls } from '@/components/PaginationControls';
-import { StatusBanner } from '@/components/StatusBanner';
+import { Banner } from '@/components/notifications/Banner';
 import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { RelatedNotesPanel } from '@/components/RelatedNotesPanel';
 import {
@@ -23,8 +23,10 @@ import {
 import { getPermissionSet } from '@/lib/permissions';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
-import { useDebouncedValue } from '@/lib/use-debounced-value';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+
+import { ListPage, Card, Icon, ActionButtons, SortableTableHeader, SortDirection } from '@/components/ui';
+import { ProductCreateModal } from '@/components/catalog/ProductCreateModal';
+import { ProductEditModal, type ProductEditDraft } from '@/components/catalog/ProductEditModal';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,10 @@ type ProductImage = {
   isPrimary: boolean;
   status: string;
 };
+type ProductVariant = {
+  id: string;
+  name: string;
+};
 type Product = {
   id: string;
   name: string;
@@ -42,6 +48,8 @@ type Product = {
   status: string;
   categoryId?: string | null;
   images: ProductImage[];
+  variants?: ProductVariant[];
+  lastSoldAt?: string | null;
 };
 type VariantSummary = { id: string; name: string };
 type StockSnapshot = { variantId: string; quantity: number | string };
@@ -52,82 +60,39 @@ type StockMovement = {
   createdAt: string;
   variant?: { id: string; name: string } | null;
 };
-type EditDraft = {
-  name: string;
-  description: string;
-  categoryId: string;
-  status: string;
-  saving: boolean;
-};
-
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
-  const style =
-    status === 'ACTIVE'
-      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-      : status === 'ARCHIVED'
-        ? 'bg-red-500/15 border-red-500/30 text-red-400'
-        : 'bg-gold-700/20 border-gold-700/30 text-gold-400';
-  return (
-    <span
-      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style}`}
-    >
-      {status}
-    </span>
-  );
-}
-
-function UploadZone({
+function UploadButton({
   label,
-  hint,
   disabled,
   isUploading,
   onFile,
+  icon,
 }: {
   label: string;
-  hint: string;
   disabled: boolean;
   isUploading: boolean;
   onFile: (file: File) => void;
+  icon: 'Camera' | 'Plus';
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <div
-      role="button"
-      tabIndex={disabled ? -1 : 0}
+    <button
+      type="button"
+      disabled={disabled}
       onClick={() => !disabled && inputRef.current?.click()}
-      onKeyDown={(e) => {
-        if (!disabled && (e.key === 'Enter' || e.key === ' '))
-          inputRef.current?.click();
-      }}
-      className={`relative flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed p-4 text-center transition-colors select-none ${
+      className={`relative inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
         disabled
-          ? 'cursor-not-allowed border-gold-700/20 opacity-40'
-          : 'cursor-pointer border-gold-700/50 hover:border-gold-500 hover:bg-gold-900/10'
+          ? 'cursor-not-allowed border-gold-700/20 text-gold-600 opacity-50'
+          : 'cursor-pointer border-gold-700/50 text-gold-300 hover:border-gold-500 hover:text-gold-100 hover:bg-gold-900/10'
       }`}
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className="h-6 w-6 text-gold-400"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={1.5}
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
-        />
-      </svg>
-      <p className="text-xs font-medium text-gold-300">{label}</p>
-      <p className="text-[10px] text-gold-500">{hint}</p>
-      {isUploading && (
-        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/70">
-          <Spinner variant="dots" size="xs" />
-        </div>
+      {isUploading ? (
+        <Spinner variant="dots" size="xs" />
+      ) : (
+        <Icon name={icon} size={13} />
       )}
+      <span>{label}</span>
       <input
         ref={inputRef}
         type="file"
@@ -142,7 +107,22 @@ function UploadZone({
           }
         }}
       />
-    </div>
+    </button>
+  );
+}
+
+function StatusDot({ status }: { status: string }) {
+  const color =
+    status === 'ACTIVE'
+      ? 'bg-emerald-400'
+      : status === 'INACTIVE'
+        ? 'bg-amber-400'
+        : 'bg-zinc-500';
+  return (
+    <span
+      className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`}
+      title={status}
+    />
   );
 }
 
@@ -155,7 +135,6 @@ export default function ProductsPage() {
   const permissions = getPermissionSet();
   const canWrite = permissions.has('catalog.write');
   const common = useTranslations('common');
-  const router = useRouter();
   const locale = useLocale();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -173,7 +152,9 @@ export default function ProductsPage() {
     imageId: string;
     type: 'primary' | 'remove';
   } | null>(null);
-  const [editMap, setEditMap] = useState<Record<string, EditDraft>>({});
+  const [editing, setEditing] = useState<Product | null>(null);
+  const [editDraft, setEditDraft] = useState<ProductEditDraft | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [relatedMap, setRelatedMap] = useState<
     Record<
       string,
@@ -190,13 +171,17 @@ export default function ProductsPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [formOpen, setFormOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<SortDirection>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({
     1: null,
   });
   const [total, setTotal] = useState<number | null>(null);
   const { activeBranch, resolveBranchId } = useBranchScope();
+
   const { filters, pushFilters, resetFilters } = useListFilters({
     search: '',
     status: '',
@@ -205,7 +190,23 @@ export default function ProductsPage() {
     hasImages: '',
   });
   const [searchDraft, setSearchDraft] = useState(filters.search);
-  const debouncedSearch = useDebouncedValue(searchDraft, 350);
+
+
+  const handleSort = (key: string, dir: SortDirection) => {
+    setSortKey(dir ? key : null);
+    setSortDir(dir);
+  };
+
+  const sortedProducts = useMemo(() => {
+    if (!sortKey || !sortDir) return products;
+    return [...products].sort((a, b) => {
+      const va = (a as Record<string, unknown>)[sortKey] ?? '';
+      const vb = (b as Record<string, unknown>)[sortKey] ?? '';
+      return sortDir === 'asc'
+        ? String(va).localeCompare(String(vb), undefined, { numeric: true })
+        : String(vb).localeCompare(String(va), undefined, { numeric: true });
+    });
+  }, [products, sortKey, sortDir]);
 
   const categoryOptions = useMemo(
     () => [
@@ -277,11 +278,7 @@ export default function ProductsPage() {
     setSearchDraft(filters.search);
   }, [filters.search]);
 
-  useEffect(() => {
-    if (debouncedSearch !== filters.search) {
-      pushFilters({ search: debouncedSearch });
-    }
-  }, [debouncedSearch, filters.search, pushFilters]);
+
 
   const loadReferenceData = useCallback(async () => {
     const token = getAccessToken();
@@ -382,6 +379,7 @@ export default function ProductsPage() {
         }),
       });
       setForm({ name: '', description: '', categoryId: '' });
+      setFormOpen(false);
       await load(1);
       setMessage({ action: 'create', outcome: 'success', message: t('created') });
     } catch (err) {
@@ -396,52 +394,56 @@ export default function ProductsPage() {
   };
 
   const startEdit = (product: Product) => {
-    setEditMap((prev) => ({
-      ...prev,
-      [product.id]: {
-        name: product.name,
-        description: product.description ?? '',
-        categoryId: product.categoryId ?? '',
-        status: product.status,
-        saving: false,
-      },
-    }));
-  };
-
-  const cancelEdit = (productId: string) => {
-    setEditMap((prev) => {
-      const next = { ...prev };
-      delete next[productId];
-      return next;
+    setEditing(product);
+    setEditDraft({
+      name: product.name,
+      description: product.description ?? '',
+      categoryId: product.categoryId ?? '',
+      status: product.status,
     });
   };
 
-  const saveEdit = async (productId: string) => {
+  const closeEdit = () => {
+    setEditing(null);
+    setEditDraft(null);
+  };
+
+  const duplicateProduct = (product: Product) => {
+    setForm({
+      name: `${product.name} (copy)`,
+      description: product.description ?? '',
+      categoryId: product.categoryId ?? '',
+    });
+    setFormOpen(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const saveEdit = async () => {
     const token = getAccessToken();
-    const draft = editMap[productId];
-    if (!token || !draft || !draft.name.trim()) return;
-    setEditMap((prev) => ({ ...prev, [productId]: { ...draft, saving: true } }));
+    if (!token || !editing || !editDraft || !editDraft.name.trim()) return;
+    setIsSavingEdit(true);
     try {
-      await apiFetch(`/products/${productId}`, {
+      await apiFetch(`/products/${editing.id}`, {
         token,
         method: 'PUT',
         body: JSON.stringify({
-          name: draft.name.trim(),
-          description: draft.description || undefined,
-          categoryId: draft.categoryId || undefined,
-          status: draft.status,
+          name: editDraft.name.trim(),
+          description: editDraft.description || undefined,
+          categoryId: editDraft.categoryId || undefined,
+          status: editDraft.status,
         }),
       });
-      cancelEdit(productId);
+      closeEdit();
       await load(page);
       setMessage({ action: 'update', outcome: 'success', message: t('updated') });
     } catch (err) {
-      setEditMap((prev) => ({ ...prev, [productId]: { ...draft, saving: false } }));
       setMessage({
         action: 'update',
         outcome: 'failure',
         message: getApiErrorMessage(err, t('updateFailed')),
       });
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -619,56 +621,79 @@ export default function ProductsPage() {
     return categories.find((cat) => cat.id === categoryId)?.name ?? common('unknown');
   };
 
-  if (isLoading) {
-    return <PageSkeleton title={t('title')} />;
+  function timeAgo(dateStr: string): string {
+    const now = Date.now();
+    const then = new Date(dateStr).getTime();
+    const diff = now - then;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    return `${months}mo ago`;
   }
 
   return (
-    <section className="nvi-page">
-      <PremiumPageHeader
-        eyebrow={t('eyebrow')}
-        title={t('title')}
-        subtitle={t('subtitle')}
-        badges={
-          <>
-            <span className="status-chip">{t('badgeProducts')}</span>
-            <span className="status-chip">{t('badgeMediaAware')}</span>
-          </>
-        }
-        actions={
+    <>
+    <ListPage
+      title={t('title')}
+      subtitle={t('subtitle')}
+      eyebrow={t('eyebrow')}
+      badges={
+        <>
+          <span className="status-chip">{t('badgeProducts')}</span>
+          <span className="status-chip">{t('badgeMediaAware')}</span>
+        </>
+      }
+      headerActions={
+        <div className="flex flex-wrap items-center gap-2">
+          {canWrite ? (
+            <button
+              type="button"
+              onClick={() => setFormOpen(true)}
+              className="nvi-cta nvi-press inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-black"
+            >
+              <Icon name="Plus" size={14} />
+              {t('createProduct')}
+            </button>
+          ) : null}
           <ViewToggle
             value={viewMode}
             onChange={setViewMode}
             labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
           />
-        }
-      />
-      {message ? <StatusBanner message={message} /> : null}
-
-      {/* KPI strip */}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiProducts')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{total ?? products.length}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiActive')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{activeCount}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiWithImages')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{withImagesCount}</p>
-        </article>
-        <article className="kpi-card nvi-tile p-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiCatalogFocus')}</p>
-          <p className="mt-2 text-lg font-semibold text-gold-100">
-            {filters.categoryId ? resolveCategoryName(filters.categoryId) : common('allCategories')}
-          </p>
-        </article>
-      </div>
-
-      {/* Filters */}
-      <div className="command-card nvi-reveal nvi-panel p-4">
+        </div>
+      }
+      isLoading={isLoading}
+      banner={message ? <Banner message={message} /> : null}
+      kpis={
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
+          {(
+            [
+              { icon: 'Package' as const,     tone: 'blue' as const,    label: t('kpiProducts'),     value: String(total ?? products.length),                                             accent: 'text-blue-400',    size: '2xl' },
+              { icon: 'CircleCheck' as const, tone: 'emerald' as const, label: t('kpiActive'),       value: String(activeCount),                                                         accent: 'text-emerald-400', size: '2xl' },
+              { icon: 'Image' as const,       tone: 'purple' as const,  label: t('kpiWithImages'),   value: String(withImagesCount),                                                     accent: 'text-purple-400',  size: '2xl' },
+              { icon: 'FolderTree' as const,  tone: 'amber' as const,   label: t('kpiCatalogFocus'), value: filters.categoryId ? resolveCategoryName(filters.categoryId) : common('allCategories'), accent: 'text-amber-400',   size: 'lg'  },
+            ]
+          ).map((k) => (
+            <Card key={k.label} padding="md" as="article">
+              <div className="flex items-center gap-3">
+                <div className={`nvi-kpi-icon nvi-kpi-icon--${k.tone}`}>
+                  <Icon name={k.icon} size={20} />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-[var(--nvi-text-muted)]">{k.label}</p>
+                  <p className={`${k.size === '2xl' ? 'text-2xl' : 'text-lg'} font-bold ${k.accent}`}>{k.value}</p>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      }
+      filters={
         <ListFilters
           searchValue={searchDraft}
           onSearchChange={setSearchDraft}
@@ -677,114 +702,66 @@ export default function ProductsPage() {
           isLoading={isLoading}
           showAdvanced={showAdvanced}
           onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-        >
-          <AsyncSmartSelect
-            instanceId="products-filter-category"
-            value={filters.categoryId ? { value: filters.categoryId, label: categories.find((c) => c.id === filters.categoryId)?.name ?? filters.categoryId } : null}
-            onChange={(opt) => pushFilters({ categoryId: opt?.value ?? '' })}
-            loadOptions={loadCategoryOptions}
-            defaultOptions={categories.map((c) => ({ value: c.id, label: c.name }))}
-            placeholder={common('category')}
-            isClearable
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            instanceId="products-filter-status"
-            value={filters.status}
-            onChange={(value) => pushFilters({ status: value })}
-            options={statusOptions}
-            placeholder={common('status')}
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            instanceId="products-filter-has-variants"
-            value={filters.hasVariants}
-            onChange={(value) => pushFilters({ hasVariants: value })}
-            options={yesNoOptions}
-            placeholder={t('hasVariants')}
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            instanceId="products-filter-has-images"
-            value={filters.hasImages}
-            onChange={(value) => pushFilters({ hasImages: value })}
-            options={yesNoOptions}
-            placeholder={t('hasImages')}
-            className="nvi-select-container"
-          />
+      >
+        <AsyncSmartSelect
+          instanceId="products-filter-category"
+          value={filters.categoryId ? { value: filters.categoryId, label: categories.find((c) => c.id === filters.categoryId)?.name ?? common('unknown') } : null}
+          onChange={(opt) => pushFilters({ categoryId: opt?.value ?? '' })}
+          loadOptions={loadCategoryOptions}
+          defaultOptions={categories.map((c) => ({ value: c.id, label: c.name }))}
+          placeholder={common('category')}
+          isClearable
+          className="nvi-select-container"
+        />
+        <SmartSelect
+          instanceId="products-filter-status"
+          value={filters.status}
+          onChange={(value) => pushFilters({ status: value })}
+          options={statusOptions}
+          placeholder={common('status')}
+          className="nvi-select-container"
+        />
+        <SmartSelect
+          instanceId="products-filter-has-variants"
+          value={filters.hasVariants}
+          onChange={(value) => pushFilters({ hasVariants: value })}
+          options={yesNoOptions}
+          placeholder={t('hasVariants')}
+          className="nvi-select-container"
+        />
+        <SmartSelect
+          instanceId="products-filter-has-images"
+          value={filters.hasImages}
+          onChange={(value) => pushFilters({ hasImages: value })}
+          options={yesNoOptions}
+          placeholder={t('hasImages')}
+          className="nvi-select-container"
+        />
         </ListFilters>
-      </div>
-
-      {/* Quick create */}
-      <div className="command-card nvi-panel p-4 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('newProduct')}</h3>
-        <p className="text-xs text-gold-400">{t('wizardHint')}</p>
-        <button
-          type="button"
-          onClick={() => router.push(`/${locale}/catalog/products/wizard`)}
-          className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-          disabled={!canWrite}
-          title={!canWrite ? noAccess('title') : undefined}
-        >
-          {t('openWizard')}
-        </button>
-        <div className="grid gap-3 md:grid-cols-3">
-          <input
-            value={form.name}
-            onChange={(event) => setForm({ ...form, name: event.target.value })}
-            placeholder={t('productName')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <input
-            value={form.description}
-            onChange={(event) => setForm({ ...form, description: event.target.value })}
-            placeholder={t('description')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <AsyncSmartSelect
-            instanceId="product-create-category"
-            value={form.categoryId ? { value: form.categoryId, label: categories.find((c) => c.id === form.categoryId)?.name ?? '' } : null}
-            onChange={(opt) => setForm({ ...form, categoryId: opt?.value ?? '' })}
-            loadOptions={loadCategoryOptions}
-            defaultOptions={categories.map((c) => ({ value: c.id, label: c.name }))}
-            placeholder={t('category')}
-            className="nvi-select-container"
-          />
-        </div>
-        <button
-          type="button"
-          onClick={createProduct}
-          disabled={!canWrite || isCreating || !form.name.trim() || !form.categoryId}
-          title={!canWrite ? noAccess('title') : undefined}
-          className="nvi-cta rounded px-4 py-2 font-semibold text-black disabled:opacity-70"
-        >
-          <span className="inline-flex items-center gap-2">
-            {isCreating ? <Spinner variant="orbit" size="xs" /> : null}
-            {isCreating ? t('creating') : t('createProduct')}
-          </span>
-        </button>
-      </div>
-
-      {/* Table view */}
-      {viewMode === 'table' ? (
-        <div className="command-card nvi-panel p-4 nvi-reveal">
-          {!products.length ? (
-            <StatusBanner message={t('noProducts')} />
-          ) : (
-            <div className="overflow-auto">
-              <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
+      }
+      viewMode={viewMode}
+      isEmpty={!sortedProducts.length}
+      emptyIcon={<div className="nvi-float"><Icon name="Package" size={32} className="text-gold-500/40" /></div>}
+      emptyTitle={t('noProducts')}
+      table={
+        <Card padding="md">
+          <div className="overflow-auto">
+            <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
                 <thead className="text-xs uppercase text-gold-400">
                   <tr>
                     <th className="px-3 py-2 w-12" aria-label={t('images')} />
-                    <th className="px-3 py-2">{t('productName')}</th>
-                    <th className="px-3 py-2">{t('category')}</th>
-                    <th className="px-3 py-2">{common('status')}</th>
+                    <SortableTableHeader label={t('productName')} sortKey="name" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} />
+                    <SortableTableHeader label={t('category')} sortKey="categoryId" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} />
+                    <SortableTableHeader label={common('status')} sortKey="status" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} />
                     <th className="px-3 py-2">{t('images')}</th>
+                    <th className="px-3 py-2">{t('variants')}</th>
+                    <SortableTableHeader label={t('lastSold')} sortKey="lastSoldAt" currentSortKey={sortKey} currentDirection={sortDir} onSort={handleSort} />
                     <th className="px-3 py-2">{t('relatedRecords')}</th>
+                    <th className="px-3 py-2" aria-label={actions('edit')} />
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map((product) => {
+                  {sortedProducts.map((product) => {
                     const activeImages = product.images.filter(
                       (img) => img.status === 'ACTIVE',
                     );
@@ -793,7 +770,7 @@ export default function ProductsPage() {
                     return (
                       <tr key={product.id} className="border-t border-gold-700/20">
                         <td className="px-3 py-2">
-                          <div className="relative h-9 w-9 overflow-hidden rounded border border-gold-700/40 bg-black">
+                          <div className="relative h-9 w-9 overflow-hidden rounded-lg border border-gold-700/40 bg-black">
                             {primary ? (
                               <img
                                 src={primary.url}
@@ -822,9 +799,16 @@ export default function ProductsPage() {
                           {resolveCategoryName(product.categoryId)}
                         </td>
                         <td className="px-3 py-2">
-                          <StatusBadge status={product.status} />
+                          <span className="inline-flex items-center gap-1.5 text-xs text-gold-300">
+                            <StatusDot status={product.status} />
+                            {product.status.charAt(0) + product.status.slice(1).toLowerCase()}
+                          </span>
                         </td>
                         <td className="px-3 py-2 text-gold-300">{activeImages.length}</td>
+                        <td className="px-3 py-2 text-gold-300">{product.variants?.length ?? 0}</td>
+                        <td className="px-3 py-2 text-xs text-[var(--nvi-text-muted)]">
+                          {product.lastSoldAt ? timeAgo(product.lastSoldAt) : '—'}
+                        </td>
                         <td className="px-3 py-2">
                           <button
                             type="button"
@@ -837,135 +821,41 @@ export default function ProductsPage() {
                             {t('viewRelated')}
                           </button>
                         </td>
+                        <td className="px-3 py-2">
+                          {canWrite && (
+                            <ActionButtons actions={[
+                              { key: 'edit', icon: <Icon name="Pencil" size={14} className="text-blue-400" />, label: actions('edit'), onClick: () => startEdit(product) },
+                              { key: 'duplicate', icon: <Icon name="Copy" size={14} className="text-gold-400" />, label: t('duplicate'), onClick: () => duplicateProduct(product) },
+                            ]} size="xs" />
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
-      ) : null}
-
-      {/* Cards view */}
-      {viewMode === 'cards' ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {products.length === 0 ? (
-            <StatusBanner message={t('noProducts')} />
-          ) : (
-            products.map((product) => {
+        </Card>
+      }
+      cards={
+        <div className="grid gap-4 md:grid-cols-2 nvi-stagger">
+          {sortedProducts.map((product) => {
               const activeImages = product.images.filter(
                 (img) => img.status === 'ACTIVE',
               );
               const primary = activeImages.find((img) => img.isPrimary);
               const extraImages = activeImages.filter((img) => !img.isPrimary);
-              const draft = editMap[product.id];
-              const isEditing = Boolean(draft);
 
               return (
-                <div
+                <Card
                   key={product.id}
-                  className="command-card nvi-panel p-4 space-y-4 nvi-reveal"
+                  padding="md"
+                  className="space-y-3 nvi-card-hover"
                 >
                   {/* ── Card header ─────────────────────────────────────── */}
-                  {isEditing ? (
-                    /* Edit form */
-                    <div className="space-y-3">
-                      <div className="flex items-start gap-3">
-                        {/* Keep thumbnail visible in edit mode */}
-                        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded border border-gold-700/40 bg-black">
-                          {primary ? (
-                            <img
-                              src={primary.url}
-                              alt={product.name}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-xs text-gold-500">
-                              {t('noImage')}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 space-y-2">
-                          <input
-                            value={draft.name}
-                            onChange={(e) =>
-                              setEditMap((prev) => ({
-                                ...prev,
-                                [product.id]: { ...draft, name: e.target.value },
-                              }))
-                            }
-                            placeholder={t('productName')}
-                            className="w-full rounded border border-gold-700/50 bg-black px-3 py-1.5 text-sm text-gold-100"
-                          />
-                          <input
-                            value={draft.description}
-                            onChange={(e) =>
-                              setEditMap((prev) => ({
-                                ...prev,
-                                [product.id]: { ...draft, description: e.target.value },
-                              }))
-                            }
-                            placeholder={t('description')}
-                            className="w-full rounded border border-gold-700/50 bg-black px-3 py-1.5 text-sm text-gold-100"
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <AsyncSmartSelect
-                              instanceId={`edit-category-${product.id}`}
-                              value={draft.categoryId ? { value: draft.categoryId, label: categories.find((c) => c.id === draft.categoryId)?.name ?? '' } : null}
-                              onChange={(opt) =>
-                                setEditMap((prev) => ({
-                                  ...prev,
-                                  [product.id]: { ...draft, categoryId: opt?.value ?? '' },
-                                }))
-                              }
-                              loadOptions={loadCategoryOptions}
-                              defaultOptions={categories.map((c) => ({ value: c.id, label: c.name }))}
-                              placeholder={t('category')}
-                              className="nvi-select-container"
-                            />
-                            <SmartSelect
-                              instanceId={`edit-status-${product.id}`}
-                              value={draft.status}
-                              onChange={(value) =>
-                                setEditMap((prev) => ({
-                                  ...prev,
-                                  [product.id]: { ...draft, status: value },
-                                }))
-                              }
-                              options={productStatusOptions}
-                              placeholder={common('status')}
-                              className="nvi-select-container"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => saveEdit(product.id)}
-                          disabled={!draft.name.trim() || draft.saving}
-                          className="nvi-cta rounded px-4 py-1.5 text-sm font-semibold text-black disabled:opacity-70"
-                        >
-                          <span className="inline-flex items-center gap-2">
-                            {draft.saving ? <Spinner variant="orbit" size="xs" /> : null}
-                            {draft.saving ? actions('saving') : actions('save')}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => cancelEdit(product.id)}
-                          disabled={draft.saving}
-                          className="rounded border border-gold-700/50 px-4 py-1.5 text-sm text-gold-300 hover:text-gold-100 disabled:opacity-50"
-                        >
-                          {actions('cancel')}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Read-only header */
                     <div className="flex items-start gap-3">
-                      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded border border-gold-700/40 bg-black">
+                      {/* Compact thumbnail */}
+                      <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-gold-700/40 bg-black">
                         {primary ? (
                           <img
                             src={primary.url}
@@ -973,77 +863,123 @@ export default function ProductsPage() {
                             className="h-full w-full object-cover"
                           />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center text-xs text-gold-500">
-                            {t('noImage')}
+                          <div className="flex h-full w-full items-center justify-center">
+                            <Icon name="Package" size={18} className="text-gold-600" />
                           </div>
-                        )}
-                        {activeImages.length > 1 && (
-                          <span className="absolute bottom-0.5 right-0.5 rounded bg-black/80 px-1 py-0.5 text-[9px] font-semibold text-gold-300">
-                            {activeImages.length}
-                          </span>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
+                        {/* Row 1: Name + actions */}
                         <div className="flex items-start justify-between gap-2">
-                          <h4 className="text-base font-semibold text-gold-100 leading-snug">
-                            {product.name}
-                          </h4>
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-semibold text-gold-100 leading-snug truncate">
+                              {product.name}
+                            </h4>
+                            {/* Category as muted breadcrumb */}
+                            {product.categoryId && (
+                              <p className="text-[11px] text-gold-500 truncate">
+                                {resolveCategoryName(product.categoryId)}
+                              </p>
+                            )}
+                          </div>
                           {canWrite && (
-                            <button
-                              type="button"
-                              onClick={() => startEdit(product)}
-                              className="shrink-0 rounded border border-gold-700/50 px-2 py-0.5 text-xs text-gold-400 hover:text-gold-100"
-                            >
-                              {actions('edit')}
-                            </button>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => startEdit(product)}
+                                className="rounded-md p-1 text-blue-400 hover:bg-blue-500/10 transition-colors"
+                                title={actions('edit')}
+                              >
+                                <Icon name="Pencil" size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => duplicateProduct(product)}
+                                className="rounded-md p-1 text-gold-400 hover:bg-gold-500/10 transition-colors"
+                                title={t('duplicate')}
+                              >
+                                <Icon name="Copy" size={13} />
+                              </button>
+                            </div>
                           )}
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <StatusBadge status={product.status} />
-                          {product.categoryId && (
-                            <span className="text-xs text-gold-400">
-                              {resolveCategoryName(product.categoryId)}
-                            </span>
+                        {/* Row 2: Status dot + metrics on one line */}
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gold-400">
+                          <span className="inline-flex items-center gap-1">
+                            <StatusDot status={product.status} />
+                            {product.status.charAt(0) + product.status.slice(1).toLowerCase()}
+                          </span>
+                          <span className="text-gold-600">·</span>
+                          <span>{product.variants?.length ?? 0} variants</span>
+                          {product.lastSoldAt && (
+                            <>
+                              <span className="text-gold-600">·</span>
+                              <span>Sold {timeAgo(product.lastSoldAt)}</span>
+                            </>
                           )}
                         </div>
-                        {product.description ? (
-                          <p className="mt-1.5 text-xs text-gold-500 line-clamp-2">
+                        {/* Description — single line if present */}
+                        {product.description && (
+                          <p className="mt-0.5 text-[11px] text-gold-600 line-clamp-1">
                             {product.description}
-                          </p>
-                        ) : (
-                          <p className="mt-1.5 text-xs text-gold-600 italic">
-                            {t('noDescription')}
                           </p>
                         )}
                       </div>
                     </div>
-                  )}
 
-                  {/* ── View related button ──────────────────────────────── */}
-                  <button
-                    type="button"
-                    onClick={() => toggleRelated(product.id)}
-                    className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
-                  >
-                    {relatedMap[product.id]?.open ? t('hideRelated') : t('viewRelated')}
-                  </button>
+                  {/* ── Compact action row: Related + Images toggle ─────── */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleRelated(product.id)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-gold-700/30 px-2 py-1 text-[11px] text-gold-300 hover:text-gold-100 hover:border-gold-600 transition-colors"
+                    >
+                      <Icon name="ChevronDown" size={12} className={relatedMap[product.id]?.open ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                      {relatedMap[product.id]?.open ? t('hideRelated') : t('viewRelated')}
+                    </button>
+
+                    {/* Images toggle — shows count if images exist */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRelatedMap((prev) => ({
+                          ...prev,
+                          [`img_${product.id}`]: {
+                            ...prev[`img_${product.id}`],
+                            open: !prev[`img_${product.id}`]?.open,
+                            loading: false,
+                            variants: [],
+                            stock: [],
+                            movements: [],
+                          },
+                        }))
+                      }
+                      className="inline-flex items-center gap-1 rounded-lg border border-gold-700/30 px-2 py-1 text-[11px] text-gold-300 hover:text-gold-100 hover:border-gold-600 transition-colors"
+                    >
+                      <Icon name="Camera" size={12} />
+                      {activeImages.length > 0
+                        ? `${activeImages.length} ${activeImages.length === 1 ? 'image' : 'images'}`
+                        : t('images')}
+                      <Icon name="ChevronDown" size={10} className={relatedMap[`img_${product.id}`]?.open ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                    </button>
+                  </div>
 
                   {/* ── Related records panel ────────────────────────────── */}
                   {relatedMap[product.id]?.open ? (
-                    <div className="rounded border border-gold-700/40 bg-black/60 p-4 space-y-3">
+                    <Card padding="md" glow={false}>
                       <p className="text-xs uppercase tracking-[0.2em] text-gold-400">
                         {t('relatedRecords')}
                       </p>
                       {relatedMap[product.id]?.loading ? (
-                        <div className="flex items-center gap-2 text-xs text-gold-300">
+                        <div className="mt-3 flex items-center gap-2 text-xs text-gold-300">
                           <Spinner size="xs" variant="grid" /> {t('loadingRelated')}
                         </div>
                       ) : relatedMap[product.id]?.error ? (
-                        <p className="text-xs text-gold-300">
+                        <p className="mt-3 text-xs text-gold-300">
                           {relatedMap[product.id]?.error}
                         </p>
                       ) : (
-                        <div className="grid gap-4 md:grid-cols-3 text-xs text-gold-200">
+                        <div className="mt-3 grid gap-4 md:grid-cols-3 text-xs text-gold-200">
                           <div className="space-y-2">
                             <p className="text-gold-100">{t('variants')}</p>
                             {relatedMap[product.id]?.variants.length ? (
@@ -1081,171 +1017,187 @@ export default function ProductsPage() {
                           </div>
                         </div>
                       )}
-                    </div>
+                    </Card>
                   ) : null}
 
                   {/* ── Notes ───────────────────────────────────────────── */}
                   <RelatedNotesPanel resourceType="Product" resourceId={product.id} />
 
-                  {/* ── Images section ───────────────────────────────────── */}
-                  <div className="space-y-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-gold-400">
-                      {t('images')}
-                    </p>
+                  {/* ── Images section — collapsible ─────────────────────── */}
+                  {relatedMap[`img_${product.id}`]?.open && (
+                    <div className="space-y-2 border-t border-gold-700/20 pt-2">
+                      {/* Hint when no primary */}
+                      {!primary && (
+                        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5">
+                          <Icon name="TriangleAlert" size={12} className="mt-0.5 shrink-0 text-amber-400" />
+                          <p className="text-[11px] text-amber-300">{t('uploadPrimaryHint')}</p>
+                        </div>
+                      )}
 
-                    {/* Hint when no primary */}
-                    {!primary && (
-                      <div className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                        <p className="text-xs text-amber-300">{t('uploadPrimaryHint')}</p>
+                      {/* Compact upload buttons */}
+                      <div className="flex items-center gap-2">
+                        <UploadButton
+                          label={primary ? t('replacePrimary') : t('primaryImage')}
+                          disabled={!canWrite || uploadingProductId === product.id}
+                          isUploading={uploadingProductId === product.id}
+                          icon="Camera"
+                          onFile={(file) =>
+                            uploadProductImage(product.id, file, true).catch((err) =>
+                              setMessage({
+                                action: 'save',
+                                outcome: 'failure',
+                                message: getApiErrorMessage(err, t('uploadFailed')),
+                              }),
+                            )
+                          }
+                        />
+                        <UploadButton
+                          label={t('addMoreImages')}
+                          disabled={!primary || !canWrite || uploadingProductId === product.id}
+                          isUploading={false}
+                          icon="Plus"
+                          onFile={(file) =>
+                            uploadProductImage(product.id, file, false).catch((err) =>
+                              setMessage({
+                                action: 'save',
+                                outcome: 'failure',
+                                message: getApiErrorMessage(err, t('uploadFailed')),
+                              }),
+                            )
+                          }
+                        />
                       </div>
-                    )}
 
-                    {/* Upload zones */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <UploadZone
-                        label={primary ? t('replacePrimary') : t('primaryImage')}
-                        hint={t('uploadZoneHint')}
-                        disabled={!canWrite || uploadingProductId === product.id}
-                        isUploading={uploadingProductId === product.id}
-                        onFile={(file) =>
-                          uploadProductImage(product.id, file, true).catch((err) =>
-                            setMessage({
-                              action: 'save',
-                              outcome: 'failure',
-                              message: getApiErrorMessage(err, t('uploadFailed')),
-                            }),
-                          )
-                        }
-                      />
-                      <UploadZone
-                        label={t('addMoreImages')}
-                        hint={t('uploadZoneHint')}
-                        disabled={!primary || !canWrite || uploadingProductId === product.id}
-                        isUploading={false}
-                        onFile={(file) =>
-                          uploadProductImage(product.id, file, false).catch((err) =>
-                            setMessage({
-                              action: 'save',
-                              outcome: 'failure',
-                              message: getApiErrorMessage(err, t('uploadFailed')),
-                            }),
-                          )
-                        }
-                      />
-                    </div>
-
-                    {/* Gallery */}
-                    {activeImages.length > 0 ? (
-                      <div className="flex flex-wrap gap-3">
-                        {[...(primary ? [primary] : []), ...extraImages].map((img) => (
-                          <div
-                            key={img.id}
-                            className="group relative overflow-hidden rounded border border-gold-700/40 bg-black/70"
-                          >
-                            <img
-                              src={img.url}
-                              alt={t('productImageAlt')}
-                              className="h-16 w-16 object-cover"
-                            />
-                            {img.isPrimary && (
-                              <span className="absolute bottom-0 left-0 right-0 bg-black/70 px-1 py-0.5 text-center text-[9px] font-semibold text-gold-300">
-                                {t('primaryBadge')}
-                              </span>
-                            )}
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/70 opacity-0 transition-opacity group-hover:opacity-100">
-                              {!img.isPrimary && (
+                      {/* Gallery */}
+                      {activeImages.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {[...(primary ? [primary] : []), ...extraImages].map((img) => (
+                            <div
+                              key={img.id}
+                              className="group relative overflow-hidden rounded-md border border-gold-700/40 bg-black/70"
+                            >
+                              <img
+                                src={img.url}
+                                alt={t('productImageAlt')}
+                                className="h-14 w-14 object-cover"
+                              />
+                              {img.isPrimary && (
+                                <span className="absolute bottom-0 left-0 right-0 bg-black/70 px-1 py-0.5 text-center text-[8px] font-semibold text-gold-300">
+                                  {t('primaryBadge')}
+                                </span>
+                              )}
+                              <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-black/70 opacity-0 transition-opacity group-hover:opacity-100">
+                                {!img.isPrimary && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPrimary(product.id, img.id)}
+                                    disabled={
+                                      !canWrite ||
+                                      (imageAction?.productId === product.id &&
+                                        imageAction?.imageId === img.id &&
+                                        imageAction?.type === 'primary')
+                                    }
+                                    className="rounded bg-gold-500/20 px-1.5 py-0.5 text-[9px] text-gold-200 hover:bg-gold-500/30 disabled:opacity-50"
+                                  >
+                                    <span className="inline-flex items-center gap-0.5">
+                                      {imageAction?.productId === product.id &&
+                                      imageAction?.imageId === img.id &&
+                                      imageAction?.type === 'primary' ? (
+                                        <Spinner variant="pulse" size="xs" />
+                                      ) : null}
+                                      {imageAction?.productId === product.id &&
+                                      imageAction?.imageId === img.id &&
+                                      imageAction?.type === 'primary'
+                                        ? t('updating')
+                                        : t('makePrimary')}
+                                    </span>
+                                  </button>
+                                )}
                                 <button
                                   type="button"
-                                  onClick={() => setPrimary(product.id, img.id)}
+                                  onClick={() => removeImage(product.id, img.id)}
                                   disabled={
                                     !canWrite ||
                                     (imageAction?.productId === product.id &&
                                       imageAction?.imageId === img.id &&
-                                      imageAction?.type === 'primary')
+                                      imageAction?.type === 'remove')
                                   }
-                                  className="rounded bg-gold-500/20 px-2 py-0.5 text-[10px] text-gold-200 hover:bg-gold-500/30 disabled:opacity-50"
+                                  className="rounded bg-red-500/20 px-1.5 py-0.5 text-[9px] text-red-300 hover:bg-red-500/30 disabled:opacity-50"
                                 >
-                                  <span className="inline-flex items-center gap-1">
+                                  <span className="inline-flex items-center gap-0.5">
                                     {imageAction?.productId === product.id &&
                                     imageAction?.imageId === img.id &&
-                                    imageAction?.type === 'primary' ? (
-                                      <Spinner variant="pulse" size="xs" />
+                                    imageAction?.type === 'remove' ? (
+                                      <Spinner variant="bars" size="xs" />
                                     ) : null}
                                     {imageAction?.productId === product.id &&
                                     imageAction?.imageId === img.id &&
-                                    imageAction?.type === 'primary'
-                                      ? t('updating')
-                                      : t('makePrimary')}
+                                    imageAction?.type === 'remove'
+                                      ? t('removing')
+                                      : actions('remove')}
                                   </span>
                                 </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => removeImage(product.id, img.id)}
-                                disabled={
-                                  !canWrite ||
-                                  (imageAction?.productId === product.id &&
-                                    imageAction?.imageId === img.id &&
-                                    imageAction?.type === 'remove')
-                                }
-                                className="rounded bg-red-500/20 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-500/30 disabled:opacity-50"
-                              >
-                                <span className="inline-flex items-center gap-1">
-                                  {imageAction?.productId === product.id &&
-                                  imageAction?.imageId === img.id &&
-                                  imageAction?.type === 'remove' ? (
-                                    <Spinner variant="bars" size="xs" />
-                                  ) : null}
-                                  {imageAction?.productId === product.id &&
-                                  imageAction?.imageId === img.id &&
-                                  imageAction?.type === 'remove'
-                                    ? t('removing')
-                                    : actions('remove')}
-                                </span>
-                              </button>
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Card>
               );
-            })
-          )}
+            })}
         </div>
-      ) : null}
+      }
+      pagination={
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          itemCount={products.length}
+          availablePages={Object.keys(pageCursors).map(Number)}
+          hasNext={Boolean(nextCursor)}
+          hasPrev={page > 1}
+          isLoading={isLoading}
+          onPageChange={(nextPage) => load(nextPage)}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+            setPageCursors({ 1: null });
+            setTotal(null);
+            load(1, size);
+          }}
+        />
+      }
+    />
 
-      <PaginationControls
-        page={page}
-        pageSize={pageSize}
-        total={total}
-        itemCount={products.length}
-        availablePages={Object.keys(pageCursors).map(Number)}
-        hasNext={Boolean(nextCursor)}
-        hasPrev={page > 1}
-        isLoading={isLoading}
-        onPageChange={(nextPage) => load(nextPage)}
-        onPageSizeChange={(size) => {
-          setPageSize(size);
-          setPage(1);
-          setPageCursors({ 1: null });
-          setTotal(null);
-          load(1, size);
-        }}
-      />
-    </section>
+    <ProductCreateModal
+      open={formOpen}
+      onClose={() => setFormOpen(false)}
+      form={form}
+      onFormChange={setForm}
+      categories={categories}
+      loadCategoryOptions={loadCategoryOptions}
+      onSubmit={createProduct}
+      isCreating={isCreating}
+      canWrite={canWrite}
+      wizardHref={`/${locale}/catalog/products/wizard`}
+      importsHref={`/${locale}/imports`}
+    />
+
+    <ProductEditModal
+      open={Boolean(editing)}
+      onClose={closeEdit}
+      product={editing}
+      draft={editDraft}
+      onDraftChange={setEditDraft}
+      categories={categories}
+      loadCategoryOptions={loadCategoryOptions}
+      statusOptions={productStatusOptions}
+      onSubmit={saveEdit}
+      isSaving={isSavingEdit}
+      canWrite={canWrite}
+    />
+    </>
   );
 }

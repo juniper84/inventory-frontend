@@ -24,13 +24,16 @@ import {
   verifyOfflinePin,
 } from '@/lib/offline-store';
 import { Spinner } from '@/components/Spinner';
+import { ProgressBar } from '@/components/ui/ProgressBar';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { SmartSelect } from '@/components/SmartSelect';
 import { TypeaheadInput } from '@/components/TypeaheadInput';
 import { DatePickerInput } from '@/components/DatePickerInput';
-import { StatusBanner } from '@/components/StatusBanner';
+import { Banner } from '@/components/notifications/Banner';
 import { CurrencyInput } from '@/components/CurrencyInput';
+import { Icon } from '@/components/ui/Icon';
 import { buildUnitLabel, loadUnits, Unit } from '@/lib/units';
+import { UnitHelpPanel } from '@/components/ui/UnitHelpPanel';
 import { getActiveBranch, setActiveBranch } from '@/lib/branch-context';
 import { setStoredCurrency, formatCurrency, useCurrency, useTimezone, useDateFormat } from '@/lib/business-context';
 import { ZERO_DECIMAL_CURRENCIES } from '@/lib/currencies';
@@ -46,6 +49,7 @@ import {
 import { buildReceiptLines, type ReceiptData, type ReceiptLabels } from '@/lib/receipt-print';
 import { useVariantSearch } from '@/lib/use-variant-search';
 import { ReceiptPreview } from '@/components/receipts/ReceiptPreview';
+import { FlipCounter } from '@/components/analog';
 
 type Branch = { id: string; name: string };
 type Barcode = { id: string; code: string; isActive: boolean };
@@ -70,6 +74,7 @@ type Customer = {
   name: string;
   tinNumber?: string | null;
   priceListId?: string | null;
+  totalOutstanding?: number | null;
 };
 
 type PriceListItem = {
@@ -138,14 +143,60 @@ type SettingsResponse = {
   };
 };
 
+type PopularItem = {
+  variantId: string;
+  variant?: { name?: string | null } | null;
+  count?: number;
+};
+
+type ParkedSale = {
+  id: string;
+  branchId: string;
+  customerId: string;
+  cart: CartItem[];
+  cartDiscount: number;
+  saleNotes: string;
+  parkedAt: string;
+};
+
 const DEFAULT_VAT_RATE = 18;
 const CART_KEY = 'nvi-pos-cart';
+const PARKED_SALES_KEY = 'nvi-pos-parked';
 const POS_MODE_KEY = 'nvi.pos.deviceMode';
 
 // Quick-cash denomination presets (works well for TZS; universal round numbers)
 const CASH_QUICK_AMOUNTS = [500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000];
 
 type PosMode = 'phone' | 'tablet' | 'desktop';
+
+// Per-method color map for payment pills
+const PAYMENT_METHOD_COLORS: Record<string, { pill: string; pillActive: string; icon: string }> = {
+  CASH: {
+    pill: 'border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10',
+    pillActive: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 ring-2 ring-gold-500/30',
+    icon: 'bg-emerald-500/10 text-emerald-400',
+  },
+  CARD: {
+    pill: 'border-blue-500/20 text-blue-400 hover:bg-blue-500/10',
+    pillActive: 'bg-blue-500/15 border-blue-500/40 text-blue-300 ring-2 ring-gold-500/30',
+    icon: 'bg-blue-500/10 text-blue-400',
+  },
+  MOBILE_MONEY: {
+    pill: 'border-purple-500/20 text-purple-400 hover:bg-purple-500/10',
+    pillActive: 'bg-purple-500/15 border-purple-500/40 text-purple-300 ring-2 ring-gold-500/30',
+    icon: 'bg-purple-500/10 text-purple-400',
+  },
+  BANK_TRANSFER: {
+    pill: 'border-amber-500/20 text-amber-400 hover:bg-amber-500/10',
+    pillActive: 'bg-amber-500/15 border-amber-500/40 text-amber-300 ring-2 ring-gold-500/30',
+    icon: 'bg-amber-500/10 text-amber-400',
+  },
+  OTHER: {
+    pill: 'border-white/10 text-white/50 hover:bg-white/[0.06]',
+    pillActive: 'bg-white/[0.08] border-white/20 text-white/70 ring-2 ring-gold-500/30',
+    icon: 'bg-white/[0.06] text-white/50',
+  },
+};
 
 function detectPosMode(): PosMode {
   if (typeof window === 'undefined') return 'desktop';
@@ -244,6 +295,10 @@ export default function PosPage() {
   const [customerResults, setCustomerResults] = useState<Customer[]>([]);
   const [customerFocused, setCustomerFocused] = useState(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+  const [saleNotes, setSaleNotes] = useState('');
+  const [scanSoundEnabled, setScanSoundEnabled] = useState(() => typeof window !== 'undefined' && localStorage.getItem('nvi.scan.sound') !== 'false');
+  const [popularItems, setPopularItems] = useState<PopularItem[]>([]);
+  const [parkedSales, setParkedSales] = useState<ParkedSale[]>([]);
   const router = useRouter();
   const currency = useCurrency();
   const timezone = useTimezone();
@@ -325,6 +380,68 @@ export default function PosPage() {
     },
     [],
   );
+
+  const playScanSound = useCallback(() => {
+    if (!scanSoundEnabled) return;
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.value = 0.08;
+      osc.frequency.value = 1200;
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.1);
+    } catch {
+      // AudioContext may not be available
+    }
+  }, [scanSoundEnabled]);
+
+  // Load parked sales from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(PARKED_SALES_KEY);
+      if (stored) setParkedSales(JSON.parse(stored));
+    } catch { /* ignore corrupt data */ }
+  }, []);
+
+  const parkSale = useCallback(() => {
+    if (cart.length === 0) return;
+    const parked: ParkedSale = {
+      id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `park-${Date.now()}`,
+      branchId,
+      customerId,
+      cart,
+      cartDiscount,
+      saleNotes,
+      parkedAt: new Date().toISOString(),
+    };
+    try {
+      const existing: ParkedSale[] = JSON.parse(localStorage.getItem(PARKED_SALES_KEY) || '[]');
+      existing.push(parked);
+      localStorage.setItem(PARKED_SALES_KEY, JSON.stringify(existing));
+      setParkedSales(existing);
+    } catch {
+      // storage may be full
+    }
+    setCart([]);
+    setCartDiscount(0);
+    setSaleNotes('');
+    setPayments([{ method: 'CASH', amount: 0 }]);
+    setMessage({ action: 'save', outcome: 'success', message: t('saleParked') });
+  }, [cart, branchId, customerId, cartDiscount, saleNotes, t]);
+
+  const resumeParkedSale = useCallback((index: number) => {
+    const parked = parkedSales[index];
+    if (!parked) return;
+    setCart(parked.cart);
+    setCartDiscount(parked.cartDiscount ?? 0);
+    setSaleNotes(parked.saleNotes ?? '');
+    const updated = parkedSales.filter((_, i) => i !== index);
+    setParkedSales(updated);
+    localStorage.setItem(PARKED_SALES_KEY, JSON.stringify(updated));
+    setMessage({ action: 'save', outcome: 'success', message: t('saleResumed') });
+  }, [parkedSales, t]);
 
   const customerSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scanMessageTimer = useRef<number | null>(null);
@@ -535,6 +652,10 @@ export default function PosPage() {
           setPriceLists(normalizePaginated(listResult.value).items);
         }
         setCoreLoaded(true);
+        // Fetch popular items for quick-add favorites
+        apiFetch<PopularItem[]>('/search/popular?limit=5', { token })
+          .then((items) => setPopularItems(Array.isArray(items) ? items : []))
+          .catch(() => { /* non-critical */ });
       } catch (err) {
         console.warn('Failed to load POS data from API', err);
         await loadOfflineCache();
@@ -736,6 +857,10 @@ export default function PosPage() {
   }, [posMode]);
 
   useEffect(() => {
+    localStorage.setItem('nvi.scan.sound', scanSoundEnabled ? 'true' : 'false');
+  }, [scanSoundEnabled]);
+
+  useEffect(() => {
     if (cart.length === 0) setCartSheetOpen(false);
   }, [cart.length]);
 
@@ -756,37 +881,11 @@ export default function PosPage() {
   }, []);
 
   const paymentMethodIcon = useCallback((method: Payment['method']) => {
-    if (method === 'CASH') return (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-        <rect x="1" y="4" width="16" height="10" rx="2" />
-        <circle cx="9" cy="9" r="2.5" />
-        <path d="M5 9h.01M13 9h.01" strokeLinecap="round" />
-      </svg>
-    );
-    if (method === 'CARD') return (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-        <rect x="1" y="4" width="16" height="10" rx="2" />
-        <path d="M1 7.5h16M5 11.5h3" strokeLinecap="round" />
-      </svg>
-    );
-    if (method === 'MOBILE_MONEY') return (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-        <rect x="4" y="1" width="10" height="16" rx="2" />
-        <circle cx="9" cy="13.5" r="0.8" fill="currentColor" stroke="none" />
-        <path d="M7 4.5h4" strokeLinecap="round" />
-      </svg>
-    );
-    if (method === 'BANK_TRANSFER') return (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-        <path d="M2 7h14M4 7V15M8 7V15M12 7V15M14 7V15M1 15h16M9 2l8 5H1l8-5z" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-    return (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-        <circle cx="9" cy="9" r="7" />
-        <path d="M9 6v3.5l2 2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
+    if (method === 'CASH') return <Icon name="Banknote" size={18} />;
+    if (method === 'CARD') return <Icon name="CreditCard" size={18} />;
+    if (method === 'MOBILE_MONEY') return <Icon name="Smartphone" size={18} />;
+    if (method === 'BANK_TRANSFER') return <Icon name="Building" size={18} />;
+    return <Icon name="Wallet" size={18} />;
   }, []);
 
   const cartInItem = useCallback(
@@ -880,6 +979,7 @@ export default function PosPage() {
       const match = barcodeMap.get(normalized);
       if (match && match.length === 1) {
         addToCart(match[0], normalized);
+        playScanSound();
         setSearch('');
         setTimedScanMessage(t('scanned', { value: normalized }));
         setMessage({
@@ -900,7 +1000,7 @@ export default function PosPage() {
       setMessage({ action: 'save', outcome: 'info', message: t('noMatch') });
       setTimedScanMessage(t('noMatch'));
     },
-    [barcodeMap, setMessage, setTimedScanMessage, t, scanActive],
+    [barcodeMap, setMessage, setTimedScanMessage, t, scanActive, playScanSound],
   );
 
   useEffect(() => {
@@ -1042,6 +1142,11 @@ export default function PosPage() {
     );
   };
 
+  const addToCartByVariantId = (variantId: string) => {
+    const variant = variants.find((v) => v.id === variantId);
+    if (variant) addToCart(variant);
+  };
+
   const handleSearchSubmit = () => {
     if (!search) {
       return;
@@ -1111,6 +1216,18 @@ export default function PosPage() {
     }
     setScanActive(false);
   };
+
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => {
+      resetScanner(scannerRef.current);
+      scannerRef.current = null;
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   const updateCartItem = (index: number, data: Partial<CartItem>) => {
     setCart((prev) => {
@@ -1203,6 +1320,7 @@ export default function PosPage() {
             branchId,
             customerId: customerId || undefined,
             cartDiscount,
+            ...(saleNotes.trim() ? { notes: saleNotes.trim() } : {}),
             payments: cleanedPayments,
             creditDueDate: creditSale && creditDueDate ? creditDueDate : undefined,
             total,
@@ -1231,6 +1349,7 @@ export default function PosPage() {
       }
       setCart([]);
       setCartDiscount(0);
+      setSaleNotes('');
       setPayments([{ method: 'CASH', amount: 0 }]);
       setMessage({
         action: 'save',
@@ -1250,6 +1369,7 @@ export default function PosPage() {
           customerId: customerId || undefined,
           cartDiscount,
           isOffline: offline,
+          ...(saleNotes.trim() ? { notes: saleNotes.trim() } : {}),
           lines: cart.map((item) => ({
             variantId: item.variant.id,
             quantity: item.quantity,
@@ -1299,6 +1419,7 @@ export default function PosPage() {
       setSessionTotal((s) => s + totals.total);
       setCart([]);
       setCartDiscount(0);
+      setSaleNotes('');
       setPayments([{ method: 'CASH', amount: 0 }]);
       setCreditSale(false);
       setCreditDueDate('');
@@ -1343,196 +1464,167 @@ export default function PosPage() {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // SHARED: POS Top Bar
+  // SHARED: POS Top Bar — slim, organized MacOS-toolbar feel
   // ─────────────────────────────────────────────────────────────
-  const posTopBar = (
-    <div className="relative flex h-14 shrink-0 items-center justify-between gap-3 border-b border-gold-800/40 bg-[#060609] px-4">
-      {/* Thin gold gradient accent line at the very bottom of the bar */}
-      <div className="pointer-events-none absolute bottom-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-gold-500/50 to-transparent" />
-      {/* Left: brand + context */}
-      <div className="flex min-w-0 items-center gap-3">
-        {/* Logo mark */}
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-gold-400 to-amber-600 text-xs font-black text-black shadow">
-          N
-        </div>
-        <span className="shrink-0 text-base font-bold tracking-[0.18em] text-gold-200">POS</span>
-        <div className="hidden h-5 w-px shrink-0 bg-gold-700/40 sm:block" />
-        {storedUser?.name ? (
-          <span className="hidden shrink-0 text-sm font-semibold text-gold-300 sm:block">{storedUser.name}</span>
-        ) : null}
-        {/* Branch selector — custom styled dropdown */}
-        {availableBranches.length > 1 ? (
-          <div className="relative hidden sm:block">
-            <button
-              type="button"
-              disabled={branchSelectDisabled}
-              onClick={() => setBranchDropdownOpen((o) => !o)}
-              onBlur={() => setTimeout(() => setBranchDropdownOpen(false), 160)}
-              title={branchSelectDisabled && cart.length > 0 ? 'Clear cart to change branch' : undefined}
-              className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
-                branchSelectDisabled
-                  ? 'cursor-not-allowed border-gold-800/30 text-gold-700 opacity-60'
-                  : branchDropdownOpen
-                    ? 'border-gold-500/50 bg-gold-400/[0.07] text-gold-200'
-                    : 'border-gold-700/30 bg-black/60 text-gold-300 hover:border-gold-600/50 hover:bg-black/80 hover:text-gold-100'
-              }`}
-            >
-              {/* Branch / store icon */}
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className="shrink-0">
-                <path d="M1 10V4.5L5.5 1 10 4.5V10" strokeLinecap="round" strokeLinejoin="round" />
-                <rect x="3.5" y="6.5" width="4" height="3.5" rx="0.5" />
-              </svg>
-              <span className="max-w-[130px] truncate">{branchId ? activeBranchName : t('selectBranch')}</span>
-              {/* Chevron — flips when open */}
-              <svg
-                width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.8"
-                className={`shrink-0 transition-transform ${branchDropdownOpen ? 'rotate-180' : ''}`}
-                aria-hidden="true"
-              >
-                <path d="M1.5 2.5l2.5 3 2.5-3" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
+  const cashierInitial = (storedUser?.name || storedUser?.email || 'C').charAt(0).toUpperCase();
+  const cashierDisplayName = storedUser?.name || storedUser?.email || 'Cashier';
 
-            {/* Floating branch list */}
-            {branchDropdownOpen && !branchSelectDisabled ? (
-              <div className="absolute left-0 top-full z-50 mt-1.5 min-w-[180px] overflow-hidden rounded-xl border border-gold-700/30 bg-[#11131b] shadow-2xl">
-                {/* Thin gold top accent */}
-                <div className="h-px w-full bg-gradient-to-r from-transparent via-gold-500/40 to-transparent" />
-                <div className="py-1">
-                  {availableBranches.map((b) => {
-                    const active = b.id === branchId;
-                    return (
-                      <button
-                        key={b.id}
-                        type="button"
-                        onMouseDown={() => { setBranchId(b.id); setBranchDropdownOpen(false); }}
-                        className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-xs transition ${
-                          active
-                            ? 'bg-gold-400/[0.08] text-gold-100'
-                            : 'text-gold-400 hover:bg-gold-400/[0.05] hover:text-gold-200'
-                        }`}
-                      >
-                        {/* Checkmark for active, indent spacer for others */}
-                        {active ? (
-                          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-gold-400" aria-hidden="true">
-                            <path d="M1.5 5.5l3 3 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        ) : (
-                          <span className="w-[11px] shrink-0" />
-                        )}
-                        <span className="truncate font-medium">{b.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+  const posTopBar = (
+    <div className="relative flex h-14 shrink-0 items-center justify-between gap-2 border-b border-gold-500/10 bg-[#0d0c10] px-3">
+      {/* LEFT: Cashier identity + branch */}
+      <div className="flex min-w-0 items-center gap-3">
+        {/* Avatar circle */}
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-500/20 text-sm font-bold text-gold-400">
+          {cashierInitial}
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-white">{cashierDisplayName}</p>
+          <div className="flex items-center gap-2 text-[10px] text-white/40">
+            {/* Branch selector or label */}
+            {availableBranches.length > 1 ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  disabled={branchSelectDisabled}
+                  onClick={() => setBranchDropdownOpen((o) => !o)}
+                  onBlur={() => setTimeout(() => setBranchDropdownOpen(false), 160)}
+                  title={branchSelectDisabled && cart.length > 0 ? 'Clear cart to change branch' : undefined}
+                  className={`nvi-press flex items-center gap-1 transition ${
+                    branchSelectDisabled
+                      ? 'cursor-not-allowed text-white/20'
+                      : 'text-white/40 hover:text-white/60'
+                  }`}
+                >
+                  <Icon name="Building2" size={10} className="shrink-0 text-gold-400/60" />
+                  <span className="max-w-[100px] truncate">{branchId ? activeBranchName : t('selectBranch')}</span>
+                  <Icon name="ChevronDown" size={8} className={`shrink-0 transition-transform ${branchDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {/* Floating branch list */}
+                {branchDropdownOpen && !branchSelectDisabled ? (
+                  <div className="absolute left-0 top-full z-50 mt-1.5 min-w-[180px] overflow-hidden rounded-xl border border-gold-500/[0.08] bg-[#0d0c10] shadow-2xl">
+                    <div className="py-1">
+                      {availableBranches.map((b) => {
+                        const active = b.id === branchId;
+                        return (
+                          <button
+                            key={b.id}
+                            type="button"
+                            onMouseDown={() => { setBranchId(b.id); setBranchDropdownOpen(false); }}
+                            className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-xs transition ${
+                              active
+                                ? 'bg-gold-500/[0.06] text-white'
+                                : 'text-white/50 hover:bg-gold-500/[0.04] hover:text-white/80'
+                            }`}
+                          >
+                            {active ? (
+                              <Icon name="Check" size={12} className="shrink-0 text-gold-400" />
+                            ) : (
+                              <span className="w-3 shrink-0" />
+                            )}
+                            <span className="truncate font-medium">{b.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
+            ) : branchId ? (
+              <span className="flex items-center gap-1">
+                <Icon name="Building2" size={10} className="text-gold-400/60" />
+                {activeBranchName}
+              </span>
+            ) : null}
+            {openShift ? (
+              <span className="text-white/30">{clockTime}</span>
             ) : null}
           </div>
-        ) : branchId ? (
-          <span className="hidden truncate text-xs text-gold-500 lg:block">· {activeBranchName}</span>
-        ) : null}
-        {shiftTrackingEnabled && openShift ? (
-          <span className="flex items-center gap-1.5 text-xs text-emerald-400">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" style={{ animation: 'nvi-ping-dot 2.5s ease-in-out infinite' }} />
-            <span className="hidden sm:inline">{t('shiftOpen')}</span>
-          </span>
-        ) : null}
-        {offline ? (
-          <span className="rounded bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">OFFLINE</span>
+        </div>
+        {/* Shift dot */}
+        {shiftTrackingEnabled ? (
+          openShift ? (
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]" style={{ animation: 'nvi-ping-dot 2.5s ease-in-out infinite' }} title={t('shiftOpen')} />
+          ) : (
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.4)]" title={t('openShiftRequired')} />
+          )
         ) : null}
         {pendingSyncCount > 0 ? (
-          <span className="hidden rounded bg-blue-500/15 px-2 py-0.5 text-xs text-blue-300 sm:inline">{pendingSyncCount} pending</span>
+          <span className="nvi-pulse-ring rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-300">{pendingSyncCount} {t('pendingSyncShort')}</span>
         ) : null}
       </div>
 
-      {/* Center: device mode switcher */}
-      <div className="flex shrink-0 items-center gap-0.5 rounded-xl border border-gold-700/30 bg-black/70 p-1">
-        {(
-          [
-            {
-              mode: 'phone' as const,
-              label: 'Phone',
-              icon: (
-                <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-                  <rect x="3.5" y="1" width="8" height="13" rx="1.5" />
-                  <circle cx="7.5" cy="11.5" r="0.7" fill="currentColor" stroke="none" />
-                </svg>
-              ),
-            },
-            {
-              mode: 'tablet' as const,
-              label: 'Tablet',
-              icon: (
-                <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-                  <rect x="1" y="2.5" width="13" height="10" rx="1.5" />
-                  <circle cx="12" cy="7.5" r="0.7" fill="currentColor" stroke="none" />
-                </svg>
-              ),
-            },
-            {
-              mode: 'desktop' as const,
-              label: 'Desktop',
-              icon: (
-                <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-                  <rect x="1" y="1.5" width="13" height="8.5" rx="1.2" />
-                  <path d="M5 13h5M7.5 10V13" strokeLinecap="round" />
-                </svg>
-              ),
-            },
-          ] as const
-        ).map(({ mode, label, icon }) => (
-          <button
-            key={mode}
-            type="button"
-            onClick={() => setPosMode(mode)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-              posMode === mode
-                ? 'bg-gold-400/20 text-gold-200'
-                : 'text-gold-1000 hover:text-gold-400'
-            }`}
-          >
-            {icon}
-            <span>{label}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Right: clock + session stats + shift CTA + exit */}
-      <div className="flex shrink-0 items-center gap-3">
-        {/* Live clock with pulsing dot */}
-        {clockTime ? (
-          <span className="hidden items-center gap-1.5 sm:flex">
-            <span
-              className="h-2 w-2 rounded-full bg-gold-400"
-              style={{ animation: 'nvi-ping-dot 2s ease-in-out infinite' }}
-            />
-            <span className="font-mono text-sm font-semibold tabular-nums text-gold-200">{clockTime}</span>
-          </span>
-        ) : null}
-        {/* Session totals */}
+      {/* CENTER: Session stats in warm mini badges */}
+      <div className="hidden items-center gap-2 sm:flex">
         {sessionSaleCount > 0 ? (
-          <span className="hidden rounded-lg bg-gold-400/10 px-2.5 py-1 text-xs font-medium text-gold-400 lg:block">
-            {sessionSaleCount} {sessionSaleCount === 1 ? 'sale' : 'sales'} · {amountFormatter.format(sessionTotal)}
-          </span>
+          <>
+            <div className="flex items-center gap-1.5 rounded-lg bg-gold-500/[0.06] px-3 py-1.5">
+              <Icon name="ShoppingCart" size={12} className="text-gold-400/60" />
+              <FlipCounter value={sessionSaleCount} digits={3} size="sm" />
+              <span className="text-[11px] text-white/50">{sessionSaleCount === 1 ? t('saleCountSingular') : t('saleCountPlural')}</span>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-lg bg-gold-500/[0.06] px-3 py-1.5">
+              <span className="text-[11px] font-semibold tabular-nums text-emerald-400">{amountFormatter.format(sessionTotal)}</span>
+            </div>
+          </>
         ) : null}
+      </div>
+
+      {/* RIGHT: Compact action buttons */}
+      <div className="flex shrink-0 items-center gap-1">
+        {/* Online/Offline — just a dot */}
+        <span className={`h-2.5 w-2.5 rounded-full ${offline ? 'bg-amber-400 shadow-[0_0_4px_rgba(251,191,36,0.4)]' : 'bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.4)]'}`} title={offline ? 'Offline' : 'Online'} />
+        {/* Sound toggle */}
+        <button
+          type="button"
+          onClick={() => setScanSoundEnabled((v) => !v)}
+          className="nvi-press hidden rounded-lg bg-gold-500/[0.06] p-2 text-white/50 transition hover:bg-gold-500/[0.10] hover:text-white/80 sm:flex"
+          title={t('scanSound')}
+        >
+          <Icon name={scanSoundEnabled ? 'Volume2' : 'VolumeX'} size={14} />
+        </button>
+        {/* Device mode toggle */}
+        <div className="hidden items-center gap-0.5 rounded-lg bg-gold-500/[0.06] p-0.5 sm:flex">
+          {(
+            [
+              { mode: 'phone' as const, icon: 'Smartphone' as const },
+              { mode: 'tablet' as const, icon: 'Tablet' as const },
+              { mode: 'desktop' as const, icon: 'Monitor' as const },
+            ] as const
+          ).map(({ mode, icon }) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setPosMode(mode)}
+              className={`nvi-press rounded-md p-1.5 transition-colors ${
+                posMode === mode
+                  ? 'bg-gold-500/15 text-white'
+                  : 'text-white/30 hover:text-white/60'
+              }`}
+              title={mode}
+            >
+              <Icon name={icon} size={13} />
+            </button>
+          ))}
+        </div>
+        {/* Open shift CTA */}
         {shiftTrackingEnabled && !openShift && canOpenShift ? (
           <button
             type="button"
             onClick={() => setShiftModalOpen(true)}
-            className="rounded-lg border border-amber-400/50 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/10"
+            className="nvi-press flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/15"
           >
+            <Icon name="Clock" size={13} />
             {t('openShiftBtn')}
           </button>
         ) : null}
+        {/* Exit */}
         <button
           type="button"
           onClick={() => router.push(`/${locale}`)}
-          className="flex items-center gap-1.5 rounded-lg border border-gold-700/40 px-3 py-1.5 text-xs font-medium text-gold-300 transition hover:border-gold-600 hover:text-gold-100"
+          className="nvi-press flex items-center justify-center rounded-lg bg-gold-500/[0.06] p-2 text-white/50 transition hover:bg-red-500/10 hover:text-red-400"
+          title={t('exitPos')}
         >
-          <span>Exit POS</span>
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-            <path d="M4 2H2a1 1 0 00-1 1v4a1 1 0 001 1h2M7 3l2 2-2 2M9 5H4" />
-          </svg>
+          <Icon name="LogOut" size={14} />
         </button>
       </div>
     </div>
@@ -1544,55 +1636,26 @@ export default function PosPage() {
   const statusStrip = (
     <>
       {message ? (
-        <div className="shrink-0"><StatusBanner message={message} /></div>
+        <div className="shrink-0"><Banner message={message} /></div>
       ) : null}
       {branchSelectionRequired ? (
-        <div className="shrink-0"><StatusBanner message={t('branchSelectRequired')} variant="warning" /></div>
+        <div className="shrink-0"><Banner message={t('branchSelectRequired')} severity="warning" /></div>
       ) : null}
       {shiftTrackingEnabled && !openShift ? (
-        <div className="flex shrink-0 items-center gap-2 bg-amber-950/60 px-4 py-2 text-xs text-amber-200">
-          <span>⚠</span><span>{t('openShiftRequired')}</span>
+        <div className="flex shrink-0 items-center gap-2 bg-amber-500/[0.06] border-b border-gold-500/10 px-4 py-2 text-xs text-amber-300">
+          <Icon name="TriangleAlert" size={13} className="shrink-0 text-amber-400" />
+          <span>{t('openShiftRequired')}</span>
         </div>
       ) : null}
     </>
   );
 
-  // ─────────────────────────────────────────────────────────────
-  // SHARED: Stats strip — always-visible situational snapshot
-  // ─────────────────────────────────────────────────────────────
-  const statsStrip = coreLoaded ? (
-    <div className="flex shrink-0 items-stretch border-b border-gold-900/30 bg-[#0d0f16]/70">
-      {/* Items in cart */}
-      <div className="flex flex-col justify-center gap-0.5 border-r border-gold-900/20 px-4 py-2">
-        <p className="text-[9px] font-semibold uppercase tracking-[0.25em] text-gold-700">Items</p>
-        <p className="text-sm font-bold tabular-nums text-gold-300">{cartUnits}</p>
-      </div>
-      {/* Running total */}
-      <div className="flex flex-col justify-center gap-0.5 border-r border-gold-900/20 px-4 py-2">
-        <p className="text-[9px] font-semibold uppercase tracking-[0.25em] text-gold-700">Total</p>
-        <p className="text-sm font-bold tabular-nums text-gold-200">{amountFormatter.format(totals.total)}</p>
-      </div>
-      {/* Connection status */}
-      <div className="flex flex-col justify-center gap-0.5 px-4 py-2">
-        <p className="text-[9px] font-semibold uppercase tracking-[0.25em] text-gold-700">Status</p>
-        <span className={`flex items-center gap-1.5 text-xs font-semibold ${offline ? 'text-amber-400' : 'text-emerald-400'}`}>
-          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${offline ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-          {offline ? 'Offline' : 'Online'}
-        </span>
-      </div>
-      {/* Branch on larger screens */}
-      {branchId ? (
-        <div className="ml-auto hidden flex-col justify-center gap-0.5 border-l border-gold-900/20 px-4 py-2 lg:flex">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.25em] text-gold-700">Branch</p>
-          <p className="max-w-[140px] truncate text-xs font-semibold text-gold-400">{activeBranchName}</p>
-        </div>
-      ) : null}
-    </div>
-  ) : null;
+  // Stats strip removed — info consolidated into top bar and cart/totals zones
+  const statsStrip = null;
 
   const offlinePinStrip = offline && pinRequired && !pinVerified ? (
-    <div className="shrink-0 border-b border-red-800/40 bg-red-950/60 px-4 py-3">
-      <p className="mb-2 text-xs font-semibold text-red-200">{t('pinRequiredTitle')}</p>
+    <div className="shrink-0 border-b border-red-500/10 bg-red-500/[0.06] px-4 py-3">
+      <p className="mb-2 text-xs font-semibold text-red-300">{t('pinRequiredTitle')}</p>
       {pinLocked ? (
         <p className="mb-2 text-[11px] text-amber-300">
           {t('pinLocked', { until: pinLockedUntil ? new Date(pinLockedUntil).toLocaleTimeString() : '' })}
@@ -1609,7 +1672,7 @@ export default function PosPage() {
           disabled={pinLocked}
           onChange={(e) => setPinInput(e.target.value)}
           placeholder={t('pinPlaceholder')}
-          className="rounded border border-red-700/50 bg-black px-3 py-1.5 text-xs text-gold-100 disabled:opacity-50"
+          className="rounded-xl border border-red-500/20 bg-[#13121a] px-3 py-1.5 text-xs text-white disabled:opacity-50"
         />
         <button
           type="button"
@@ -1629,7 +1692,7 @@ export default function PosPage() {
             }
             setPinInput('');
           }}
-          className="rounded border border-red-700/50 px-3 py-1.5 text-xs text-red-100 disabled:opacity-50"
+          className="nvi-press rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-300 disabled:opacity-50"
         >
           {t('unlock')}
         </button>
@@ -1638,15 +1701,14 @@ export default function PosPage() {
   ) : null;
 
   // ─────────────────────────────────────────────────────────────
-  // SHARED: Search / Scan bar
+  // SHARED: Search / Scan bar — large, modern, soft borders
   // ─────────────────────────────────────────────────────────────
   const searchBar = (
-    <div className="flex shrink-0 items-center gap-2 border-b border-gold-700/20 px-4 py-3">
-      <div className="relative flex-1">
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gold-1000" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-          <circle cx="6" cy="6" r="4.5" />
-          <path d="M9.5 9.5l3 3" strokeLinecap="round" />
-        </svg>
+    <div className="flex shrink-0 items-center gap-2 border-b border-gold-500/[0.06] px-4 py-3">
+      <div className="nvi-focus-pulse relative flex-1">
+        <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-white/30">
+          <Icon name="Search" size={16} />
+        </div>
         <TypeaheadInput
           value={search}
           onChange={setSearch}
@@ -1657,50 +1719,80 @@ export default function PosPage() {
           }}
           onEnter={handleSearchSubmit}
           placeholder={t('scanOrSearch')}
-          className="w-full rounded-xl border border-gold-700/40 bg-black/70 py-2.5 pl-9 pr-3 text-sm text-gold-100 placeholder:text-gold-1000 focus:border-gold-500 focus:outline-none"
+          className="w-full rounded-2xl border border-gold-500/[0.08] bg-[#13121a] py-3 pl-11 pr-4 text-sm text-white placeholder:text-white/30 focus:border-gold-500/25 focus:bg-[#16151e] focus:outline-none transition"
         />
       </div>
       <button
         type="button"
         onClick={scanActive ? stopScan : startScan}
-        className={`flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-medium transition ${
+        className={`nvi-press flex shrink-0 items-center gap-1.5 rounded-2xl px-4 py-3 text-xs font-medium transition ${
           scanActive
-            ? 'border-rose-500/60 bg-rose-500/10 text-rose-300'
-            : 'border-gold-700/40 text-gold-400 hover:border-gold-600 hover:text-gold-200'
+            ? 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+            : 'bg-[#13121a] border border-gold-500/[0.08] text-white/50 hover:bg-gold-500/[0.06] hover:text-white/80'
         }`}
       >
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-          <path d="M1 4V2a1 1 0 011-1h2M9 1h2a1 1 0 011 1v2M12 9v2a1 1 0 01-1 1H9M4 12H2a1 1 0 01-1-1V9" />
-          <rect x="4" y="4" width="5" height="5" rx="0.5" />
-        </svg>
+        <Icon name="ScanBarcode" size={15} />
         <span className="hidden sm:inline">{scanActive ? t('scanStop') : t('scanStart')}</span>
       </button>
     </div>
   );
 
   // ─────────────────────────────────────────────────────────────
-  // SHARED: Product tile grid  (colClass e.g. 'grid-cols-2' or 'grid-cols-3')
+  // SHARED: Product tile grid — browsable catalog with real cards
   // ─────────────────────────────────────────────────────────────
   const buildProductGrid = (colClass: string) => (
     <div className="flex-1 overflow-y-auto">
+      {/* Filter input */}
       <div className="px-4 py-3">
-        <input
-          value={productQuery}
-          onChange={(e) => setProductQuery(e.target.value)}
-          placeholder={t('productSearchPlaceholder')}
-          className="w-full rounded-xl border border-gold-700/30 bg-black/50 px-3 py-2 text-xs text-gold-100 placeholder:text-gold-1000 focus:border-gold-500 focus:outline-none"
-        />
-      </div>
-      <div className={`mx-4 mb-4 overflow-hidden rounded-xl border border-gold-700/40 bg-black/80 ${scanActive ? '' : 'hidden'}`}>
-        <video ref={videoRef} className="w-full" />
-        {scanMessage ? (
-          <p className="px-3 py-2 text-center text-xs text-gold-400">{scanMessage}</p>
+        <div className="nvi-focus-pulse relative">
+          <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/25">
+            <Icon name="Search" size={13} />
+          </div>
+          <input
+            value={productQuery}
+            onChange={(e) => setProductQuery(e.target.value)}
+            placeholder={t('productSearchPlaceholder')}
+            className="w-full rounded-xl border border-gold-500/[0.08] bg-[#13121a] py-2 pl-9 pr-3 text-xs text-white placeholder:text-white/30 focus:border-gold-500/25 focus:outline-none transition"
+          />
+        </div>
+        {posMode === 'desktop' ? (
+          <div className="mt-1.5 flex gap-3 text-[10px] text-white/25">
+            <span>Esc: {t('shortcutClear')}</span>
+            <span>Enter: {t('shortcutSearch')}</span>
+          </div>
         ) : null}
       </div>
+      {/* Popular / favorites */}
+      {popularItems.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 px-4 mb-3">
+          <span className="flex items-center gap-1.5 rounded-lg bg-gold-500/[0.06] p-1 text-gold-400">
+            <Icon name="TrendingUp" size={13} />
+          </span>
+          <span className="text-xs font-medium text-white/50">{t('favorites')}</span>
+          {popularItems.map((item) => (
+            <button key={item.variantId} onClick={() => addToCartByVariantId(item.variantId)} className="nvi-press rounded-lg bg-gold-500/[0.04] border border-gold-500/[0.08] px-2.5 py-1 text-xs text-white/70 hover:bg-gold-500/[0.08] hover:border-gold-500/15 transition">
+              {item.variant?.name ?? common('unknown')}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {/* Scanner video */}
+      <div className={`mx-4 mb-4 overflow-hidden rounded-xl border border-gold-500/[0.08] bg-black/80 ${scanActive ? '' : 'hidden'}`}>
+        <video ref={videoRef} className="w-full" />
+        {scanMessage ? (
+          <p className="px-3 py-2 text-center text-xs text-white/50">{scanMessage}</p>
+        ) : null}
+      </div>
+      {/* Empty state */}
       {filteredProductVariants.length === 0 ? (
-        <p className="px-4 py-10 text-center text-sm text-gold-1000">{t('productNoResults')}</p>
+        <div className="flex flex-col items-center justify-center py-14 text-center">
+          <div className="mb-3 rounded-2xl bg-gold-500/[0.04] p-4">
+            <Icon name="PackageSearch" size={36} className="text-white/20" />
+          </div>
+          <p className="text-sm text-white/30">{t('productNoResults')}</p>
+        </div>
       ) : (
-        <div className={`grid gap-3 px-4 pb-4 ${colClass}`}>
+        <div className={`grid gap-2 px-4 pb-4 ${colClass}`}>
           {filteredProductVariants.map((variant) => {
             const displayName = formatVariantLabel({
               id: variant.id,
@@ -1715,42 +1807,49 @@ export default function PosPage() {
                 type="button"
                 onClick={() => addToCart(variant)}
                 style={lastAddedVariantId === variant.id ? { animation: 'nvi-card-flash 700ms ease forwards' } : undefined}
-                className="pos-product-card pos-hoverable group relative flex flex-col overflow-hidden rounded-2xl border border-gold-900/40 text-left active:scale-[0.97]"
+                className="nvi-card-hover group relative flex flex-col overflow-hidden rounded-xl border border-white/[0.06] bg-[#13121a] text-left transition hover:border-gold-500/30 hover:shadow-[0_0_20px_rgba(227,178,51,0.06)]"
               >
-                <div className="pos-shine" aria-hidden="true" />
-                <div className="relative aspect-square w-full overflow-hidden bg-[#0d0f16]">
+                {/* Product image or icon placeholder */}
+                <div className="nvi-img-zoom relative aspect-[4/3] w-full overflow-hidden rounded-t-xl bg-[#0e0d14]">
                   {variant.imageUrl ? (
                     <img
                       src={variant.imageUrl}
                       alt={displayName}
-                      className="h-full w-full object-cover transition group-hover:scale-105"
+                      className="h-full w-full object-cover"
                     />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xl font-bold text-gold-700">
-                      {displayName.slice(0, 2).toUpperCase()}
+                    <div className="flex h-full w-full items-center justify-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gold-500/[0.06]">
+                        <Icon name="Package" size={22} className="text-white/20" />
+                      </div>
                     </div>
                   )}
                   {inCart ? (
-                    <div className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gold-400 text-[10px] font-bold text-black shadow">
+                    <div className="nvi-pop absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-gold-500 text-[10px] font-bold text-black shadow-lg">
                       {inCart.quantity}
                     </div>
                   ) : (
-                    <div className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-gold-700/40 bg-black/60 text-[10px] text-gold-1000 opacity-0 transition group-hover:opacity-100">
-                      +
+                    <div className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-lg bg-gold-500/20 text-gold-400 opacity-0 transition group-hover:opacity-100">
+                      <Icon name="Plus" size={13} />
                     </div>
                   )}
                 </div>
-                <div className="flex flex-1 flex-col justify-between p-2.5">
-                  {/* Category badge — product name as context */}
+                {/* Card info */}
+                <div className="flex flex-1 flex-col justify-between p-3">
+                  <p className="line-clamp-1 text-sm font-bold leading-tight text-white">{variant.name}</p>
                   {variant.product?.name ? (
-                    <p className="mb-1 truncate text-[9px] font-semibold uppercase tracking-[0.15em] text-gold-1000">
+                    <p className="mt-0.5 truncate text-[10px] text-gold-400/40">
                       {variant.product.name}
                     </p>
                   ) : null}
-                  <p className="line-clamp-2 text-xs font-semibold leading-tight text-gold-100">{variant.name}</p>
-                  <p className="mt-1.5 text-sm font-bold tabular-nums text-gold-300">
-                    {price !== null ? amountFormatter.format(Number(price)) : '—'}
-                  </p>
+                  <div className="mt-2 flex items-center justify-between">
+                    <p className="text-sm font-semibold tabular-nums text-emerald-400">
+                      {price !== null ? amountFormatter.format(Number(price)) : '\u2014'}
+                    </p>
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gold-500/20 text-gold-400 opacity-0 transition group-hover:opacity-100">
+                      <Icon name="Plus" size={12} />
+                    </div>
+                  </div>
                 </div>
               </button>
             );
@@ -1761,28 +1860,34 @@ export default function PosPage() {
   );
 
   // ─────────────────────────────────────────────────────────────
-  // SHARED: Cart item list
+  // SHARED: Cart item list — compact row design
   // ─────────────────────────────────────────────────────────────
   const cartItemList = (
     <div className="flex-1 overflow-y-auto">
-      {/* Customer — typeahead search + badge */}
-      <div className="border-b border-gold-700/20 px-4 py-3">
+      {/* Cart header with item count badge */}
+      <div className="flex items-center justify-between border-b border-gold-500/[0.04] px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <Icon name="ShoppingCart" size={14} className="text-gold-400/50" />
+          <span className="text-sm font-semibold text-white">{t('cartTitle')}</span>
+          {cart.length > 0 ? (
+            <span className="nvi-pop inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-gold-500 px-1.5 text-[10px] font-bold text-black">
+              {cartUnits}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* ZONE 5: Customer section — compact bar */}
+      <div className="border-b border-gold-500/[0.04] px-4 py-2.5">
         {selectedCustomer ? (
-          /* ── Selected customer badge ── */
-          <div className="flex items-center gap-3 rounded-xl border border-gold-700/30 bg-[#11131b] px-3 py-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gold-400/10 text-sm font-bold text-gold-400">
-              {selectedCustomer.name.slice(0, 2).toUpperCase()}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-gold-100">{selectedCustomer.name}</p>
-              {selectedCustomer.tinNumber ? (
-                <p className="mt-0.5 text-[10px] font-medium tracking-wide text-gold-500">
-                  TIN · {selectedCustomer.tinNumber}
-                </p>
-              ) : (
-                <p className="mt-0.5 text-[10px] text-gold-700">{t('customerOptional')}</p>
-              )}
-            </div>
+          <div className="flex items-center gap-2.5 rounded-xl bg-gold-500/[0.04] px-3 py-2">
+            <span className="text-sm font-bold text-white">{selectedCustomer.name}</span>
+            {selectedCustomer.totalOutstanding && selectedCustomer.totalOutstanding > 0 ? (
+              <span className="text-xs font-medium text-amber-400">{amountFormatter.format(selectedCustomer.totalOutstanding)} due</span>
+            ) : null}
+            {selectedCustomer.tinNumber ? (
+              <span className="text-[10px] text-white/30">TIN {selectedCustomer.tinNumber}</span>
+            ) : null}
             <button
               type="button"
               onClick={() => {
@@ -1790,22 +1895,17 @@ export default function PosPage() {
                 setSelectedCustomer(null);
                 setCustomerQuery('');
               }}
-              aria-label="Remove customer"
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-gold-1000 transition hover:bg-red-500/10 hover:text-red-400"
+              className="nvi-press ml-auto text-[11px] text-white/40 transition hover:text-white/70"
             >
-              <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M1.5 1.5l6 6M7.5 1.5l-6 6" strokeLinecap="round" />
-              </svg>
+              Change
             </button>
           </div>
         ) : (
-          /* ── Customer search input + dropdown ── */
           <div className="relative">
             <div className="relative">
-              <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gold-1000" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                <circle cx="5.5" cy="5" r="3.5" />
-                <path d="M8.5 8.5l3 3" strokeLinecap="round" />
-              </svg>
+              <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/25">
+                <Icon name="Users" size={14} />
+              </div>
               <input
                 type="text"
                 value={customerQuery}
@@ -1816,12 +1916,11 @@ export default function PosPage() {
                 }}
                 onBlur={() => setTimeout(() => setCustomerFocused(false), 150)}
                 placeholder={t('customerOptional')}
-                className="w-full rounded-xl border border-gold-700/30 bg-[#0d0f16] py-2.5 pl-9 pr-3 text-sm text-gold-100 placeholder:text-gold-1000 focus:border-gold-500 focus:outline-none"
+                className="w-full rounded-xl bg-[#13121a] border border-gold-500/[0.08] py-2 pl-9 pr-3 text-sm text-white placeholder:text-white/30 focus:border-gold-500/25 focus:outline-none transition"
               />
             </div>
-            {/* Dropdown */}
             {customerFocused && customerResults.length > 0 ? (
-              <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-gold-700/30 bg-[#11131b] shadow-2xl">
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-gold-500/[0.08] bg-[#0d0c10] shadow-2xl">
                 {customerResults.map((customer) => (
                   <button
                     key={customer.id}
@@ -1832,15 +1931,15 @@ export default function PosPage() {
                       setCustomerQuery('');
                       setCustomerFocused(false);
                     }}
-                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-gold-400/[0.08]"
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-gold-500/[0.04]"
                   >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gold-400/10 text-[11px] font-bold text-gold-400">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gold-500/[0.08] text-[10px] font-bold text-gold-400/60">
                       {customer.name.slice(0, 2).toUpperCase()}
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-gold-100">{customer.name}</p>
+                      <p className="truncate text-sm font-medium text-white">{customer.name}</p>
                       {customer.tinNumber ? (
-                        <p className="text-[10px] text-gold-1000">TIN · {customer.tinNumber}</p>
+                        <p className="text-[10px] text-white/30">TIN {customer.tinNumber}</p>
                       ) : null}
                     </div>
                   </button>
@@ -1850,22 +1949,23 @@ export default function PosPage() {
           </div>
         )}
         {activePriceList ? (
-          <p className="mt-2 text-[11px] text-gold-500">{t('priceListLabel', { name: activePriceList.name })}</p>
+          <p className="mt-1.5 flex items-center gap-1 text-[11px] text-white/40">
+            <Icon name="Tag" size={11} />
+            {t('priceListLabel', { name: activePriceList.name })}
+          </p>
         ) : null}
       </div>
 
-      {/* Empty state */}
+      {/* Empty cart state */}
       {cart.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-14 text-center">
-          <svg className="mb-3 text-gold-700" width="36" height="36" viewBox="0 0 36 36" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-            <path d="M5 5h4l5 18h14l5-12H12" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="17" cy="30" r="1.8" />
-            <circle cx="26" cy="30" r="1.8" />
-          </svg>
-          <p className="text-sm text-gold-1000">{t('cartEmpty')}</p>
+          <div className="rounded-2xl bg-gold-500/[0.06] p-6 mb-3">
+            <Icon name="ShoppingCart" size={48} className="text-gold-400/20" />
+          </div>
+          <p className="text-sm text-white/30">{t('cartEmpty')}</p>
         </div>
       ) : (
-        <div className="divide-y divide-gold-700/20">
+        <div>
           {cart.map((item, index) => {
             const displayName = formatVariantLabel({
               id: item.variant.id,
@@ -1877,52 +1977,52 @@ export default function PosPage() {
               <div
                 key={`${item.variant.id}-${index}`}
                 style={{ animation: 'nvi-cart-slide-in 220ms ease forwards' }}
-                className="px-4 py-3"
+                className="group border-b border-gold-500/[0.04] px-4 py-2.5"
               >
-                <div className="flex items-start justify-between gap-2">
+                {/* Row 1: name, qty stepper, total, remove */}
+                <div className="flex items-center gap-3">
+                  {/* Name + variant */}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-gold-100">{displayName}</p>
+                    <p className="truncate text-sm font-medium text-white">{displayName}</p>
                     {item.variant.minPrice && item.unitPrice < item.variant.minPrice ? (
                       <p className="text-[10px] text-red-400">{t('minPriceLabel', { value: item.variant.minPrice })}</p>
                     ) : null}
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <span className="text-sm font-bold tabular-nums text-gold-200">
-                      {amountFormatter.format(lineTotal)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeCartItem(index)}
-                      aria-label="Remove"
-                      className="flex h-5 w-5 items-center justify-center rounded text-gold-1000 hover:text-red-400"
-                    >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-                        <path d="M2 2l6 6M8 2L2 8" strokeLinecap="round" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                  {/* Qty stepper */}
-                  <div className="flex items-center rounded-lg border border-gold-900/40 bg-[#0d0f16]">
+                  {/* Quantity stepper — compact */}
+                  <div className="flex items-center gap-0.5">
                     <button
                       type="button"
                       onClick={() => updateCartItem(index, { quantity: Math.max(1, item.quantity - 1) })}
-                      className="flex h-8 w-8 items-center justify-center rounded-l-lg text-lg text-gold-400 hover:bg-gold-700/20 hover:text-gold-200"
+                      className="nvi-press flex h-7 w-7 items-center justify-center rounded-md bg-gold-500/[0.08] text-white/60 transition hover:bg-gold-500/15 hover:text-gold-400"
                     >
-                      −
+                      <Icon name="Minus" size={12} />
                     </button>
-                    <span className="w-9 text-center text-sm tabular-nums text-gold-100">{item.quantity}</span>
+                    <span className="w-8 text-center text-sm font-semibold tabular-nums text-white">{item.quantity}</span>
                     <button
                       type="button"
                       onClick={() => updateCartItem(index, { quantity: item.quantity + 1 })}
-                      className="flex h-8 w-8 items-center justify-center rounded-r-lg text-lg text-gold-400 hover:bg-gold-700/20 hover:text-gold-200"
+                      className="nvi-press flex h-7 w-7 items-center justify-center rounded-md bg-gold-500/[0.08] text-white/60 transition hover:bg-gold-500/15 hover:text-gold-400"
                     >
-                      +
+                      <Icon name="Plus" size={12} />
                     </button>
                   </div>
-                  {/* Unit */}
-                  <div className="min-w-[110px] flex-1">
+                  {/* Line total */}
+                  <span className="w-20 text-right text-sm font-bold tabular-nums text-white">
+                    {amountFormatter.format(lineTotal)}
+                  </span>
+                  {/* Remove — appears on hover */}
+                  <button
+                    type="button"
+                    onClick={() => removeCartItem(index)}
+                    aria-label="Remove"
+                    className="nvi-press flex h-6 w-6 items-center justify-center rounded-md text-white/20 opacity-0 transition group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-400"
+                  >
+                    <Icon name="Trash2" size={12} />
+                  </button>
+                </div>
+                {/* Row 2: Unit, price, line discount (expandable detail) */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <div className="min-w-[100px] flex-1">
                     <SmartSelect
                       instanceId={`pos-unit-${index}`}
                       value={item.unitId || ''}
@@ -1941,22 +2041,27 @@ export default function PosPage() {
                       options={getVariantUnitOptions(item.variant).map((u) => ({ value: u.id, label: buildUnitLabel(u) }))}
                       placeholder={t('unit')}
                     />
+                    <UnitHelpPanel
+                      mode="hint"
+                      baseUnitLabel={units.find((u) => u.id === item.variant.baseUnitId)?.label}
+                      sellUnitLabel={units.find((u) => u.id === item.variant.sellUnitId)?.label}
+                      conversionFactor={resolveUnitFactor(item.variant, item.unitId)}
+                      quantity={item.quantity}
+                    />
                   </div>
-                  {/* Unit price */}
                   <CurrencyInput
                     value={String(item.unitPrice)}
                     readOnly={!priceEditEnabled}
                     onChange={(value) => {
                       if (priceEditEnabled) updateCartItem(index, { unitPrice: Number(value) || 0 });
                     }}
-                    className={`w-24 rounded-lg border border-gold-700/40 bg-[#0d0f16] px-2 py-1.5 text-xs tabular-nums text-gold-100 focus:outline-none ${priceEditEnabled ? 'focus:border-gold-500' : 'cursor-default opacity-60'}`}
+                    className={`w-24 rounded-lg border border-gold-500/[0.08] bg-[#13121a] px-2 py-1.5 text-xs tabular-nums text-white focus:outline-none transition ${priceEditEnabled ? 'focus:border-gold-500/25' : 'cursor-default opacity-50'}`}
                     placeholder={t('unitPrice')}
                   />
-                  {/* Line discount */}
                   <CurrencyInput
                     value={item.lineDiscount ? String(item.lineDiscount) : ''}
                     onChange={(value) => updateCartItem(index, { lineDiscount: Number(value) || 0 })}
-                    className="w-20 rounded-lg border border-gold-700/40 bg-black/60 px-2 py-1.5 text-xs tabular-nums text-gold-500 placeholder:text-gold-700 focus:border-gold-500 focus:outline-none"
+                    className="w-20 rounded-lg border border-gold-500/[0.08] bg-[#13121a] px-2 py-1.5 text-xs tabular-nums text-white/60 placeholder:text-white/20 focus:border-gold-500/25 focus:outline-none transition"
                     placeholder={t('discount')}
                   />
                 </div>
@@ -1968,12 +2073,12 @@ export default function PosPage() {
 
       {/* Cart-level discount */}
       {cart.length > 0 ? (
-        <div className="flex items-center justify-between border-t border-gold-700/20 px-4 py-2">
-          <span className="text-xs text-gold-500">{t('cartDiscount')}</span>
+        <div className="flex items-center justify-between border-t border-gold-500/[0.04] px-4 py-2">
+          <span className="text-xs text-white/40">{t('cartDiscount')}</span>
           <CurrencyInput
             value={cartDiscount ? String(cartDiscount) : ''}
             onChange={(value) => setCartDiscount(Number(value) || 0)}
-            className="w-24 rounded-lg border border-gold-700/40 bg-black/60 px-2 py-1.5 text-xs tabular-nums text-gold-100 focus:border-gold-500 focus:outline-none"
+            className="w-24 rounded-lg border border-gold-500/[0.08] bg-[#13121a] px-2 py-1.5 text-xs tabular-nums text-white focus:border-gold-500/25 focus:outline-none transition"
           />
         </div>
       ) : null}
@@ -1981,85 +2086,108 @@ export default function PosPage() {
   );
 
   // ─────────────────────────────────────────────────────────────
-  // SHARED: Totals + Payment + CTA
+  // SHARED: Totals + Payment + CTA — the action zone
   // ─────────────────────────────────────────────────────────────
+
   const totalsAndPayment = (
-    <div className="shrink-0 border-t border-gold-800/30 bg-[#060609]">
-      {/* Amount Due — large prominent display */}
-      <div className="border-b border-gold-900/30 pos-amount-zone px-4 pb-4 pt-4">
-        <p className="text-[9px] font-semibold uppercase tracking-[0.3em] text-gold-1000">
-          {t('total')}
-        </p>
-        <p className="mt-1 text-5xl font-extrabold tabular-nums tracking-tight text-gold-100">
-          {amountFormatter.format(totals.total)}
-        </p>
-        {/* Breakdown row */}
-        {(totals.subtotal !== totals.total || totals.vatTotal > 0 || totals.lineDiscount + cartDiscount > 0) ? (
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[11px] text-gold-1000">
-            <span>{t('subtotal')} <span className="tabular-nums text-gold-500">{amountFormatter.format(totals.subtotal)}</span></span>
-            {totals.lineDiscount + cartDiscount > 0 ? (
-              <span>{t('discounts')} <span className="tabular-nums text-red-400">−{amountFormatter.format(totals.lineDiscount + cartDiscount)}</span></span>
-            ) : null}
-            {totals.vatTotal > 0 ? (
-              <span>{t('vat')} <span className="tabular-nums text-gold-500">{amountFormatter.format(totals.vatTotal)}</span></span>
-            ) : null}
+    <div className="nvi-slide-in-bottom shrink-0 border-t border-gold-500/[0.06] bg-[#0a0a10]">
+      {/* TOTAL — hero number in warm container */}
+      <div className="px-4 pt-4 pb-3">
+        <div className="rounded-xl bg-gold-500/[0.06] p-4">
+          {/* Breakdown rows above total */}
+          {(totals.subtotal !== totals.total || totals.vatTotal > 0 || totals.lineDiscount + cartDiscount > 0) ? (
+            <div className="mb-3 space-y-1">
+              <div className="flex items-center justify-between text-sm text-white/50">
+                <span>{t('subtotal')}</span>
+                <span className="tabular-nums">{amountFormatter.format(totals.subtotal)}</span>
+              </div>
+              {totals.lineDiscount + cartDiscount > 0 ? (
+                <div className="flex items-center justify-between text-sm text-white/50">
+                  <span>{t('discounts')}</span>
+                  <span className="tabular-nums">{'\u2212'}{amountFormatter.format(totals.lineDiscount + cartDiscount)}</span>
+                </div>
+              ) : null}
+              {totals.vatTotal > 0 ? (
+                <div className="flex items-center justify-between text-sm text-white/50">
+                  <span>{t('vat')}</span>
+                  <span className="tabular-nums">{amountFormatter.format(totals.vatTotal)}</span>
+                </div>
+              ) : null}
+              <div className="border-t border-gold-500/10" />
+            </div>
+          ) : null}
+          <div className="flex items-baseline justify-between">
+            <span className="text-xs font-medium uppercase tracking-widest text-white/40">{t('total')}</span>
+            <span className="text-3xl font-bold tabular-nums text-white">
+              {amountFormatter.format(totals.total)}
+            </span>
           </div>
-        ) : null}
+        </div>
       </div>
 
+      {/* Payment progress bar */}
+      {cart.length > 0 ? (() => {
+        const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+        return (
+          <div className="px-4 pb-2">
+            <ProgressBar value={totalPaid} max={totals.total} height={6} color={totalPaid >= totals.total ? 'green' : 'accent'} />
+          </div>
+        );
+      })() : null}
+
+      {/* Change display — if overpaid */}
+      {(() => {
+        const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+        const change = totalPaid - totals.total;
+        if (change <= 0 || cart.length === 0) return null;
+        return (
+          <div className="mx-4 mb-3 rounded-xl bg-emerald-500/10 p-3 text-center">
+            <p className="text-xs font-medium text-emerald-400/70 uppercase tracking-wider mb-1">Change</p>
+            <p className="nvi-bounce-in text-2xl font-bold text-emerald-400 tabular-nums">{amountFormatter.format(change)}</p>
+          </div>
+        );
+      })()}
+
       {/* Payments */}
-      <div className="space-y-4 px-4 pb-4 pt-3">
+      <div className="space-y-4 px-4 pb-4 pt-2">
         {payments.map((payment, index) => (
           <div key={`payment-${index}`} className="space-y-3">
             {/* Section label + remove */}
             <div className="flex items-center justify-between">
-              <p className="text-[9px] font-semibold uppercase tracking-[0.25em] text-gold-700">
-                Payment Method
+              <p className="text-[10px] font-medium uppercase tracking-widest text-white/30">
+                {t('paymentMethodLabel')}
               </p>
               {index > 0 ? (
                 <button
                   type="button"
                   onClick={() => setPayments((prev) => prev.filter((_, i) => i !== index))}
-                  className="flex items-center gap-1 text-[11px] text-red-500 hover:text-red-400"
+                  className="nvi-press flex items-center gap-1 text-[11px] text-red-400/70 hover:text-red-400"
                 >
-                  <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M1.5 1.5l6 6M7.5 1.5l-6 6" strokeLinecap="round" /></svg>
-                  Remove
+                  <Icon name="X" size={11} />
+                  {t('removePaymentLabel')}
                 </button>
               ) : null}
             </div>
-            {/* Method cards — 2-col grid */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* Method pills — colored per type */}
+            <div className="flex flex-wrap gap-2">
               {(['CASH', 'CARD', 'MOBILE_MONEY', 'BANK_TRANSFER', 'OTHER'] as const).map((method) => {
                 const selected = payment.method === method;
+                const colors = PAYMENT_METHOD_COLORS[method];
                 return (
                   <button
                     key={method}
                     type="button"
                     onClick={() => updatePayment(index, { method })}
-                    className={`flex items-center gap-2.5 rounded-xl border p-3 text-left transition ${
-                      method === 'OTHER' ? 'col-span-2' : ''
-                    } ${
-                      selected
-                        ? 'border-gold-500/50 bg-gold-400/[0.08]'
-                        : 'border-gold-900/30 bg-[#11141d] hover:border-gold-700/40 hover:bg-[#151824]'
+                    className={`nvi-press flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition ${
+                      selected ? colors.pillActive : colors.pill
                     }`}
                   >
-                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? 'bg-gold-400/20 text-gold-300' : 'bg-[#13161f] text-gold-1000'}`}>
+                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${colors.icon}`}>
                       {paymentMethodIcon(method)}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-sm font-semibold leading-tight ${selected ? 'text-gold-100' : 'text-gold-400'}`}>
-                        {paymentMethodLabel(method)}
-                      </p>
-                      <p className="mt-0.5 text-[10px] leading-tight text-gold-700">
-                        {paymentMethodDesc(method)}
-                      </p>
-                    </div>
-                    {selected ? (
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-gold-400" aria-hidden="true">
-                        <path d="M2 7l4 4 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    ) : null}
+                    <span className="text-xs font-semibold">
+                      {paymentMethodLabel(method)}
+                    </span>
                   </button>
                 );
               })}
@@ -2069,7 +2197,7 @@ export default function PosPage() {
                 value={payment.methodLabel || ''}
                 onChange={(e) => updatePayment(index, { methodLabel: e.target.value })}
                 placeholder={t('paymentLabel')}
-                className="w-full rounded-lg border border-gold-700/40 bg-[#0d0f16] px-3 py-2 text-xs text-gold-100 focus:border-gold-500 focus:outline-none"
+                className="w-full rounded-lg border border-gold-500/[0.08] bg-[#13121a] px-3 py-2 text-xs text-white focus:border-gold-500/25 focus:outline-none transition"
               />
             ) : null}
             <div className="flex gap-2">
@@ -2089,10 +2217,8 @@ export default function PosPage() {
                   const formatted = raw
                     ? new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(numericValue)
                     : '';
-                  // Count digits before the cursor position in the old value
                   const digitsBeforeCursor = el.value.slice(0, selStart).replace(/\D/g, '').length;
                   updatePayment(index, { amount: numericValue });
-                  // Restore cursor after React re-renders with the formatted value
                   requestAnimationFrame(() => {
                     if (document.activeElement !== el) return;
                     let digits = 0;
@@ -2111,16 +2237,16 @@ export default function PosPage() {
                   });
                 }}
                 placeholder={t('amount')}
-                className="flex-1 rounded-lg border border-gold-700/40 bg-[#0d0f16] px-3 py-2.5 text-sm tabular-nums text-gold-100 focus:border-gold-500 focus:outline-none"
+                className="flex-1 rounded-lg border border-gold-500/[0.08] bg-[#13121a] px-3 py-2.5 text-sm tabular-nums text-white focus:border-gold-500/25 focus:outline-none transition"
               />
               <input
                 value={payment.reference || ''}
                 onChange={(e) => updatePayment(index, { reference: e.target.value })}
                 placeholder={t('referenceOptional')}
-                className="w-28 rounded-lg border border-gold-700/40 bg-[#0d0f16] px-3 py-2.5 text-xs text-gold-500 focus:border-gold-500 focus:outline-none"
+                className="w-28 rounded-lg border border-gold-500/[0.08] bg-[#13121a] px-3 py-2.5 text-xs text-white/50 focus:border-gold-500/25 focus:outline-none transition"
               />
             </div>
-            {/* Quick-cash presets — shown for CASH payment only */}
+            {/* Quick-cash presets */}
             {payment.method === 'CASH' ? (() => {
               const otherPaid = payments.reduce((s, p, i) => i === index ? s : s + p.amount, 0);
               const remaining = Math.max(0, totals.total - otherPaid);
@@ -2130,16 +2256,16 @@ export default function PosPage() {
                   <button
                     type="button"
                     onClick={() => updatePayment(index, { amount: remaining })}
-                    className="rounded-lg border border-gold-600/40 bg-gold-400/10 px-2.5 py-1 text-[11px] font-semibold text-gold-300 transition hover:bg-gold-400/20"
+                    className="nvi-press rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-[11px] font-semibold text-emerald-400 transition hover:bg-emerald-500/15"
                   >
-                    Exact
+                    {t('exactAmount')}
                   </button>
                   {rounds.map((amt) => (
                     <button
                       key={amt}
                       type="button"
                       onClick={() => updatePayment(index, { amount: amt })}
-                      className="rounded-lg border border-gold-700/30 px-2.5 py-1 text-[11px] text-gold-500 transition hover:border-gold-600 hover:text-gold-300"
+                      className="nvi-press rounded-lg bg-gold-500/[0.06] border border-gold-500/15 px-3 py-1.5 text-[11px] text-gold-200 transition hover:bg-gold-500/[0.10] hover:text-gold-100"
                     >
                       {formatQuickAmount(amt)}
                     </button>
@@ -2152,32 +2278,39 @@ export default function PosPage() {
         <button
           type="button"
           onClick={addPayment}
-          className="flex items-center gap-1.5 rounded-lg border border-gold-700/30 px-3 py-2 text-xs text-gold-500 transition hover:border-gold-600 hover:text-gold-300"
+          className="nvi-press flex items-center gap-1.5 rounded-lg border border-gold-500/[0.08] px-3 py-2 text-xs text-white/40 transition hover:bg-gold-500/[0.06] hover:text-white/60"
         >
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d="M5.5 1v9M1 5.5h9" strokeLinecap="round" />
-          </svg>
+          <Icon name="Plus" size={13} />
           {t('addPayment')}
         </button>
 
+        {/* Sale notes */}
+        <input
+          value={saleNotes}
+          onChange={(e) => setSaleNotes(e.target.value)}
+          placeholder={t('saleNotes')}
+          className="w-full rounded-xl border border-gold-500/[0.08] bg-[#13121a] px-3 py-2 text-sm text-white placeholder:text-white/25 focus:border-gold-500/25 focus:outline-none transition"
+        />
+
         {/* Credit sale */}
         {creditEnabled ? (
-          <div className="rounded-xl border border-gold-700/20 bg-black/40 p-3">
-            <label className="flex items-center gap-2 text-xs text-gold-400">
+          <div className="rounded-xl border border-gold-500/[0.08] bg-[#13121a] p-3">
+            <label className="flex items-center gap-2 text-xs text-white/50">
               <input
                 type="checkbox"
                 checked={creditSale}
                 onChange={(e) => setCreditSale(e.target.checked)}
                 className="accent-gold-400"
               />
+              <Icon name="CalendarClock" size={13} />
               {t('creditSale')}
             </label>
             {creditSale ? (
-              <div className="mt-2">
+              <div className="nvi-expand mt-2">
                 <DatePickerInput
                   value={creditDueDate}
                   onChange={setCreditDueDate}
-                  className="w-full rounded-lg border border-gold-700/40 bg-black px-3 py-2 text-xs text-gold-100"
+                  className="w-full rounded-xl border border-gold-500/[0.08] bg-[#13121a] px-3 py-2 text-xs text-white"
                 />
               </div>
             ) : null}
@@ -2187,11 +2320,49 @@ export default function PosPage() {
 
       {/* Complete Sale CTA */}
       <div className="px-4 pb-4">
+        {/* Park + parked sales */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <button onClick={parkSale} disabled={cart.length === 0} className="nvi-press flex items-center gap-1.5 rounded-lg border border-gold-500/[0.08] bg-[#13121a] px-3 py-2 text-xs text-white/60 disabled:opacity-30 transition hover:bg-gold-500/[0.06]">
+            <Icon name="CircleParking" size={13} />
+            {t('parkSale')}
+          </button>
+          {parkedSales.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-xs text-white/40">{t('parkedSales')} ({parkedSales.length}):</span>
+              {parkedSales.map((ps, i) => (
+                <button key={ps.id} type="button" onClick={() => resumeParkedSale(i)}
+                  className="nvi-press rounded-lg bg-gold-500/[0.04] border border-gold-500/[0.08] px-2.5 py-1 text-xs text-white/60 hover:bg-gold-500/[0.08] transition">
+                  {ps.cart.length} {t('parkedItems')} &middot; {new Date(ps.parkedAt).toLocaleTimeString()}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-white/40 sm:hidden">
+            <input
+              type="checkbox"
+              checked={scanSoundEnabled}
+              onChange={(e) => setScanSoundEnabled(e.target.checked)}
+              className="accent-gold-400"
+            />
+            <Icon name={scanSoundEnabled ? 'Volume2' : 'VolumeX'} size={13} />
+            {t('scanSound')}
+          </label>
+        </div>
+        {/* Complete Sale — THE primary CTA with gradient */}
+        {(() => {
+          const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+          const paymentSufficient = cart.length > 0 && totalPaid >= totals.total;
+          return (
         <button
           type="button"
           onClick={completeSale}
           disabled={isCompleting || cart.length === 0}
-          className="nvi-cta pos-cta flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-base font-bold text-black disabled:opacity-50"
+          className={`nvi-press flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-gold-500 to-gold-400 py-4 text-lg font-bold text-black transition disabled:opacity-40 disabled:shadow-none ${
+            paymentSufficient
+              ? 'shadow-[0_0_40px_rgba(246,211,122,0.35)] hover:shadow-[0_0_50px_rgba(246,211,122,0.45)]'
+              : 'shadow-[0_8px_30px_rgba(246,211,122,0.2)] hover:shadow-[0_12px_40px_rgba(246,211,122,0.3)]'
+          }`}
+          style={paymentSufficient ? { animation: 'nvi-glow-pulse 2s ease-in-out infinite' } : undefined}
         >
           {isCompleting ? (
             <>
@@ -2200,13 +2371,13 @@ export default function PosPage() {
             </>
           ) : (
             <>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M3 8l4 4 6-7" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <Icon name="CircleCheck" size={20} />
               <span>{t('completeSale')}</span>
             </>
           )}
         </button>
+          );
+        })()}
 
         {/* Printer controls */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -2214,12 +2385,9 @@ export default function PosPage() {
             type="button"
             onClick={connectPrinter}
             disabled={isConnectingPrinter}
-            className="flex items-center gap-1.5 rounded-lg border border-gold-700/40 px-3 py-2 text-xs text-gold-400 transition hover:border-gold-500 hover:text-gold-200 disabled:opacity-50"
+            className="nvi-press flex items-center gap-1.5 rounded-lg border border-gold-500/[0.08] px-3 py-2 text-xs text-white/40 transition hover:bg-gold-500/[0.06] hover:text-white/60 disabled:opacity-40"
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-              <rect x="2" y="4" width="8" height="5" rx="1" />
-              <path d="M4 4V2h4v2M4 7h4" strokeLinecap="round" />
-            </svg>
+            <Icon name="Printer" size={13} />
             {isConnectingPrinter
               ? t('printerConnecting')
               : printer
@@ -2230,12 +2398,9 @@ export default function PosPage() {
             <button
               type="button"
               onClick={() => setPreviewReceipt(lastReceipt)}
-              className="flex items-center gap-1.5 rounded-lg border border-gold-700/40 px-3 py-2 text-xs text-gold-400 transition hover:border-gold-500 hover:text-gold-200"
+              className="nvi-press flex items-center gap-1.5 rounded-lg border border-gold-500/[0.08] px-3 py-2 text-xs text-white/40 transition hover:bg-gold-500/[0.06] hover:text-white/60"
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                <rect x="2" y="1" width="8" height="10" rx="1" />
-                <path d="M4 4h4M4 6.5h4M4 9h2" strokeLinecap="round" />
-              </svg>
+              <Icon name="FileText" size={13} />
               {t('previewAndPrint')}
             </button>
           ) : null}
@@ -2243,16 +2408,14 @@ export default function PosPage() {
             <button
               type="button"
               onClick={() => printReceipt(lastReceipt)}
-              className="flex items-center gap-1.5 rounded-lg border border-gold-700/40 px-3 py-2 text-xs text-gold-400 transition hover:border-gold-500 hover:text-gold-200"
+              className="nvi-press flex items-center gap-1.5 rounded-lg border border-gold-500/[0.08] px-3 py-2 text-xs text-white/40 transition hover:bg-gold-500/[0.06] hover:text-white/60"
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                <path d="M6 2v6M3.5 5.5 6 8l2.5-2.5M2 10h8" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <Icon name="Download" size={13} />
               {t('printLastReceipt')}
             </button>
           ) : null}
           {printer ? (
-            <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-gold-700/30 px-3 py-2 text-xs text-gold-500 transition hover:border-gold-600 hover:text-gold-300">
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-gold-500/[0.08] px-3 py-2 text-xs text-white/40 transition hover:bg-gold-500/[0.06] hover:text-white/60">
               <input
                 type="checkbox"
                 checked={useHardwarePrint}
@@ -2268,22 +2431,18 @@ export default function PosPage() {
   );
 
   // ─────────────────────────────────────────────────────────────
-  // DESKTOP LAYOUT (≥1024px)
+  // DESKTOP LAYOUT (≥1024px) — product zone vs transaction zone
   // ─────────────────────────────────────────────────────────────
   const desktopLayout = (
     <div className="flex min-h-0 flex-1">
-      {/* Left 45%: search bar + product grid */}
-      <div className="flex w-[45%] shrink-0 flex-col border-r border-gold-800/30">
+      {/* Left: product catalog zone */}
+      <div className="flex w-[48%] shrink-0 flex-col border-r border-gold-500/[0.04]">
         {searchBar}
-        {buildProductGrid('grid-cols-3')}
+        {buildProductGrid('grid-cols-2 sm:grid-cols-3 lg:grid-cols-4')}
       </div>
-      {/* Right 55%: cart (flex-1) + payment panel (capped, scrollable) */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* Right: cart + payment zone */}
+      <div className="flex min-w-0 flex-1 flex-col bg-[#0a0a10]">
         {cartItemList}
-        {/*
-          Payment panel is bounded to 60% of the column so the cart above is
-          always visible. Overflowing content scrolls within the panel.
-        */}
         <div className="max-h-[60%] shrink-0 overflow-y-auto">
           {totalsAndPayment}
         </div>
@@ -2297,31 +2456,38 @@ export default function PosPage() {
   const tabletLayout = (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Tab bar */}
-      <div className="flex shrink-0 border-b border-gold-700/20 bg-black/80">
+      <div className="flex shrink-0 border-b border-gold-500/10 bg-[#0d0c10]">
         {(['products', 'cart', 'pay'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
             onClick={() => setMobileTab(tab)}
-            className={`relative flex-1 py-3 text-xs font-semibold uppercase tracking-wider transition ${
+            className={`nvi-press relative flex-1 py-3 text-xs font-semibold uppercase tracking-wider transition ${
               mobileTab === tab
-                ? 'border-b-2 border-gold-400 text-gold-200'
-                : 'text-gold-1000 hover:text-gold-400'
+                ? 'border-b-2 border-gold-400 text-white'
+                : 'text-white/30 hover:text-white/60'
             }`}
           >
             {tab === 'products' ? (
-              t('productsTitle')
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <Icon name="Package" size={14} />
+                {t('productsTitle')}
+              </span>
             ) : tab === 'cart' ? (
               <span className="inline-flex items-center justify-center gap-1.5">
+                <Icon name="ShoppingCart" size={14} />
                 {t('cartTitle')}
                 {cart.length > 0 ? (
-                  <span className="rounded-full bg-gold-400 px-1.5 py-0.5 text-[9px] font-bold text-black">
+                  <span className="nvi-pop rounded-full bg-gold-500 px-1.5 py-0.5 text-[9px] font-bold text-black">
                     {cart.length}
                   </span>
                 ) : null}
               </span>
             ) : (
-              t('totalsTitle')
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <Icon name="CreditCard" size={14} />
+                {t('totalsTitle')}
+              </span>
             )}
           </button>
         ))}
@@ -2353,13 +2519,13 @@ export default function PosPage() {
       {searchBar}
       {buildProductGrid('grid-cols-2')}
 
-      {/* Sticky bottom strip: cart summary + open-sheet button */}
-      <div className="flex shrink-0 items-center justify-between border-t border-gold-700/20 bg-black/90 px-4 py-3">
+      {/* Sticky bottom strip */}
+      <div className="flex shrink-0 items-center justify-between border-t border-gold-500/10 bg-[#0d0c10]/95 px-4 py-3 backdrop-blur-sm">
         <div>
-          <p className="text-[11px] text-gold-500">
-            {cart.length} {cart.length === 1 ? 'item' : 'items'}
+          <p className="text-[11px] text-white/40">
+            {cart.length} {cart.length === 1 ? t('itemSingular') : t('itemPlural')}
           </p>
-          <p className="text-base font-bold tabular-nums text-gold-100">
+          <p className="text-base font-bold tabular-nums text-white">
             {amountFormatter.format(totals.total)}
           </p>
         </div>
@@ -2367,14 +2533,10 @@ export default function PosPage() {
           type="button"
           onClick={() => { if (cart.length > 0) setCartSheetOpen(true); }}
           disabled={cart.length === 0}
-          className="nvi-cta pos-cta flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-black disabled:opacity-40"
+          className="nvi-press flex items-center gap-2 rounded-xl bg-gradient-to-r from-gold-500 to-gold-400 px-4 py-2.5 text-sm font-bold text-black shadow-[0_4px_16px_rgba(246,211,122,0.2)] disabled:opacity-30 disabled:shadow-none"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d="M2 2h2l2.5 7.5h5L13 4H5" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="7" cy="11.5" r="0.9" fill="currentColor" />
-            <circle cx="10.5" cy="11.5" r="0.9" fill="currentColor" />
-          </svg>
-          Cart ({cart.length})
+          <Icon name="ShoppingCart" size={15} />
+          {t('cartTitle')} ({cart.length})
         </button>
       </div>
 
@@ -2385,19 +2547,20 @@ export default function PosPage() {
             className="fixed inset-0 z-[210] bg-black/60 backdrop-blur-sm"
             onClick={() => setCartSheetOpen(false)}
           />
-          <div className="fixed inset-x-0 bottom-0 z-[220] flex max-h-[88vh] flex-col rounded-t-3xl border-t border-gold-700/30 bg-[#11131b] shadow-2xl">
+          <div className="fixed inset-x-0 bottom-0 z-[220] flex max-h-[88vh] flex-col rounded-t-3xl border-t border-gold-500/10 bg-[#0d0c10] shadow-2xl">
             {/* Sheet header */}
-            <div className="mx-auto mt-3 h-1 w-10 shrink-0 rounded-full bg-gold-700/40" />
-            <div className="flex shrink-0 items-center justify-between border-b border-gold-700/20 px-4 py-3">
-              <h3 className="text-sm font-semibold text-gold-200">{t('cartTitle')}</h3>
+            <div className="mx-auto mt-3 h-1 w-10 shrink-0 rounded-full bg-gold-500/15" />
+            <div className="flex shrink-0 items-center justify-between border-b border-gold-500/[0.06] px-4 py-3">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Icon name="ShoppingCart" size={15} />
+                {t('cartTitle')}
+              </h3>
               <button
                 type="button"
                 onClick={() => setCartSheetOpen(false)}
-                className="flex h-6 w-6 items-center justify-center rounded text-gold-1000 hover:text-gold-300"
+                className="nvi-press flex h-6 w-6 items-center justify-center rounded-lg text-white/30 hover:text-white/60"
               >
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path d="M2 2l7 7M9 2L2 9" strokeLinecap="round" />
-                </svg>
+                <Icon name="X" size={14} />
               </button>
             </div>
             {/* Sheet body */}
@@ -2418,16 +2581,23 @@ export default function PosPage() {
     <div
       role="dialog"
       aria-modal="true"
-      className="absolute inset-0 z-[230] flex items-center justify-center bg-black/70 px-4"
+      className="absolute inset-0 z-[230] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
       onKeyDown={(e) => { if (e.key === 'Escape') setShiftModalOpen(false); }}
     >
-      <div className="w-full max-w-md rounded-2xl border border-gold-700/40 bg-black p-6 text-gold-100 shadow-2xl">
-        <p className="text-[10px] uppercase tracking-[0.35em] text-gold-400">{t('openShiftTitle')}</p>
-        <h3 className="mt-2 text-xl font-semibold">{t('openShiftTitle')}</h3>
-        <p className="mt-1 text-sm text-gold-400">{t('openShiftDesc')}</p>
+      <div className="w-full max-w-md rounded-2xl border border-gold-500/15 bg-[#0d0c10] p-6 text-white shadow-2xl">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gold-500/[0.08]">
+            <Icon name="Clock" size={20} className="text-gold-400" />
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.35em] text-white/40">{t('openShiftTitle')}</p>
+            <h3 className="text-xl font-semibold">{t('openShiftTitle')}</h3>
+          </div>
+        </div>
+        <p className="mt-2 text-sm text-white/50">{t('openShiftDesc')}</p>
         <form onSubmit={handleOpenShift} className="mt-4 space-y-4">
           <div className="space-y-1">
-            <label htmlFor="pos-opening-cash" className="text-xs uppercase tracking-[0.2em] text-gold-400">
+            <label htmlFor="pos-opening-cash" className="text-xs uppercase tracking-[0.2em] text-white/40">
               {t('openingCashLabel')}
             </label>
             <CurrencyInput
@@ -2437,11 +2607,11 @@ export default function PosPage() {
               onChange={setOpeningCash}
               placeholder="0"
               autoComplete="off"
-              className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
+              className="w-full rounded-xl border border-gold-500/[0.08] bg-[#13121a] px-3 py-2 text-sm text-white focus:ring-1 focus:ring-gold-500/30 focus:outline-none"
             />
           </div>
           <div className="space-y-1">
-            <label htmlFor="pos-shift-notes" className="text-xs uppercase tracking-[0.2em] text-gold-400">
+            <label htmlFor="pos-shift-notes" className="text-xs uppercase tracking-[0.2em] text-white/40">
               {t('shiftNotesLabel')}
             </label>
             <input
@@ -2450,22 +2620,23 @@ export default function PosPage() {
               value={shiftNotes}
               onChange={(e) => setShiftNotes(e.target.value)}
               autoComplete="off"
-              className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
+              className="w-full rounded-xl border border-gold-500/[0.08] bg-[#13121a] px-3 py-2 text-sm text-white focus:ring-1 focus:ring-gold-500/30 focus:outline-none"
             />
           </div>
           <div className="flex items-center justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={() => { setShiftModalOpen(false); setOpeningCash(''); setShiftNotes(''); }}
-              className="rounded border border-gold-700/60 px-3 py-2 text-xs text-gold-200"
+              className="nvi-press rounded-xl border border-gold-500/[0.08] px-3 py-2 text-xs text-white/60"
             >
               {common('cancel')}
             </button>
             <button
               type="submit"
               disabled={isOpeningShift || !openingCash}
-              className="nvi-cta pos-cta rounded px-4 py-2 text-xs font-semibold text-black disabled:opacity-60"
+              className="nvi-press flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold-500 to-gold-400 px-4 py-2 text-xs font-semibold text-black disabled:opacity-60"
             >
+              <Icon name="Play" size={13} />
               {isOpeningShift ? actions('saving') : t('openShiftBtn')}
             </button>
           </div>
@@ -2480,15 +2651,18 @@ export default function PosPage() {
         type="button"
         aria-label={common('close')}
         onClick={() => setPreviewReceipt(null)}
-        className="absolute inset-0 bg-black/70"
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
       />
-      <div className="relative z-10 w-full max-w-xl space-y-4 rounded border border-gold-700/40 bg-black p-4 shadow-xl">
+      <div className="relative z-10 w-full max-w-xl space-y-4 rounded-2xl border border-gold-500/15 bg-[#0d0c10] p-4 shadow-xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-lg font-semibold text-gold-100">{previewT('title')}</h3>
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
+            <Icon name="FileText" size={18} />
+            {previewT('title')}
+          </h3>
           <button
             type="button"
             onClick={() => setPreviewReceipt(null)}
-            className="rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100"
+            className="nvi-press rounded-xl border border-gold-500/[0.08] px-3 py-1 text-xs text-white/60"
           >
             {common('close')}
           </button>
@@ -2499,7 +2673,7 @@ export default function PosPage() {
               key={m}
               type="button"
               onClick={() => setPreviewMode(m)}
-              className={`rounded border px-3 py-1 ${previewMode === m ? 'border-gold-500 text-gold-100' : 'border-gold-700/50 text-gold-400'}`}
+              className={`nvi-press rounded-xl border px-3 py-1 ${previewMode === m ? 'border-gold-500/50 bg-gold-500/10 text-white' : 'border-gold-500/[0.08] text-white/50'}`}
             >
               {m === 'compact' ? previewT('compact') : previewT('detailed')}
             </button>
@@ -2515,15 +2689,16 @@ export default function PosPage() {
           <button
             type="button"
             onClick={() => setPreviewReceipt(null)}
-            className="rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100"
+            className="nvi-press rounded-xl border border-gold-500/[0.08] px-3 py-2 text-xs text-white/60"
           >
             {common('close')}
           </button>
           <button
             type="button"
             onClick={handlePreviewPrint}
-            className="nvi-cta pos-cta rounded px-3 py-2 text-xs font-semibold text-black"
+            className="nvi-press flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold-500 to-gold-400 px-3 py-2 text-xs font-semibold text-black"
           >
+            <Icon name="Printer" size={13} />
             {previewT('printReceipt')}
           </button>
         </div>
@@ -2536,37 +2711,33 @@ export default function PosPage() {
   // ─────────────────────────────────────────────────────────────
   return (
     <div
-      className="fixed inset-0 z-[200] flex flex-col overflow-hidden text-gold-100"
+      className="fixed inset-0 z-[200] flex flex-col overflow-hidden text-white"
       style={{
-        background: [
-          'radial-gradient(1200px 900px at 14% 0%, rgba(246,211,122,.12), transparent 58%)',
-          'radial-gradient(900px 700px at 92% 8%, rgba(100,217,209,.08), transparent 52%)',
-          'radial-gradient(1200px 900px at 50% 120%, rgba(246,211,122,.08), transparent 55%)',
-          'linear-gradient(180deg, #060609, #0b0b10)',
-        ].join(', '),
+        background: 'linear-gradient(180deg, #0a0a10, #08080d)',
       }}
     >
-      {/* Noise grain texture overlay */}
+      {/* Subtle ambient glow — very faint, not gold-dominant */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
         style={{
           zIndex: -1,
-          backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.14'/%3E%3C/svg%3E\")",
-          mixBlendMode: 'overlay',
-          opacity: 0.22,
+          background: [
+            'radial-gradient(800px 600px at 10% 0%, rgba(246,211,122,.04), transparent 60%)',
+            'radial-gradient(600px 500px at 90% 5%, rgba(100,217,209,.03), transparent 50%)',
+          ].join(', '),
         }}
       />
 
       {/* Loading overlay */}
       {showLoadingOverlay ? (
-        <div className="absolute inset-0 z-[230] flex items-center justify-center bg-black/80">
-          <div className="w-full max-w-sm rounded-2xl border border-gold-700/40 bg-[#11131b] p-6 text-center shadow-2xl">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-gold-700/50">
+        <div className="absolute inset-0 z-[230] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-gold-500/15 bg-[#0d0c10] p-6 text-center shadow-2xl">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-gold-500/15">
               <Spinner size="sm" variant="ring" />
             </div>
-            <p className="text-sm font-semibold text-gold-100">{t('loadingPos')}</p>
-            <p className="mt-2 text-xs text-gold-500">{t('loadingPosHint')}</p>
+            <p className="text-sm font-semibold text-white">{t('loadingPos')}</p>
+            <p className="mt-2 text-xs text-white/40">{t('loadingPosHint')}</p>
           </div>
         </div>
       ) : null}
@@ -2591,6 +2762,10 @@ export default function PosPage() {
       </div>
 
       <style jsx global>{`
+        @keyframes nvi-glow-pulse {
+          0%, 100% { box-shadow: 0 0 40px rgba(246,211,122,0.35); }
+          50% { box-shadow: 0 0 55px rgba(246,211,122,0.50); }
+        }
         @media print {
           body { background: white !important; }
           body * { visibility: hidden; }
@@ -2600,68 +2775,6 @@ export default function PosPage() {
           #pos-receipt-print .receipt-paper * { color: #111 !important; }
           #pos-receipt-print[data-template='THERMAL'] .receipt-paper { max-width: 320px; margin: 0 auto; }
         }
-      /* ── POS Signature Effects ────────────────────────── */
-
-      /* Product card — multi-layer gold glow gradient */
-      .pos-product-card {
-        background:
-          radial-gradient(420px 140px at 18% 0%, rgba(246,211,122,.08), transparent 60%),
-          linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015)),
-          linear-gradient(180deg, #12151d, #171b25);
-        box-shadow: 0 16px 34px rgba(0,0,0,.34);
-        transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
-      }
-      .pos-product-card:hover {
-        background:
-          radial-gradient(420px 140px at 18% 0%, rgba(246,211,122,.14), transparent 60%),
-          linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)),
-          linear-gradient(180deg, #161926, #1e2232);
-        box-shadow: 0 22px 40px rgba(0,0,0,.48);
-        transform: translateY(-2px);
-        border-color: rgba(246,211,122,.30);
-      }
-
-      /* Amount-due zone */
-      .pos-amount-zone {
-        background:
-          radial-gradient(700px 160px at 18% 0%, rgba(246,211,122,.12), transparent 60%),
-          linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)),
-          linear-gradient(180deg, #13161f, #171b26);
-      }
-
-      /* Shine sweep element — place inside any .pos-hoverable card */
-      .pos-shine {
-        position: absolute;
-        inset: -40%;
-        background: linear-gradient(120deg, transparent 45%, rgba(255,255,255,.10), transparent 62%);
-        transform: rotate(10deg) translateX(-78%);
-        opacity: 0;
-        pointer-events: none;
-        z-index: 1;
-      }
-      .pos-hoverable:hover .pos-shine {
-        opacity: 1;
-        animation: pos-shine-sweep .9s ease forwards;
-      }
-      @keyframes pos-shine-sweep {
-        from { transform: rotate(10deg) translateX(-78%); }
-        to   { transform: rotate(10deg) translateX(78%); }
-      }
-
-      /* Primary CTA override — radial highlight dot + gold gradient */
-      .pos-cta {
-        background:
-          radial-gradient(20px 18px at 30% 30%, rgba(255,255,255,.18), transparent 55%),
-          linear-gradient(135deg, rgba(246,211,122,.96), rgba(201,153,62,.62)) !important;
-        box-shadow: 0 20px 34px rgba(0,0,0,.50) !important;
-        transition: transform .16s ease, box-shadow .16s ease !important;
-      }
-      .pos-cta:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: 0 24px 44px rgba(0,0,0,.58) !important;
-      }
-      .pos-cta:disabled { transform: none !important; }
-
       `}</style>
 
       {/* POS chrome */}

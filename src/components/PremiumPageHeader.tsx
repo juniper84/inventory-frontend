@@ -10,6 +10,12 @@ type PremiumPageHeaderProps = {
   actions?: ReactNode;
 };
 
+/**
+ * Legacy page header — uses old `.nvi-page-header` CSS classes.
+ * New pages should use `import { PageHeader } from '@/components/ui'` instead,
+ * which uses token-based `.nvi-hero` classes (canonical radius, spacing, weights).
+ * This file stays until all pages migrate during their redesign (Job 2).
+ */
 export function PremiumPageHeader({
   eyebrow,
   title,

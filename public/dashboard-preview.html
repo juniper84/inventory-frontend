@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Redesign Preview — New Vision Inventory</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #050508; color: #e9e7e2; }
+
+/* ---- Page chrome ---- */
+.page { max-width: 1440px; margin: 0 auto; padding: 40px 20px 80px; }
+.page-title { text-align: center; font-size: 1.5rem; font-weight: 800; color: #f6d37a; margin-bottom: 6px; }
+.page-sub { text-align: center; font-size: 0.85rem; color: rgba(167,163,160,0.8); margin-bottom: 28px; }
+.controls { display: flex; justify-content: center; gap: 8px; margin-bottom: 36px; flex-wrap: wrap; }
+.ctrl-btn { padding: 6px 16px; border-radius: 999px; cursor: pointer; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); color: rgba(233,231,226,0.6); transition: all 0.2s; }
+.ctrl-btn.active { border-color: rgba(246,211,122,0.5); background: rgba(246,211,122,0.12); color: #f6d37a; font-weight: 600; }
+.concept { margin-bottom: 56px; }
+.concept-header { text-align: center; margin-bottom: 16px; }
+.concept-label { font-size: 1rem; font-weight: 700; color: #f6d37a; margin-bottom: 4px; }
+.concept-desc { font-size: 0.75rem; color: rgba(167,163,160,0.7); max-width: 550px; margin: 0 auto; line-height: 1.5; }
+.concept-wrap { display: flex; justify-content: center; overflow: auto; padding-bottom: 8px; }
+.frame { border-radius: 16px; border: 1px solid rgba(255,215,120,0.12); overflow: hidden; background: #0c0a06; flex-shrink: 0; }
+
+/* ---- Shared design tokens ---- */
+:root {
+  --gold: #f6d37a; --gold-dark: #e6a23c; --gold-dim: rgba(246,211,122,0.08);
+  --surface: rgba(255,255,255,0.025); --border: rgba(227,178,51,0.12);
+  --text-1: rgba(233,231,226,0.9); --text-2: rgba(167,163,160,0.6); --text-3: rgba(167,163,160,0.35);
+  --red: #ef4444; --green: #34d399; --amber: #fbbf24; --teal: #2dd4bf;
+}
+
+/* ═══════════════════════════════════════════════
+   CONCEPT 1 — MISSION CONTROL
+   Bento grid, dense above-the-fold, animated rings
+   ═══════════════════════════════════════════════ */
+.mc { padding: 20px; }
+.mc-grid { display: grid; gap: 14px; }
+.mc-grid--desktop { grid-template-columns: repeat(12, 1fr); grid-template-rows: auto; }
+.mc-grid--tablet { grid-template-columns: repeat(6, 1fr); }
+.mc-grid--phone { grid-template-columns: 1fr; }
+
+/* Card base */
+.mc-card {
+  border-radius: 16px; border: 1px solid var(--border); background: var(--surface);
+  padding: 18px 20px; position: relative; overflow: hidden;
+  backdrop-filter: blur(8px); transition: border-color 0.3s;
+}
+.mc-card:hover { border-color: rgba(246,211,122,0.25); }
+.mc-card::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: radial-gradient(ellipse 120px 80px at 20% 10%, rgba(246,211,122,0.04), transparent);
+  pointer-events: none;
+}
+
+/* Greeting banner */
+.mc-greeting { grid-column: span 8; display: flex; align-items: center; justify-content: space-between; }
+.mc-greeting--tablet { grid-column: span 6; }
+.mc-greeting h2 { font-size: 1.3rem; font-weight: 700; color: var(--text-1); }
+.mc-greeting h2 span { color: var(--gold); }
+.mc-greeting p { font-size: 0.78rem; color: var(--text-2); margin-top: 2px; }
+.mc-time { text-align: right; }
+.mc-time .date { font-size: 0.72rem; color: var(--text-2); }
+.mc-time .time { font-size: 1.6rem; font-weight: 300; color: var(--gold); font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+
+/* Status strip */
+.mc-status { grid-column: span 4; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mc-status--tablet { grid-column: span 6; }
+.mc-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 999px; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; border: 1px solid; }
+.mc-chip--live { border-color: rgba(52,211,153,0.3); color: var(--green); background: rgba(52,211,153,0.08); }
+.mc-chip--warn { border-color: rgba(251,191,36,0.3); color: var(--amber); background: rgba(251,191,36,0.08); }
+.mc-chip--info { border-color: var(--border); color: var(--text-2); background: var(--gold-dim); }
+.mc-pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: mc-pulse 2s ease-in-out infinite; }
+@keyframes mc-pulse { 0%,100%{ box-shadow: 0 0 0 0 rgba(52,211,153,0.5); } 50%{ box-shadow: 0 0 0 6px rgba(52,211,153,0); } }
+
+/* KPI hero cards */
+.mc-kpi { grid-column: span 3; min-height: 130px; display: flex; flex-direction: column; justify-content: space-between; }
+.mc-kpi--tablet { grid-column: span 3; }
+.mc-kpi--phone { grid-column: span 1; }
+.mc-kpi__label { font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.25em; color: var(--text-3); font-weight: 600; }
+.mc-kpi__value { font-size: 1.8rem; font-weight: 800; color: var(--text-1); line-height: 1; margin: 8px 0 4px; font-variant-numeric: tabular-nums; }
+.mc-kpi__sub { font-size: 0.68rem; color: var(--text-2); }
+.mc-kpi__trend { display: inline-flex; align-items: center; gap: 4px; font-size: 0.62rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.mc-kpi__trend--up { color: var(--green); background: rgba(52,211,153,0.1); }
+.mc-kpi__trend--down { color: var(--red); background: rgba(239,68,68,0.1); }
+
+/* Sparkline */
+.mc-spark { height: 36px; margin-top: 8px; }
+.mc-spark svg { width: 100%; height: 100%; }
+.mc-spark path { fill: none; stroke: var(--gold); stroke-width: 1.5; }
+.mc-spark .area { fill: url(#sparkGrad); stroke: none; opacity: 0.3; }
+
+/* Ring gauge */
+.mc-ring { grid-column: span 3; display: flex; align-items: center; gap: 16px; }
+.mc-ring--tablet { grid-column: span 3; }
+.mc-ring-svg { width: 72px; height: 72px; flex-shrink: 0; }
+.mc-ring-track { fill: none; stroke: rgba(255,255,255,0.04); stroke-width: 6; }
+.mc-ring-value { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 1s ease-out; }
+.mc-ring-text { fill: var(--text-1); font-size: 13px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
+.mc-ring-info { display: flex; flex-direction: column; gap: 2px; }
+.mc-ring-info__label { font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.2em; color: var(--text-3); font-weight: 600; }
+.mc-ring-info__val { font-size: 1.1rem; font-weight: 700; color: var(--text-1); }
+.mc-ring-info__sub { font-size: 0.62rem; color: var(--text-2); }
+
+/* Chart panel */
+.mc-chart { grid-column: span 8; min-height: 200px; }
+.mc-chart--tablet { grid-column: span 6; }
+.mc-chart__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.mc-chart__title { font-size: 0.85rem; font-weight: 700; color: var(--text-1); }
+.mc-chart__badge { font-size: 0.55rem; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-2); text-transform: uppercase; letter-spacing: 0.1em; }
+.mc-chart__area { height: 160px; border-radius: 12px; background: rgba(0,0,0,0.3); position: relative; overflow: hidden; }
+.mc-chart__line { position: absolute; bottom: 0; left: 0; right: 0; height: 100%; }
+.mc-chart__line svg { width: 100%; height: 100%; }
+
+/* List panel */
+.mc-list { grid-column: span 4; }
+.mc-list--tablet { grid-column: span 6; }
+.mc-list__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.mc-list__title { font-size: 0.85rem; font-weight: 700; color: var(--text-1); }
+.mc-list__items { display: flex; flex-direction: column; gap: 6px; }
+.mc-list__item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px;
+  background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.03); transition: border-color 0.2s;
+}
+.mc-list__item:hover { border-color: var(--border); }
+.mc-list__rank { width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; font-weight: 800; background: var(--gold-dim); color: var(--gold); border: 1px solid rgba(246,211,122,0.15); flex-shrink: 0; }
+.mc-list__item-info { flex: 1; min-width: 0; }
+.mc-list__item-name { font-size: 0.72rem; font-weight: 600; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-list__item-sub { font-size: 0.58rem; color: var(--text-2); }
+.mc-list__item-val { font-size: 0.72rem; font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.mc-list__item-bar { height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--gold), var(--gold-dark)); margin-top: 4px; }
+
+/* Activity feed */
+.mc-feed { grid-column: span 4; }
+.mc-feed--tablet { grid-column: span 3; }
+.mc-feed__items { display: flex; flex-direction: column; gap: 4px; }
+.mc-feed__item { display: flex; gap: 10px; padding: 7px 8px; border-radius: 8px; transition: background 0.15s; }
+.mc-feed__item:hover { background: rgba(255,255,255,0.02); }
+.mc-feed__dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+.mc-feed__dot--sale { background: var(--green); box-shadow: 0 0 6px rgba(52,211,153,0.4); }
+.mc-feed__dot--alert { background: var(--amber); box-shadow: 0 0 6px rgba(251,191,36,0.4); }
+.mc-feed__dot--transfer { background: var(--teal); box-shadow: 0 0 6px rgba(45,212,191,0.4); }
+.mc-feed__dot--adjust { background: #a78bfa; box-shadow: 0 0 6px rgba(167,139,250,0.4); }
+.mc-feed__info { flex: 1; }
+.mc-feed__title { font-size: 0.7rem; font-weight: 600; color: var(--text-1); }
+.mc-feed__meta { font-size: 0.58rem; color: var(--text-2); }
+.mc-feed__time { font-size: 0.55rem; color: var(--text-3); margin-top: 2px; flex-shrink: 0; }
+
+/* Alert row */
+.mc-alerts { grid-column: span 8; }
+.mc-alerts--tablet { grid-column: span 6; }
+.mc-alert-items { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; padding: 2px 0; }
+.mc-alert-card {
+  min-width: 200px; flex-shrink: 0; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid rgba(239,68,68,0.15); background: rgba(239,68,68,0.04);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.mc-alert-card--warn { border-color: rgba(251,191,36,0.15); background: rgba(251,191,36,0.04); }
+.mc-alert-name { font-size: 0.7rem; font-weight: 600; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-alert-detail { font-size: 0.58rem; color: var(--text-2); }
+.mc-alert-qty { font-size: 0.8rem; font-weight: 800; }
+.mc-alert-qty--critical { color: var(--red); }
+.mc-alert-qty--warn { color: var(--amber); }
+
+/* Quick actions */
+.mc-actions { grid-column: span 4; display: flex; flex-direction: column; gap: 6px; }
+.mc-actions--tablet { grid-column: span 6; }
+.mc-action-btn {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--surface); cursor: pointer;
+  transition: all 0.2s; text-decoration: none; color: var(--text-1);
+}
+.mc-action-btn:hover { border-color: rgba(246,211,122,0.3); background: var(--gold-dim); }
+.mc-action-icon { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+.mc-action-icon--sale { background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.15); }
+.mc-action-icon--transfer { background: rgba(45,212,191,0.1); border: 1px solid rgba(45,212,191,0.15); }
+.mc-action-icon--count { background: rgba(246,211,122,0.1); border: 1px solid rgba(246,211,122,0.15); }
+.mc-action-label { font-size: 0.75rem; font-weight: 600; }
+.mc-action-sub { font-size: 0.58rem; color: var(--text-2); }
+
+/* Sales table compact */
+.mc-table { grid-column: span 8; }
+.mc-table--tablet { grid-column: span 6; }
+.mc-tbl { width: 100%; border-collapse: collapse; }
+.mc-tbl th { font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.2em; color: var(--text-3); font-weight: 600; text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.mc-tbl td { font-size: 0.72rem; padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.02); color: var(--text-2); }
+.mc-tbl td:first-child { color: var(--text-1); font-weight: 500; }
+.mc-tbl .status { display: inline-flex; align-items: center; gap: 4px; font-size: 0.58rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.mc-tbl .status-dot { width: 5px; height: 5px; border-radius: 50%; }
+.mc-tbl .status--done .status-dot { background: var(--green); }
+.mc-tbl .status--done { color: var(--green); }
+
+/* Animated gradient border on hero KPI */
+.mc-kpi--hero { border-image: linear-gradient(135deg, rgba(246,211,122,0.3), rgba(45,212,191,0.2), rgba(246,211,122,0.1)) 1; border-width: 1px; border-style: solid; }
+
+/* ═══════════════════════════════════════════════
+   CONCEPT 2 — COMMAND DECK
+   Full-width hero metric bar, floating panels below
+   ═══════════════════════════════════════════════ */
+.cd { padding: 0; }
+
+/* Hero metric strip */
+.cd-hero {
+  display: flex; align-items: stretch; border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(16,13,8,0.95), rgba(10,8,4,0.98));
+  position: relative; overflow: hidden;
+}
+.cd-hero::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 500px 300px at 30% 50%, rgba(246,211,122,0.06), transparent),
+              radial-gradient(ellipse 400px 250px at 80% 50%, rgba(45,212,191,0.04), transparent);
+  pointer-events: none;
+}
+.cd-hero__cell {
+  flex: 1; padding: 22px 24px; position: relative; z-index: 1;
+  display: flex; flex-direction: column; justify-content: center;
+  border-right: 1px solid rgba(255,255,255,0.04);
+}
+.cd-hero__cell:last-child { border-right: none; }
+.cd-hero__label { font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.25em; color: var(--text-3); font-weight: 600; margin-bottom: 4px; }
+.cd-hero__value { font-size: 1.6rem; font-weight: 800; color: var(--text-1); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.cd-hero__trend { font-size: 0.6rem; margin-top: 3px; font-weight: 600; }
+.cd-hero__trend--up { color: var(--green); }
+.cd-hero__trend--down { color: var(--red); }
+.cd-hero__mini-chart { margin-top: 6px; height: 24px; }
+.cd-hero__mini-chart svg { width: 100%; height: 100%; }
+
+/* Phone hero stacks 2x2 */
+.cd-hero--phone { flex-wrap: wrap; }
+.cd-hero--phone .cd-hero__cell { flex: 0 0 50%; }
+
+/* Content area */
+.cd-body { padding: 20px; }
+.cd-grid { display: grid; gap: 14px; }
+.cd-grid--desktop { grid-template-columns: repeat(12, 1fr); }
+.cd-grid--tablet { grid-template-columns: repeat(6, 1fr); }
+.cd-grid--phone { grid-template-columns: 1fr; }
+
+/* Reuse mc-card and mc-list for consistency */
+.cd-panel { grid-column: span 6; }
+.cd-panel--full { grid-column: span 12; }
+.cd-panel--third { grid-column: span 4; }
+.cd-panel--tablet-full { grid-column: span 6; }
+
+/* Donut chart */
+.cd-donut-wrap { display: flex; align-items: center; gap: 20px; }
+.cd-donut-svg { width: 100px; height: 100px; flex-shrink: 0; }
+.cd-donut-track { fill: none; stroke: rgba(255,255,255,0.04); stroke-width: 10; }
+.cd-donut-seg { fill: none; stroke-width: 10; stroke-linecap: round; }
+.cd-donut-center { fill: var(--text-1); font-size: 14px; font-weight: 800; text-anchor: middle; dominant-baseline: central; }
+.cd-legend { display: flex; flex-direction: column; gap: 6px; }
+.cd-legend__item { display: flex; align-items: center; gap: 8px; font-size: 0.68rem; color: var(--text-2); }
+.cd-legend__dot { width: 8px; height: 8px; border-radius: 3px; flex-shrink: 0; }
+.cd-legend__val { margin-left: auto; font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums; }
+
+/* Progress bars */
+.cd-progress { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.04); overflow: hidden; margin-top: 6px; }
+.cd-progress__fill { height: 100%; border-radius: 3px; transition: width 1s ease-out; }
+
+/* Scrolling ticker */
+.cd-ticker { grid-column: span 12; display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; padding: 2px; }
+.cd-ticker--tablet { grid-column: span 6; }
+.cd-ticker-card {
+  min-width: 160px; flex-shrink: 0; padding: 14px; border-radius: 14px;
+  border: 1px solid var(--border); background: var(--surface);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.cd-ticker-label { font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.2em; color: var(--text-3); font-weight: 600; }
+.cd-ticker-val { font-size: 1.2rem; font-weight: 800; color: var(--text-1); }
+.cd-ticker-sub { font-size: 0.58rem; color: var(--text-2); }
+
+/* ═══════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════ */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes countUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ringDraw { from { stroke-dashoffset: 188; } }
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+
+.anim-fade { animation: fadeUp 0.6s ease-out both; }
+.anim-fade-1 { animation-delay: 0.1s; }
+.anim-fade-2 { animation-delay: 0.2s; }
+.anim-fade-3 { animation-delay: 0.3s; }
+.anim-fade-4 { animation-delay: 0.4s; }
+.anim-fade-5 { animation-delay: 0.5s; }
+.anim-fade-6 { animation-delay: 0.6s; }
+.anim-count { animation: countUp 0.8s ease-out both; }
+</style>
+</head>
+<body>
+
+<!-- SVG defs for sparkline gradients -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f6d37a" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#f6d37a" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="tealGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div class="page">
+  <h1 class="page-title">Dashboard Redesign Preview</h1>
+  <p class="page-sub">2 concepts for the executive dashboard. Toggle viewports above each concept.</p>
+
+  <!-- ═══ CONCEPT 1: MISSION CONTROL ═══ -->
+  <div class="concept">
+    <div class="concept-header">
+      <div class="concept-label">1 — Mission Control</div>
+      <div class="concept-desc">Bento grid layout. Everything fits above the fold on desktop. Dense KPI cards with ring gauges, sparklines, and animated trends. Horizontally scrollable alert cards. Activity feed with color-coded dots.</div>
+    </div>
+    <div class="controls">
+      <button class="ctrl-btn active" onclick="setC1('desktop')">Desktop</button>
+      <button class="ctrl-btn" onclick="setC1('tablet')">Tablet</button>
+      <button class="ctrl-btn" onclick="setC1('phone')">Phone</button>
+    </div>
+    <div class="concept-wrap"><div class="frame" id="c1"></div></div>
+  </div>
+
+  <!-- ═══ CONCEPT 2: COMMAND DECK ═══ -->
+  <div class="concept">
+    <div class="concept-header">
+      <div class="concept-label">2 — Command Deck</div>
+      <div class="concept-desc">Full-width hero metric strip at the top with mini sparklines inside each cell. Content below in floating panels. Donut chart for expenses. Scrollable ticker row for secondary metrics. Feels like a flight deck.</div>
+    </div>
+    <div class="controls">
+      <button class="ctrl-btn active" onclick="setC2('desktop')">Desktop</button>
+      <button class="ctrl-btn" onclick="setC2('tablet')">Tablet</button>
+      <button class="ctrl-btn" onclick="setC2('phone')">Phone</button>
+    </div>
+    <div class="concept-wrap"><div class="frame" id="c2"></div></div>
+  </div>
+</div>
+
+<script>
+/* ---- Fake data ---- */
+const spark8 = 'M0,28 L14,22 L28,25 L42,15 L56,18 L70,8 L84,12 L100,4';
+const spark8area = spark8 + ' L100,36 L0,36 Z';
+const spark30 = 'M0,90 C20,85 40,70 60,75 C80,80 100,50 120,55 C140,60 160,30 180,35 C200,40 220,20 240,25 C260,30 280,10 300,5';
+const spark30area = spark30 + ' L300,100 L0,100 Z';
+const miniSpark = 'M0,18 L8,14 L16,16 L24,10 L32,12 L40,6 L48,8';
+
+const ring = (pct, color, r) => {
+  const c = 2 * Math.PI * r;
+  const off = c * (1 - pct / 100);
+  return `<circle class="mc-ring-track" cx="36" cy="36" r="${r}"/><circle class="mc-ring-value" cx="36" cy="36" r="${r}" stroke="${color}" stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 36 36)" style="animation: ringDraw 1.2s ease-out both"/>`;
+};
+
+const feedItems = [
+  { type: 'sale', title: 'Sale completed', meta: 'Branch-4', time: '2m ago' },
+  { type: 'sale', title: 'Sale recorded', meta: 'Branch-4', time: '5m ago' },
+  { type: 'adjust', title: 'Stock adjusted', meta: 'Branch-4', time: '12m ago' },
+  { type: 'alert', title: 'Low stock alert', meta: 'Widget Pro', time: '18m ago' },
+  { type: 'transfer', title: 'Transfer sent', meta: 'Branch-1 to Branch-4', time: '25m ago' },
+  { type: 'sale', title: 'Sale completed', meta: 'Branch-1', time: '31m ago' },
+];
+
+const topProducts = [
+  { name: 'Premium Widget', rev: 'TZS 42,500', pct: 100 },
+  { name: 'Standard Widget', rev: 'TZS 28,300', pct: 67 },
+  { name: 'Economy Pack', rev: 'TZS 19,800', pct: 47 },
+  { name: 'Bulk Supply Box', rev: 'TZS 15,200', pct: 36 },
+  { name: 'Mini Accessory', rev: 'TZS 8,900', pct: 21 },
+];
+
+const alerts = [
+  { name: 'Premium Widget Pro', branch: 'Branch-4', qty: 2, critical: true },
+  { name: 'Standard Widget XL', branch: 'Branch-4', qty: 3, critical: true },
+  { name: 'Economy Pack Mini', branch: 'Branch-1', qty: 8, critical: false },
+  { name: 'Bulk Box Large', branch: 'Branch-4', qty: 5, critical: true },
+  { name: 'Accessory Kit', branch: 'Branch-1', qty: 12, critical: false },
+];
+
+const sales = [
+  { id: 'SAL-2026-0330-001', time: '07:59', total: 'TZS 26', status: 'Completed' },
+  { id: 'SAL-2026-0307-001', time: '08:48', total: 'TZS 6', status: 'Completed' },
+  { id: 'SAL-2026-0305-001', time: '02:50', total: 'TZS 6', status: 'Completed' },
+  { id: 'SAL-2026-0302-053', time: '01:39', total: 'TZS 21', status: 'Completed' },
+];
+
+const expenses = [
+  { cat: 'Stock costs', amt: 'TZS 12,400', pct: 45, color: 'var(--gold)' },
+  { cat: 'Operations', amt: 'TZS 8,200', pct: 30, color: 'var(--teal)' },
+  { cat: 'Transport', amt: 'TZS 4,100', pct: 15, color: '#a78bfa' },
+  { cat: 'Other', amt: 'TZS 2,700', pct: 10, color: 'var(--text-3)' },
+];
+
+/* ---- Renderers ---- */
+function renderC1(v) {
+  const d = v === 'desktop', t = v === 'tablet', p = v === 'phone';
+  const w = d ? 1100 : t ? 720 : 390;
+  const gc = d ? 'mc-grid--desktop' : t ? 'mc-grid--tablet' : 'mc-grid--phone';
+  const c = (span, tSpan, cls) => d ? `${cls} mc-card` : t ? `${cls} mc-card` : `${cls} mc-card`;
+  const el = document.getElementById('c1');
+  el.style.cssText = `width:${w}px`;
+
+  el.innerHTML = `<div class="mc"><div class="mc-grid ${gc}">
+    <!-- Greeting -->
+    <div class="mc-card mc-greeting anim-fade" style="grid-column:span ${d?8:6}">
+      <div><h2>Good morning, <span>Fredrick</span></h2><p>Here's your business at a glance.</p></div>
+      <div class="mc-time"><div class="date">Sat, 5 Apr 2026</div><div class="time">09:14</div></div>
+    </div>
+
+    <!-- Status -->
+    <div class="mc-card mc-status anim-fade anim-fade-1" style="grid-column:span ${d?4:6}">
+      <span class="mc-chip mc-chip--live"><span class="mc-pulse"></span> Live</span>
+      <span class="mc-chip mc-chip--info">Multi-branch</span>
+      <span class="mc-chip mc-chip--warn">1 approval</span>
+      <span class="mc-chip mc-chip--info">0 alerts</span>
+    </div>
+
+    <!-- KPI 1: Sales Today -->
+    <div class="mc-card mc-kpi mc-kpi--hero anim-fade anim-fade-1" style="grid-column:span ${d?3:t?3:1}">
+      <div><div class="mc-kpi__label">Sales today</div>
+      <div class="mc-kpi__value anim-count">TZS 42,500</div>
+      <div><span class="mc-kpi__trend mc-kpi__trend--up">+308%</span> <span class="mc-kpi__sub">vs yesterday</span></div></div>
+      <div class="mc-spark"><svg viewBox="0 0 100 36" preserveAspectRatio="none"><path class="area" d="${spark8area}"/><path d="${spark8}"/></svg></div>
+    </div>
+
+    <!-- KPI 2: Revenue MTD -->
+    <div class="mc-card mc-kpi anim-fade anim-fade-2" style="grid-column:span ${d?3:t?3:1}">
+      <div><div class="mc-kpi__label">Revenue (MTD)</div>
+      <div class="mc-kpi__value anim-count">TZS 1.2M</div>
+      <div class="mc-kpi__sub">Margin: 34%</div></div>
+      <div class="mc-spark"><svg viewBox="0 0 100 36" preserveAspectRatio="none"><path d="${spark8}" style="stroke:var(--teal)"/></svg></div>
+    </div>
+
+    <!-- KPI 3: Stock health ring -->
+    <div class="mc-card mc-ring anim-fade anim-fade-3" style="grid-column:span ${d?3:t?3:1}">
+      <svg class="mc-ring-svg" viewBox="0 0 72 72">${ring(73,'var(--gold)',30)}<text class="mc-ring-text" x="36" y="36">73%</text></svg>
+      <div class="mc-ring-info"><div class="mc-ring-info__label">Stock health</div><div class="mc-ring-info__val">267 SKUs</div><div class="mc-ring-info__sub">64 critical</div></div>
+    </div>
+
+    <!-- KPI 4: Expenses ring -->
+    <div class="mc-card mc-ring anim-fade anim-fade-4" style="grid-column:span ${d?3:t?3:1}">
+      <svg class="mc-ring-svg" viewBox="0 0 72 72">${ring(42,'var(--teal)',30)}<text class="mc-ring-text" x="36" y="36">42%</text></svg>
+      <div class="mc-ring-info"><div class="mc-ring-info__label">Expenses (MTD)</div><div class="mc-ring-info__val">TZS 27.4K</div><div class="mc-ring-info__sub">vs budget</div></div>
+    </div>
+
+    <!-- Revenue chart -->
+    <div class="mc-card mc-chart anim-fade anim-fade-4" style="grid-column:span ${d?8:6}">
+      <div class="mc-chart__header"><span class="mc-chart__title">Revenue & sales trend</span><span class="mc-chart__badge">Last 30 days</span></div>
+      <div class="mc-chart__area"><div class="mc-chart__line"><svg viewBox="0 0 300 100" preserveAspectRatio="none"><path d="${spark30area}" fill="url(#sparkGrad)" opacity="0.4"/><path d="${spark30}" fill="none" stroke="var(--gold)" stroke-width="2"/></svg></div></div>
+    </div>
+
+    <!-- Top products -->
+    <div class="mc-card mc-list anim-fade anim-fade-5" style="grid-column:span ${d?4:t?3:1}">
+      <div class="mc-list__header"><span class="mc-list__title">Top products</span><span class="mc-chart__badge">This week</span></div>
+      <div class="mc-list__items">${topProducts.map((p,i) => `<div class="mc-list__item"><span class="mc-list__rank">${i+1}</span><div class="mc-list__item-info"><div class="mc-list__item-name">${p.name}</div><div class="mc-list__item-bar" style="width:${p.pct}%"></div></div><span class="mc-list__item-val">${p.rev}</span></div>`).join('')}</div>
+    </div>
+
+    <!-- Low stock alerts -->
+    <div class="mc-card mc-alerts anim-fade anim-fade-5" style="grid-column:span ${d?8:6}">
+      <div class="mc-list__header"><span class="mc-list__title">Low stock alerts</span><span class="mc-chip mc-chip--warn" style="font-size:0.5rem">64 critical</span></div>
+      <div class="mc-alert-items">${alerts.map(a => `<div class="mc-alert-card ${a.critical?'':'mc-alert-card--warn'}"><div class="mc-alert-name">${a.name}</div><div class="mc-alert-detail">${a.branch}</div><div class="mc-alert-qty ${a.critical?'mc-alert-qty--critical':'mc-alert-qty--warn'}">Qty: ${a.qty}</div></div>`).join('')}</div>
+    </div>
+
+    <!-- Activity feed -->
+    <div class="mc-card mc-feed anim-fade anim-fade-5" style="grid-column:span ${d?4:t?3:1}">
+      <div class="mc-list__header"><span class="mc-list__title">Activity</span><span class="mc-chip mc-chip--live" style="font-size:0.5rem"><span class="mc-pulse"></span>Live</span></div>
+      <div class="mc-feed__items">${feedItems.map(f => `<div class="mc-feed__item"><span class="mc-feed__dot mc-feed__dot--${f.type}"></span><div class="mc-feed__info"><div class="mc-feed__title">${f.title}</div><div class="mc-feed__meta">${f.meta}</div></div><span class="mc-feed__time">${f.time}</span></div>`).join('')}</div>
+    </div>
+
+    <!-- Quick actions -->
+    <div class="mc-card mc-actions anim-fade anim-fade-6" style="grid-column:span ${d?4:t?3:1}">
+      <div class="mc-list__header"><span class="mc-list__title">Quick actions</span></div>
+      <div class="mc-action-btn"><div class="mc-action-icon mc-action-icon--sale">+</div><div><div class="mc-action-label">New Sale</div><div class="mc-action-sub">Open point of sale</div></div></div>
+      <div class="mc-action-btn"><div class="mc-action-icon mc-action-icon--transfer">&#8644;</div><div><div class="mc-action-label">New Transfer</div><div class="mc-action-sub">Move stock between branches</div></div></div>
+      <div class="mc-action-btn"><div class="mc-action-icon mc-action-icon--count">&#9745;</div><div><div class="mc-action-label">Stock Count</div><div class="mc-action-sub">Verify physical inventory</div></div></div>
+    </div>
+
+    <!-- Recent sales -->
+    <div class="mc-card mc-table anim-fade anim-fade-6" style="grid-column:span ${d?8:6}">
+      <div class="mc-list__header"><span class="mc-list__title">Recent sales</span><span style="font-size:0.65rem;color:var(--gold);cursor:pointer">View all &rarr;</span></div>
+      <table class="mc-tbl"><thead><tr><th>Order</th><th>Time</th><th>Total</th><th>Status</th></tr></thead><tbody>${sales.map(s => `<tr><td>${s.id}</td><td>${s.time}</td><td style="font-weight:700">${s.total}</td><td><span class="status status--done"><span class="status-dot"></span>${s.status}</span></td></tr>`).join('')}</tbody></table>
+    </div>
+  </div></div>`;
+}
+
+function renderC2(v) {
+  const d = v === 'desktop', t = v === 'tablet', p = v === 'phone';
+  const w = d ? 1100 : t ? 720 : 390;
+  const gc = d ? 'cd-grid--desktop' : t ? 'cd-grid--tablet' : 'cd-grid--phone';
+  const el = document.getElementById('c2');
+  el.style.cssText = `width:${w}px`;
+
+  const heroMetrics = [
+    { label: 'Sales today', value: 'TZS 42,500', trend: '+308%', up: true },
+    { label: 'Revenue (MTD)', value: 'TZS 1.2M', trend: '+12%', up: true },
+    { label: 'Expenses (MTD)', value: 'TZS 27.4K', trend: '+5%', up: false },
+    { label: 'Net profit', value: 'TZS 892K', trend: '+18%', up: true },
+  ];
+
+  el.innerHTML = `<div class="cd">
+    <!-- Hero strip -->
+    <div class="cd-hero ${p?'cd-hero--phone':''}">
+      ${heroMetrics.map(m => `<div class="cd-hero__cell anim-fade"><div class="cd-hero__label">${m.label}</div><div class="cd-hero__value">${m.value}</div><div class="cd-hero__trend cd-hero__trend--${m.up?'up':'down'}">${m.trend} vs last month</div><div class="cd-hero__mini-chart"><svg viewBox="0 0 48 20" preserveAspectRatio="none"><path d="${miniSpark}" fill="none" stroke="${m.up?'var(--green)':'var(--red)'}" stroke-width="1.5" opacity="0.6"/></svg></div></div>`).join('')}
+    </div>
+
+    <!-- Body -->
+    <div class="cd-body"><div class="cd-grid ${gc}">
+      <!-- Ticker row -->
+      <div class="mc-card anim-fade anim-fade-1" style="grid-column:span ${d?12:6};padding:12px">
+        <div class="cd-ticker" style="margin:-2px">
+          ${[{l:'Open shifts',v:'0',s:'All closed'},{l:'Pending sync',v:'0',s:'Up to date'},{l:'Active branches',v:'2',s:'of 2 total'},{l:'Approvals',v:'1',s:'Pending review'},{l:'Stock alerts',v:'64',s:'Critical items'},{l:'Transfers',v:'0',s:'Today'}].map(t => `<div class="cd-ticker-card"><div class="cd-ticker-label">${t.l}</div><div class="cd-ticker-val">${t.v}</div><div class="cd-ticker-sub">${t.s}</div></div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Revenue chart -->
+      <div class="mc-card mc-chart anim-fade anim-fade-2" style="grid-column:span ${d?8:6}">
+        <div class="mc-chart__header"><span class="mc-chart__title">Revenue trend</span><span class="mc-chart__badge">30 days</span></div>
+        <div class="mc-chart__area"><div class="mc-chart__line"><svg viewBox="0 0 300 100" preserveAspectRatio="none"><path d="${spark30area}" fill="url(#sparkGrad)" opacity="0.4"/><path d="${spark30}" fill="none" stroke="var(--gold)" stroke-width="2"/></svg></div></div>
+      </div>
+
+      <!-- Expense donut -->
+      <div class="mc-card anim-fade anim-fade-3" style="grid-column:span ${d?4:t?6:1}">
+        <div class="mc-list__header"><span class="mc-list__title">Expense breakdown</span><span class="mc-chart__badge">MTD</span></div>
+        <div class="cd-donut-wrap">
+          <svg class="cd-donut-svg" viewBox="0 0 100 100">
+            <circle class="cd-donut-track" cx="50" cy="50" r="38"/>
+            <circle class="cd-donut-seg" cx="50" cy="50" r="38" stroke="var(--gold)" stroke-dasharray="${0.45*239} ${0.55*239}" stroke-dashoffset="60" transform="rotate(-90 50 50)"/>
+            <circle class="cd-donut-seg" cx="50" cy="50" r="38" stroke="var(--teal)" stroke-dasharray="${0.30*239} ${0.70*239}" stroke-dashoffset="${60-0.45*239}" transform="rotate(-90 50 50)"/>
+            <circle class="cd-donut-seg" cx="50" cy="50" r="38" stroke="#a78bfa" stroke-dasharray="${0.15*239} ${0.85*239}" stroke-dashoffset="${60-0.75*239}" transform="rotate(-90 50 50)"/>
+            <text class="cd-donut-center" x="50" y="50">TZS 27K</text>
+          </svg>
+          <div class="cd-legend">${expenses.map(e => `<div class="cd-legend__item"><span class="cd-legend__dot" style="background:${e.color}"></span>${e.cat}<span class="cd-legend__val">${e.pct}%</span></div>`).join('')}</div>
+        </div>
+      </div>
+
+      <!-- Top products -->
+      <div class="mc-card mc-list anim-fade anim-fade-3" style="grid-column:span ${d?4:t?3:1}">
+        <div class="mc-list__header"><span class="mc-list__title">Top products</span><span class="mc-chart__badge">This week</span></div>
+        <div class="mc-list__items">${topProducts.map((p,i) => `<div class="mc-list__item"><span class="mc-list__rank">${i+1}</span><div class="mc-list__item-info"><div class="mc-list__item-name">${p.name}</div><div class="mc-list__item-bar" style="width:${p.pct}%"></div></div><span class="mc-list__item-val">${p.rev}</span></div>`).join('')}</div>
+      </div>
+
+      <!-- Activity feed -->
+      <div class="mc-card mc-feed anim-fade anim-fade-4" style="grid-column:span ${d?4:t?3:1}">
+        <div class="mc-list__header"><span class="mc-list__title">Activity</span><span class="mc-chip mc-chip--live" style="font-size:0.5rem"><span class="mc-pulse"></span>Live</span></div>
+        <div class="mc-feed__items">${feedItems.map(f => `<div class="mc-feed__item"><span class="mc-feed__dot mc-feed__dot--${f.type}"></span><div class="mc-feed__info"><div class="mc-feed__title">${f.title}</div><div class="mc-feed__meta">${f.meta}</div></div><span class="mc-feed__time">${f.time}</span></div>`).join('')}</div>
+      </div>
+
+      <!-- Low stock + quick actions side by side -->
+      <div class="mc-card mc-alerts anim-fade anim-fade-4" style="grid-column:span ${d?8:6}">
+        <div class="mc-list__header"><span class="mc-list__title">Low stock alerts</span><span class="mc-chip mc-chip--warn" style="font-size:0.5rem">64 critical</span></div>
+        <div class="mc-alert-items">${alerts.map(a => `<div class="mc-alert-card ${a.critical?'':'mc-alert-card--warn'}"><div class="mc-alert-name">${a.name}</div><div class="mc-alert-detail">${a.branch}</div><div class="mc-alert-qty ${a.critical?'mc-alert-qty--critical':'mc-alert-qty--warn'}">Qty: ${a.qty}</div></div>`).join('')}</div>
+      </div>
+
+      <!-- Recent sales -->
+      <div class="mc-card mc-table anim-fade anim-fade-5" style="grid-column:span ${d?8:6}">
+        <div class="mc-list__header"><span class="mc-list__title">Recent sales</span><span style="font-size:0.65rem;color:var(--gold);cursor:pointer">View all &rarr;</span></div>
+        <table class="mc-tbl"><thead><tr><th>Order</th><th>Time</th><th>Total</th><th>Status</th></tr></thead><tbody>${sales.map(s => `<tr><td>${s.id}</td><td>${s.time}</td><td style="font-weight:700">${s.total}</td><td><span class="status status--done"><span class="status-dot"></span>${s.status}</span></td></tr>`).join('')}</tbody></table>
+      </div>
+
+      <!-- Quick actions -->
+      <div class="mc-card mc-actions anim-fade anim-fade-5" style="grid-column:span ${d?4:t?6:1}">
+        <div class="mc-list__header"><span class="mc-list__title">Quick actions</span></div>
+        <div class="mc-action-btn"><div class="mc-action-icon mc-action-icon--sale">+</div><div><div class="mc-action-label">New Sale</div><div class="mc-action-sub">Open point of sale</div></div></div>
+        <div class="mc-action-btn"><div class="mc-action-icon mc-action-icon--transfer">&#8644;</div><div><div class="mc-action-label">New Transfer</div><div class="mc-action-sub">Move stock between branches</div></div></div>
+        <div class="mc-action-btn"><div class="mc-action-icon mc-action-icon--count">&#9745;</div><div><div class="mc-action-label">Stock Count</div><div class="mc-action-sub">Verify physical inventory</div></div></div>
+      </div>
+    </div></div>
+  </div>`;
+}
+
+/* ---- Viewport switching ---- */
+function setC1(v) {
+  document.querySelectorAll('.concept:first-of-type .ctrl-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderC1(v);
+}
+function setC2(v) {
+  document.querySelectorAll('.concept:last-of-type .ctrl-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderC2(v);
+}
+
+renderC1('desktop');
+renderC2('desktop');
+</script>
+</body>
+</html>

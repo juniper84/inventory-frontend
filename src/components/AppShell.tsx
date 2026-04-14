@@ -3,13 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { AuthGate } from '@/components/AuthGate';
 import { PlatformAuthGate } from '@/components/PlatformAuthGate';
 import { BusinessSwitcher } from '@/components/BusinessSwitcher';
 import { NotificationSurface } from '@/components/NotificationSurface';
+import { BellDropdown } from '@/components/notifications/BellDropdown';
 import { LocalToastSurface } from '@/components/LocalToastSurface';
 import { NavIcon } from '@/components/icons';
+import { BrandLogo } from '@/components/BrandLogo';
 import { SmartSelect } from '@/components/SmartSelect';
 import { NoAccessState } from '@/components/NoAccessState';
 import { apiFetch } from '@/lib/api';
@@ -44,6 +46,8 @@ import {
   setOfflineFlag,
 } from '@/lib/offline-store';
 import { recordOfflineStatus, syncOfflineQueue } from '@/lib/offline-sync';
+import { notify } from '@/components/notifications/NotificationProvider';
+import { FontScaleSelector } from '@/components/ui/FontScaleSelector';
 
 const AUTH_PATHS = ['/login', '/signup', '/invite', '/verify-email', '/password-reset'];
 type Branch = { id: string; name: string };
@@ -109,6 +113,51 @@ const IDLE_WARNING_MS = Math.min(
   Math.max(10000, IDLE_WARNING_SECONDS * 1000),
 );
 
+const AUTH_STATEMENTS = [
+  'Control every branch. Track every unit. Know every number.',
+  'Built for businesses that don\'t compromise.',
+  'Your inventory, your rules, your data.',
+  'From stock to sale — every step accounted for.',
+];
+
+const AUTH_STATEMENTS_SW = [
+  'Dhibiti kila tawi. Fuatilia kila kipimo. Jua kila nambari.',
+  'Imejengwa kwa biashara ambazo hazikubali maelewano.',
+  'Hesabu yako, kanuni zako, data yako.',
+  'Kutoka stoki hadi uuzaji — kila hatua imehesabiwa.',
+];
+
+function AuthStatement() {
+  const locale = useLocale();
+  const statements = locale === 'sw' ? AUTH_STATEMENTS_SW : AUTH_STATEMENTS;
+  const [index, setIndex] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setIndex((prev) => (prev + 1) % statements.length);
+        setVisible(true);
+      }, 400);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [statements.length]);
+
+  return (
+    <p
+      className="auth-vault-statement"
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? 'translateY(0)' : 'translateY(6px)',
+        transition: 'opacity 0.4s ease, transform 0.4s ease',
+      }}
+    >
+      {statements[index]}
+    </p>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -117,6 +166,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navT = useTranslations('nav');
   const sectionT = useTranslations('navSections');
   const shellT = useTranslations('appShell');
+  const offlineT = useTranslations('offlinePage');
   const paletteT = useTranslations('palette');
   const actionsT = useTranslations('actions');
   const isAuthRoute = AUTH_PATHS.some((segment) => pathname.includes(segment));
@@ -151,7 +201,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [approvalCount, setApprovalCount] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
   const [bellItems, setBellItems] = useState<BellNotification[]>([]);
+  const [activeAnnouncementCount, setActiveAnnouncementCount] = useState(0);
   const bellRef = useRef<HTMLDivElement>(null);
+
+  // Listen for the active announcement count broadcast from NotificationSurface
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ count: number }>).detail;
+      if (detail && typeof detail.count === 'number') {
+        setActiveAnnouncementCount(detail.count);
+      }
+    };
+    window.addEventListener('nvi:announcements:count', handler);
+    return () => {
+      window.removeEventListener('nvi:announcements:count', handler);
+    };
+  }, []);
+  const [fontScaleOpen, setFontScaleOpen] = useState(false);
+  const fontScaleRef = useRef<HTMLDivElement>(null);
   const [readOnlyState, setReadOnlyState] = useState<{
     enabled: boolean;
     reason: string | null;
@@ -171,6 +238,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [ticker, setTicker] = useState(0);
   const retryTimerRef = useRef<number | null>(null);
   const retryAttemptRef = useRef(0);
+  const syncInFlightRef = useRef(false);
   const paletteInputRef = useRef<HTMLInputElement | null>(null);
   const lastActivityRef = useRef(0);
   const idleLogoutTriggeredRef = useRef(false);
@@ -459,8 +527,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         attemptSync();
       }
     };
-    const attemptSync = async () => {
+    const attemptSync = async (opts?: { silent?: boolean }) => {
       if (!navigator.onLine) {
+        return;
+      }
+      if (syncInFlightRef.current) {
         return;
       }
       const pendingCount = await getPendingCount();
@@ -469,19 +540,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         setOfflineState((prev) => ({ ...prev, pendingCount, syncBlocked: false }));
         return;
       }
+      syncInFlightRef.current = true;
       try {
-        await syncOfflineQueue();
+        const response = await syncOfflineQueue();
+        const results = response?.results ?? [];
+        const applied = results.filter((r) => r.status === 'APPLIED').length;
+        const conflicts = results.filter((r) => r.status === 'CONFLICT').length;
+        const failed = results.filter((r) => r.status === 'FAILED').length;
+        const rejected = results.filter((r) => r.status === 'REJECTED').length;
+        const needsAttention = conflicts + failed + rejected;
         const nextPending = await getPendingCount();
         retryAttemptRef.current = 0;
         await setOfflineFlag('syncBlocked', 'false');
         setOfflineState((prev) => ({ ...prev, pendingCount: nextPending, syncBlocked: false }));
+        if (!opts?.silent && applied + needsAttention > 0) {
+          if (needsAttention > 0) {
+            notify.warning(
+              offlineT('autoSyncWithConflicts', { applied, conflicts: needsAttention }),
+            );
+          } else {
+            notify.success(offlineT('autoSyncApplied', { count: applied }));
+          }
+        }
       } catch (err) {
         console.warn('Offline sync failed', err);
+        const message = err instanceof Error ? err.message : '';
+        // Auth loss — don't retry forever while logged out.
+        if (message === 'Missing session.') {
+          retryAttemptRef.current = 0;
+          clearRetryTimer();
+          return;
+        }
         retryAttemptRef.current += 1;
         const delay = Math.min(300000, 1000 * 2 ** (retryAttemptRef.current - 1));
         await setOfflineFlag('syncBlocked', 'true');
         setOfflineState((prev) => ({ ...prev, syncBlocked: true }));
-        scheduleRetry(delay, attemptSync);
+        if (!opts?.silent) {
+          notify.error(offlineT('autoSyncRetrying'));
+        }
+        scheduleRetry(delay, () => { void attemptSync({ silent: true }); });
+      } finally {
+        syncInFlightRef.current = false;
       }
     };
     syncState();
@@ -565,6 +664,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (offlineState.isOffline) {
       return;
     }
+    if (syncInFlightRef.current) {
+      return;
+    }
+    syncInFlightRef.current = true;
     try {
       await syncOfflineQueue();
       const pendingCount = await getPendingCount();
@@ -579,6 +682,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       console.warn('Manual sync failed', err);
       await setOfflineFlag('syncBlocked', 'true');
       setOfflineState((prev) => ({ ...prev, syncBlocked: true }));
+    } finally {
+      syncInFlightRef.current = false;
     }
   };
 
@@ -783,6 +888,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           label: navT('exports'),
           permission: 'exports.write',
           icon: 'file' as const,
+        },
+        {
+          href: `${base}/imports`,
+          label: navT('imports'),
+          permission: 'exports.write',
+          icon: 'upload' as const,
         },
         {
           href: `${base}/search`,
@@ -1057,6 +1168,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (bellRef.current && !bellRef.current.contains(event.target as Node)) {
         setBellOpen(false);
       }
+      if (fontScaleRef.current && !fontScaleRef.current.contains(event.target as Node)) {
+        setFontScaleOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -1115,55 +1229,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (isAuthRoute) {
     return (
       <div className="auth-lux-root">
-        <div className="auth-lux-wrap">
-          <section className="auth-lux-hero nvi-reveal">
-            <div className="auth-lux-brand">
-              <div className="auth-lux-logo" aria-hidden />
-              <div>
-                <h1>{t('brand')}</h1>
-                <small>{authT('premiumInventoryControl')}</small>
-              </div>
+        <div className="auth-vault-wrap">
+          {/* Brand + Statement zone */}
+          <div className="auth-vault-brand">
+            <BrandLogo variant="vision" size="lg" />
+            <h1 className="auth-vault-title">{t('brand')}</h1>
+            <p className="auth-vault-subtitle">{authT('premiumInventoryControl')}</p>
+            <AuthStatement />
+            <div className="auth-vault-badges">
+              <span className="auth-vault-badge">
+                <span className="auth-vault-badge-dot auth-vault-badge-dot--green" />
+                {authT('badgeUptime')}
+              </span>
+              <span className="auth-vault-badge">
+                <span className="auth-vault-badge-icon">🔒</span>
+                {authT('badgeEncryption')}
+              </span>
+              <span className="auth-vault-badge">
+                <span className="auth-vault-badge-icon">⬡</span>
+                {authT('badgeMultiBranch')}
+              </span>
             </div>
+          </div>
 
-            <h2>{authT('secureAccessTitle')}</h2>
-            <p>{authT('secureAccessSubtitle')}</p>
-
-            <div className="auth-lux-feature-grid">
-              <article className="auth-lux-feature">
-                <div className="auth-lux-feature-glyph">B</div>
-                <h3>{authT('branchReadyTitle')}</h3>
-                <p>{authT('branchReadySubtitle')}</p>
-              </article>
-              <article className="auth-lux-feature">
-                <div className="auth-lux-feature-glyph">S</div>
-                <h3>{authT('fastProductSetupTitle')}</h3>
-                <p>{authT('fastProductSetupSubtitle')}</p>
-              </article>
-              <article className="auth-lux-feature">
-                <div className="auth-lux-feature-glyph">$</div>
-                <h3>{authT('financeSnapshotsTitle')}</h3>
-                <p>{authT('financeSnapshotsSubtitle')}</p>
-              </article>
-              <article className="auth-lux-feature">
-                <div className="auth-lux-feature-glyph">?</div>
-                <h3>{authT('builtinHelpTitle')}</h3>
-                <p>{authT('builtinHelpSubtitle')}</p>
-              </article>
-            </div>
-
-            <div className="auth-lux-tags">
-              <span className="auth-lux-tag">{authT('encryptedSessions')}</span>
-              <span className="auth-lux-tag">{authT('roleBasedAccess')}</span>
-              <span className="auth-lux-tag">{authT('auditFriendlyActions')}</span>
-            </div>
-
-            <div className="auth-lux-status">
-              <span className="auth-lux-status-dot" aria-hidden />
-              <span>{authT('systemStatusValue')}</span>
-            </div>
-          </section>
-
-          <section className="auth-lux-card nvi-reveal">
+          {/* Form card */}
+          <section className="auth-lux-card">
             {children}
           </section>
         </div>
@@ -1226,7 +1316,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         ) : null}
         {offlineState.isOffline || offlineState.syncBlocked ? (
-          <div className="border-b border-red-500/40 bg-red-950/70 px-6 py-2 text-xs text-red-100 backdrop-blur">
+          <div className="border-b border-[var(--nvi-error-border)] bg-red-950/70 px-6 py-2 text-xs text-red-100 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold">
                 {shellT('offlineActive')}
@@ -1240,7 +1330,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   type="button"
                   onClick={handleManualSync}
                   disabled={offlineState.isOffline}
-                  className="rounded border border-red-700/60 px-2 py-1 text-[10px] text-red-100 disabled:opacity-60"
+                  className="rounded border border-[var(--nvi-error-border)] px-2 py-1 text-[10px] text-red-100 disabled:opacity-60"
                 >
                   {shellT('syncNow')}
                 </button>
@@ -1308,9 +1398,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 ☰
               </button>
-              <h1 className="topbar-brand text-sm sm:text-base">
-                {t('brand')}
-              </h1>
+              <div className="topbar-brand">
+                <BrandLogo variant="wordmark" size="sm" animated={false} />
+              </div>
               {isReadOnly ? (
                 <span className="hidden items-center gap-2 rounded-full border border-red-500/40 bg-red-950/60 px-3 py-1 text-[10px] uppercase tracking-[0.3em] text-red-100 sm:inline-flex">
                   🔒 {shellT('readOnlyBadge')}
@@ -1409,6 +1499,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ?
               </button>
 
+              <div className="relative" ref={fontScaleRef}>
+                <button
+                  type="button"
+                  onClick={() => setFontScaleOpen(!fontScaleOpen)}
+                  className="topbar-icon-btn"
+                  title="Display size"
+                  aria-label="Display size"
+                >
+                  <span style={{ fontSize: '14px', fontWeight: 700, lineHeight: 1 }}>A</span>
+                </button>
+                {fontScaleOpen && (
+                  <div className="absolute right-0 top-full mt-2 z-50 rounded-xl border border-white/[0.08] bg-[#13121a] p-3 shadow-xl">
+                    <FontScaleSelector showHint />
+                  </div>
+                )}
+              </div>
+
               <div className="relative" ref={bellRef}>
                 <button
                   type="button"
@@ -1425,53 +1532,55 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   ) : null}
                 </button>
                 {bellOpen ? (
-                  <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-gold-700/40 bg-black shadow-2xl">
-                    <div className="flex items-center justify-between border-b border-gold-700/30 px-4 py-2">
-                      <p className="text-[10px] uppercase tracking-[0.25em] text-gold-400">
-                        {shellT('notifications')}
-                      </p>
-                      {notificationCount > 0 ? (
-                        <span className="rounded-full bg-gold-500/20 px-2 py-0.5 text-[10px] font-semibold text-gold-300">
-                          {notificationCount}
-                        </span>
-                      ) : null}
-                    </div>
-                    {bellItems.length === 0 ? (
-                      <p className="px-4 py-5 text-center text-xs text-gold-500">
-                        {shellT('noNotifications')}
-                      </p>
-                    ) : (
-                      <ul>
-                        {bellItems.map((item) => (
-                          <li
-                            key={item.id}
-                            className="border-b border-gold-700/20 px-4 py-3 last:border-0"
-                          >
-                            <p className="text-[9px] uppercase tracking-[0.2em] text-gold-500">
-                              {item.priority}
-                            </p>
-                            <p className="mt-0.5 text-xs font-semibold text-gold-100">
-                              {item.title}
-                            </p>
-                            {item.message ? (
-                              <p className="mt-0.5 line-clamp-2 text-[11px] text-gold-400">
-                                {item.message}
-                              </p>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <div className="border-t border-gold-700/30 px-4 py-2">
-                      <Link
-                        href={`${base}/notifications`}
-                        onClick={() => setBellOpen(false)}
-                        className="text-xs text-gold-400 hover:text-gold-200"
-                      >
-                        {shellT('viewAllNotifications')} →
-                      </Link>
-                    </div>
-                  </div>
+                  <BellDropdown
+                    items={bellItems}
+                    unreadCount={notificationCount}
+                    announcementCount={activeAnnouncementCount}
+                    viewAllHref={`${base}/notifications`}
+                    onClose={() => setBellOpen(false)}
+                    onMarkAllRead={async () => {
+                      if (!token) return;
+                      try {
+                        await apiFetch('/notifications/read-all', {
+                          token,
+                          method: 'POST',
+                        });
+                        setNotificationCount(0);
+                        setBellItems((prev) =>
+                          prev.map((it) => ({ ...it, status: 'READ' })),
+                        );
+                        window.dispatchEvent(
+                          new CustomEvent('nvi:notifications:refresh'),
+                        );
+                      } catch (err) {
+                        console.warn('Failed to mark all read', err);
+                      }
+                    }}
+                    onRefresh={() => {
+                      window.dispatchEvent(
+                        new CustomEvent('nvi:notifications:refresh'),
+                      );
+                    }}
+                    onItemClick={(item) => {
+                      setBellOpen(false);
+                      // Best-effort mark-read on click; navigation is handled
+                      // by the /notifications list page.
+                      if (token && item.status !== 'READ') {
+                        void apiFetch(`/notifications/${item.id}/read`, {
+                          token,
+                          method: 'POST',
+                        }).catch(() => {
+                          /* silent */
+                        });
+                      }
+                      router.push(`${base}/notifications`);
+                    }}
+                    onOpenAnnouncements={() => {
+                      window.dispatchEvent(
+                        new CustomEvent('nvi:announcements:review'),
+                      );
+                    }}
+                  />
                 ) : null}
               </div>
 
@@ -1664,28 +1773,105 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setMobileNavOpen(false)}
           >
             <div
-              className="h-full w-[84vw] max-w-xs overflow-y-auto border-r border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-5"
+              className="h-full w-[84vw] max-w-xs overflow-y-auto border-r px-4 py-5"
+              style={{ background: 'linear-gradient(180deg, rgba(16,13,8,0.99), rgba(10,8,4,0.99))', borderColor: 'rgba(227,178,51,0.12)' }}
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs uppercase tracking-[0.28em] text-[color:var(--foreground)]">
-                  {t('brand')}
-                </p>
+              <div className="mb-4 flex items-center justify-between">
+                <BrandLogo variant="wordmark" size="sm" animated={false} />
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(false)}
-                  className="rounded border border-[color:var(--border)] px-2 py-1 text-xs"
+                  className="rounded-lg border px-2 py-1 text-xs"
+                  style={{ borderColor: 'rgba(227,178,51,0.15)', color: 'rgba(233,231,226,0.5)' }}
                 >
                   ✕
                 </button>
               </div>
-              <div className="space-y-5 text-sm text-[color:var(--muted)]">
-                {visibleNavSections.map((section) => (
-                  <div key={section.title} className="space-y-2">
-                    <p className="text-[10px] uppercase tracking-[0.35em] text-[color:var(--foreground)]">
+              <div className="text-sm text-[color:var(--muted)]">
+                {visibleNavSections.map((section, sectionIndex) => (
+                  <div key={section.title}>
+                    {sectionIndex > 0 && <div className="nav-section-divider" />}
+                    <div className="py-1.5">
+                      <p className="text-[0.52rem] uppercase tracking-[0.35em] font-semibold" style={{ color: 'rgba(227,178,51,0.4)', padding: '0 10px 4px' }}>
+                        {section.title}
+                      </p>
+                      <ul className="space-y-0.5">
+                        {section.items.map((item) => {
+                          const isActive = pathname === item.href;
+                          const badge = getBadgeForHref(item.href);
+                          if (item.disabled) {
+                            return (
+                              <li key={item.href}>
+                                <div
+                                  className="nav-pill flex items-center justify-between rounded-lg px-3 py-2.5 opacity-40"
+                                  aria-disabled="true"
+                                  title={shellT('noAccess')}
+                                >
+                                  <span className="flex items-center gap-2.5">
+                                    {item.icon ? (
+                                      <NavIcon name={item.icon} className="h-4 w-4" />
+                                    ) : null}
+                                    {item.label}
+                                  </span>
+                                </div>
+                              </li>
+                            );
+                          }
+                          return (
+                            <li key={item.href}>
+                              <Link
+                                href={item.href}
+                                data-active={isActive ? 'true' : 'false'}
+                                className="nav-pill group flex items-center justify-between rounded-lg px-3 py-2.5"
+                                onClick={() => setMobileNavOpen(false)}
+                              >
+                                <span className="flex items-center gap-2.5">
+                                  {item.icon ? (
+                                    <NavIcon name={item.icon} className="h-4 w-4" />
+                                  ) : null}
+                                  {item.label}
+                                </span>
+                                <span className="flex items-center gap-2">
+                                  {badge > 0 ? (
+                                    <span className="rounded-full border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-0.5 text-[10px] text-[color:var(--foreground)]">
+                                      {badge > 99 ? '99+' : badge}
+                                    </span>
+                                  ) : null}
+                                  {isActive ? <span className="nav-pill__dot" /> : null}
+                                </span>
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <div className="flex">
+          <nav
+            className={`w-20 border-r border-[color:var(--border)] px-2 py-4 xl:w-72 xl:px-4 ${
+              forceCompactShell
+                ? 'hidden'
+                : forceDesktopShell
+                  ? 'block'
+                  : 'hidden md:block'
+            }`}
+            style={{ background: 'linear-gradient(180deg, rgba(16,13,8,0.99), rgba(10,8,4,0.99))' }}
+          >
+            <div className="text-sm text-[color:var(--muted)]">
+              {visibleNavSections.map((section, sectionIndex) => (
+                <div key={section.title}>
+                  {sectionIndex > 0 && <div className="nav-section-divider" />}
+                  <div className="py-1.5">
+                    <p className="sidebar-section-label">
                       {section.title}
                     </p>
-                    <ul className="space-y-1">
+                    <ul className="space-y-0.5">
                       {section.items.map((item) => {
                         const isActive = pathname === item.href;
                         const badge = getBadgeForHref(item.href);
@@ -1693,15 +1879,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           return (
                             <li key={item.href}>
                               <div
-                                className="nav-pill flex items-center justify-between rounded px-3 py-2 opacity-50"
+                                className="nav-pill flex items-center justify-center rounded-lg px-2.5 py-2 opacity-40 xl:justify-start xl:px-3"
                                 aria-disabled="true"
                                 title={shellT('noAccess')}
                               >
-                                <span className="flex items-center gap-2">
+                                <span className="flex items-center gap-2.5">
                                   {item.icon ? (
                                     <NavIcon name={item.icon} className="h-4 w-4" />
                                   ) : null}
-                                  {item.label}
+                                  <span className="hidden xl:inline">{item.label}</span>
                                 </span>
                               </div>
                             </li>
@@ -1712,148 +1898,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             <Link
                               href={item.href}
                               data-active={isActive ? 'true' : 'false'}
-                              className="nav-pill group flex items-center justify-between rounded px-3 py-2 transition hover:bg-[color:var(--accent-soft)] hover:text-[color:var(--foreground)]"
-                              onClick={() => setMobileNavOpen(false)}
+                              className="nav-pill group flex items-center justify-center rounded-lg px-2.5 py-2 xl:justify-between xl:px-3"
+                              title={item.label}
                             >
-                              <span className="flex items-center gap-2">
+                              <span className="flex items-center gap-2.5">
                                 {item.icon ? (
                                   <NavIcon name={item.icon} className="h-4 w-4" />
                                 ) : null}
-                                {item.label}
+                                <span className="hidden xl:inline">{item.label}</span>
                               </span>
-                              {badge > 0 ? (
-                                <span className="rounded-full border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-0.5 text-[10px] text-[color:var(--foreground)]">
-                                  {badge > 99 ? '99+' : badge}
-                                </span>
-                              ) : null}
+                              <span className="hidden items-center gap-2 text-[10px] text-[color:var(--muted)] xl:flex">
+                                {badge > 0 ? (
+                                  <span className="rounded-full border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-0.5 text-[10px] text-[color:var(--foreground)]">
+                                    {badge > 99 ? '99+' : badge}
+                                  </span>
+                                ) : null}
+                                {isActive ? <span className="nav-pill__dot" /> : null}
+                              </span>
                             </Link>
                           </li>
                         );
                       })}
                     </ul>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : null}
-        <div className="flex">
-          <nav
-            className={`w-20 border-r border-[color:var(--border)] px-2 py-6 xl:w-72 xl:px-6 ${
-              forceCompactShell
-                ? 'hidden'
-                : forceDesktopShell
-                  ? 'block'
-                  : 'hidden md:block'
-            }`}
-          >
-            <div className="space-y-6 text-sm text-[color:var(--muted)]">
-              {visibleNavSections.map((section) => (
-                <div key={section.title} className="space-y-2">
-                  <p className="hidden text-[10px] uppercase tracking-[0.35em] text-[color:var(--foreground)] xl:block">
-                    {section.title}
-                  </p>
-                  <ul className="space-y-1">
-                    {section.items.map((item) => {
-                      const isActive = pathname === item.href;
-                      const badge = getBadgeForHref(item.href);
-                      if (item.disabled) {
-                        return (
-                          <li key={item.href}>
-                            <div
-                              className="nav-pill flex items-center justify-center rounded px-2 py-2 opacity-50 xl:justify-between xl:px-3"
-                              aria-disabled="true"
-                              title={shellT('noAccess')}
-                            >
-                              <span className="flex items-center gap-2">
-                                {item.icon ? (
-                                  <NavIcon name={item.icon} className="h-4 w-4" />
-                                ) : null}
-                                <span className="hidden xl:inline">{item.label}</span>
-                              </span>
-                            </div>
-                          </li>
-                        );
-                      }
-                      return (
-                        <li key={item.href}>
-                          <Link
-                            href={item.href}
-                            data-active={isActive ? 'true' : 'false'}
-                            className="nav-pill group flex items-center justify-center rounded px-2 py-2 transition hover:bg-[color:var(--accent-soft)] hover:text-[color:var(--foreground)] xl:justify-between xl:px-3"
-                            title={item.label}
-                          >
-                            <span className="flex items-center gap-2">
-                              {item.icon ? (
-                                <NavIcon name={item.icon} className="h-4 w-4" />
-                              ) : null}
-                              <span className="hidden xl:inline">{item.label}</span>
-                            </span>
-                            <span className="hidden items-center gap-2 text-[10px] text-[color:var(--muted)] xl:flex">
-                              {badge > 0 ? (
-                                <span className="rounded-full border border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-0.5 text-[10px] text-[color:var(--foreground)]">
-                                  {badge > 99 ? '99+' : badge}
-                                </span>
-                              ) : null}
-                              <span className="opacity-0 transition group-hover:opacity-100">
-                                ↗
-                              </span>
-                            </span>
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
                 </div>
               ))}
             </div>
+            {/* User card */}
+            <div className="sidebar-user-card">
+              <div className="sidebar-user-card__avatar">{userInitials}</div>
+              <div>
+                <div className="sidebar-user-card__name">{storedUser?.name ?? 'User'}</div>
+              </div>
+            </div>
           </nav>
           <main
-            className="read-only-zone min-w-0 flex-1 px-4 py-6 pb-24 sm:px-6 md:py-8 md:pb-8"
+            className="read-only-zone min-w-0 flex-1 px-4 py-6 sm:px-6 md:py-8 md:pb-8"
             data-readonly={isReadOnly ? 'true' : 'false'}
           >
             {mainContent}
           </main>
         </div>
-        <nav
-          className={`fixed inset-x-0 bottom-0 z-30 border-t border-[color:var(--border)] bg-[color:var(--surface-soft)] px-2 py-2 backdrop-blur ${
-            forceDesktopShell
-              ? 'hidden'
-              : forceCompactShell
-                ? 'block'
-                : 'md:hidden'
-          }`}
-        >
-          <div className="grid grid-cols-5 gap-1 text-[10px] uppercase tracking-[0.15em] text-[color:var(--muted)]">
-            {quickNavItems.map((item) => {
-              const isActive = pathname === item.href;
-              const badge = getBadgeForHref(item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex flex-col items-center gap-1 rounded px-1 py-2 ${isActive ? 'bg-[color:var(--accent-soft)] text-[color:var(--foreground)]' : ''}`}
-                >
-                  {item.icon ? <NavIcon name={item.icon} className="h-4 w-4" /> : null}
-                  <span className="truncate">{item.label}</span>
-                  {badge > 0 ? (
-                    <span className="rounded-full border border-[color:var(--border)] px-1.5 py-0.5 text-[9px] text-[color:var(--foreground)]">
-                      {badge > 99 ? '99+' : badge}
-                    </span>
-                  ) : null}
-                </Link>
-              );
-            })}
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen(true)}
-              className="flex flex-col items-center gap-1 rounded px-1 py-2"
-            >
-              <span className="text-sm leading-none">☰</span>
-              <span>{shellT('menu')}</span>
-            </button>
-          </div>
-        </nav>
         {paletteOpen ? (
           <div
             className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 px-4 py-24"

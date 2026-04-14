@@ -1,7 +1,7 @@
 'use client';
 
-import { PlatformConsole } from '@/components/platform/PlatformConsole';
+import { OperationsView } from '@/components/platform/views/operations/OperationsView';
 
 export function PlatformOperationsView() {
-  return <PlatformConsole view="operations" />;
+  return <OperationsView />;
 }

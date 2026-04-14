@@ -90,6 +90,7 @@ const buildMetadataDetails = (metadata?: Record<string, unknown> | null, locale?
   if (!metadata) {
     return null;
   }
+  const l = getLabels(locale);
   const details: string[] = [];
   const unit = getText(metadata.unitName) ?? getText(metadata.unitId);
   const variantLabel = formatVariantLabel(
@@ -101,14 +102,14 @@ const buildMetadataDetails = (metadata?: Record<string, unknown> | null, locale?
     '',
   );
   if (variantLabel) {
-    details.push(`Item: ${variantLabel}`);
+    details.push(`${l.item}: ${variantLabel}`);
   }
   const counted = parseNumber(metadata.countedQuantity);
   const expected = parseNumber(metadata.expectedQuantity);
   const currency = getText(metadata.currency);
   if (counted !== null && expected !== null) {
     details.push(
-      `Counted vs expected: ${formatNumber(counted, locale)} / ${formatNumber(expected, locale)}${unit ? ` ${unit}` : ''}`,
+      `${l.countedVsExpected}: ${formatNumber(counted, locale)} / ${formatNumber(expected, locale)}${unit ? ` ${unit}` : ''}`,
     );
   } else {
     const quantity =
@@ -116,7 +117,7 @@ const buildMetadataDetails = (metadata?: Record<string, unknown> | null, locale?
       (currency ? null : parseNumber(metadata.amount));
     if (quantity !== null) {
       details.push(
-        `Quantity: ${formatNumber(quantity, locale)}${unit ? ` ${unit}` : ''}`,
+        `${l.quantity}: ${formatNumber(quantity, locale)}${unit ? ` ${unit}` : ''}`,
       );
     }
   }
@@ -126,12 +127,12 @@ const buildMetadataDetails = (metadata?: Record<string, unknown> | null, locale?
     (currency ? parseNumber(metadata.amount) : null);
   if (total !== null) {
     details.push(
-      `Amount: ${formatNumber(total, locale)}${currency ? ` ${currency}` : ''}`,
+      `${l.amount}: ${formatNumber(total, locale)}${currency ? ` ${currency}` : ''}`,
     );
   }
   const lossReason = getText(metadata.lossReason);
   if (lossReason) {
-    details.push(`Loss reason: ${lossReason}`);
+    details.push(`${l.lossReason}: ${lossReason}`);
   }
   const stockBefore = parseNumber(metadata.stockBefore);
   const stockAfter = parseNumber(metadata.stockAfter);
@@ -139,12 +140,12 @@ const buildMetadataDetails = (metadata?: Record<string, unknown> | null, locale?
     const delta = stockAfter - stockBefore;
     const sign = delta >= 0 ? '+' : '';
     details.push(
-      `Stock level: ${formatNumber(stockBefore, locale)} → ${formatNumber(stockAfter, locale)} (${sign}${formatNumber(delta, locale)})`,
+      `${l.stockLevel}: ${formatNumber(stockBefore, locale)} → ${formatNumber(stockAfter, locale)} (${sign}${formatNumber(delta, locale)})`,
     );
   }
   const paymentMethod = getText(metadata.paymentMethod);
   if (paymentMethod) {
-    details.push(`Payment: ${paymentMethod}`);
+    details.push(`${l.payment}: ${paymentMethod}`);
   }
   return details.length > 0 ? details.slice(0, 3).join(' • ') : null;
 };
@@ -177,11 +178,11 @@ const buildTags = (log: { action: string; resourceType: string }) => {
   return Array.from(tags);
 };
 
-const flattenDiff = (diff: Record<string, unknown>, prefix = ''): string[] => {
+const flattenDiff = (diff: Record<string, unknown>, prefix = '', changedLabel = 'changed'): string[] => {
   return Object.entries(diff).flatMap(([key, value]) => {
     const nextKey = prefix ? `${prefix}.${key}` : key;
     if (!value || typeof value !== 'object') {
-      return [`${nextKey} changed`];
+      return [`${nextKey} ${changedLabel}`];
     }
     if ('from' in value || 'to' in value) {
       const entry = value as DiffEntry;
@@ -196,9 +197,11 @@ const flattenDiff = (diff: Record<string, unknown>, prefix = ''): string[] => {
 const extractImpact = (
   diff?: Record<string, unknown> | null,
   metadata?: Record<string, unknown> | null,
+  l?: { impact: string },
 ) => {
+  const impactLabel = l?.impact ?? 'Impact';
   if (metadata?.impact) {
-    return `Impact: ${metadata.impact}`;
+    return `${impactLabel}: ${metadata.impact}`;
   }
   if (!diff) {
     return null;
@@ -214,13 +217,13 @@ const extractImpact = (
         continue;
       }
       const sign = delta.delta >= 0 ? '+' : '';
-      return `Impact: ${key} ${delta.from} → ${delta.to} (${sign}${delta.delta})`;
+      return `${impactLabel}: ${key} ${delta.from} → ${delta.to} (${sign}${delta.delta})`;
     }
   }
   return null;
 };
 
-const ACTION_VERBS: Record<string, string> = {
+const ACTION_VERBS_EN: Record<string, string> = {
   STOCK_ADJUST: 'adjusted stock',
   STOCK_COUNT: 'counted stock',
   STOCK_REORDER_POINT_CREATE: 'set a reorder point',
@@ -291,24 +294,17 @@ const ACTION_VERBS: Record<string, string> = {
   AUTH_LOGOUT: 'signed out',
   AUTH_REFRESH: 'refreshed a session',
   AUTH_REFRESH_REUSE: 'detected refresh reuse',
-  // Shifts
   SHIFT_OPEN: 'opened a shift',
   SHIFT_CLOSE: 'closed a shift',
-  // Notes
   NOTE_CREATE: 'created a note',
   NOTE_UPDATE: 'updated a note',
-  // Invitations
   INVITATION_CREATE: 'sent an invitation',
   INVITATION_ACCEPT: 'accepted an invitation',
-  // Branches
   BRANCH_UPDATE: 'updated a branch',
-  // Reorder points
   REORDER_POINT_UPSERT: 'set a reorder point',
-  // Approval policies
   APPROVAL_POLICY_CREATE: 'created an approval policy',
   APPROVAL_POLICY_UPDATE: 'updated an approval policy',
   APPROVAL_POLICY_ARCHIVE: 'archived an approval policy',
-  // Offline
   OFFLINE_DEVICE_REGISTER: 'registered an offline device',
   OFFLINE_DEVICE_REVOKE: 'revoked an offline device',
   OFFLINE_CONFLICT_RESOLVE: 'resolved an offline conflict',
@@ -317,11 +313,8 @@ const ACTION_VERBS: Record<string, string> = {
   OFFLINE_SYNC: 'synced offline data',
   OFFLINE_ACTION_INGESTED: 'ingested an offline action',
   OFFLINE_DURATION_EXCEEDED: 'exceeded offline duration limit',
-  // Price list items
   PRICE_LIST_ITEM_SET: 'set a price list item',
-  // Credits
   CREDIT_OVERDUE_REMINDER: 'sent an overdue credit reminder',
-  // Business / platform admin actions
   BUSINESS_STATUS_UPDATE: 'updated business status',
   BUSINESS_FORCE_LOGOUT: 'force-logged out a business',
   BUSINESS_PURGE: 'purged a business',
@@ -346,6 +339,193 @@ const ACTION_VERBS: Record<string, string> = {
   PLATFORM_ADMIN_PASSWORD_CHANGE: 'changed platform admin password',
 };
 
+const ACTION_VERBS_SW: Record<string, string> = {
+  STOCK_ADJUST: 'alirekebisha stoki',
+  STOCK_COUNT: 'alihesabu stoki',
+  STOCK_REORDER_POINT_CREATE: 'aliweka kiwango cha kuagiza tena',
+  STOCK_REORDER_POINT_UPDATE: 'alisasisha kiwango cha kuagiza tena',
+  STOCK_REORDER_POINT_DELETE: 'aliondoa kiwango cha kuagiza tena',
+  STOCK_MOVEMENT_CREATE: 'alirekodi harakati ya stoki',
+  STOCK_SNAPSHOT_UPDATE: 'alisasisha picha ya stoki',
+  BATCH_CREATE: 'aliunda kundi',
+  SALE_COMPLETE: 'alikamilisha uuzaji',
+  SALE_DRAFT: 'aliunda rasimu ya uuzaji',
+  SALE_VOID: 'alibatilisha uuzaji',
+  SALE_REFUND: 'alitoa urudishaji',
+  SALE_RETURN_WITHOUT_RECEIPT: 'alishughulikia urudishaji bila risiti',
+  SALE_SETTLEMENT: 'alilipa deni la uuzaji',
+  SALE_RECEIPT_REPRINT: 'alichapisha tena risiti',
+  APPROVAL_REQUEST: 'aliomba idhini',
+  APPROVAL_APPROVE: 'alikubali ombi',
+  APPROVAL_REJECT: 'alikataa ombi',
+  APPROVAL_SELF_APPROVE: 'alijikubalia ombi',
+  TRANSFER_REQUEST: 'aliomba uhamisho',
+  TRANSFER_APPROVE: 'alikubali uhamisho',
+  TRANSFER_RECEIVE: 'alipokea uhamisho',
+  TRANSFER_CANCEL: 'alighairi uhamisho',
+  PURCHASE_CREATE: 'aliunda ununuzi',
+  PURCHASE_UPDATE: 'alisasisha ununuzi',
+  PURCHASE_ORDER_CREATE: 'aliunda amri ya ununuzi',
+  PURCHASE_ORDER_UPDATE: 'alisasisha amri ya ununuzi',
+  PURCHASE_ORDER_APPROVE: 'alikubali amri ya ununuzi',
+  PURCHASE_PAYMENT_RECORD: 'alirekodi malipo ya ununuzi',
+  SUPPLIER_RETURN_CREATE: 'aliunda urudishaji kwa msambazaji',
+  RECEIVE_STOCK: 'alipokea stoki',
+  ROLE_UPDATE: 'alisasisha jukumu',
+  ROLE_CREATE: 'aliunda jukumu',
+  ROLE_PERMISSIONS_UPDATE: 'alisasisha ruhusa za jukumu',
+  USER_UPDATE: 'alisasisha mtumiaji',
+  USER_CREATE: 'aliunda mtumiaji',
+  USER_ROLE_ASSIGN: 'aligawa jukumu',
+  USER_ROLE_REMOVE: 'aliondoa jukumu',
+  USER_DEACTIVATE: 'alizima mtumiaji',
+  BRANCH_CREATE: 'aliunda tawi',
+  CATEGORY_CREATE: 'aliunda kategoria',
+  CATEGORY_UPDATE: 'alisasisha kategoria',
+  PRODUCT_CREATE: 'aliunda bidhaa',
+  PRODUCT_UPDATE: 'alisasisha bidhaa',
+  VARIANT_CREATE: 'aliunda varianti',
+  VARIANT_UPDATE: 'alisasisha varianti',
+  BARCODE_GENERATE: 'alitgeneza msimbo wa pau',
+  BARCODE_CREATE: 'aliunda msimbo wa pau',
+  BARCODE_REASSIGN: 'alihamisha msimbo wa pau',
+  PRICE_LIST_CREATE: 'aliunda orodha ya bei',
+  PRICE_LIST_UPDATE: 'alisasisha orodha ya bei',
+  PRICE_LIST_ITEM_ADD: 'aliongeza bidhaa ya orodha ya bei',
+  PRICE_LIST_ITEM_REMOVE: 'aliondoa bidhaa ya orodha ya bei',
+  SUPPLIER_CREATE: 'aliunda msambazaji',
+  SUPPLIER_UPDATE: 'alisasisha msambazaji',
+  CUSTOMER_CREATE: 'aliunda mteja',
+  CUSTOMER_UPDATE: 'alisasisha mteja',
+  CUSTOMER_ARCHIVE: 'alihifadhi mteja',
+  CUSTOMER_ANONYMIZE: 'alifuta utambulisho wa mteja',
+  EXPENSE_CREATE: 'alirekodi matumizi',
+  EXPENSE_UPDATE: 'alisasisha matumizi',
+  EXPENSE_DELETE: 'alifuta matumizi',
+  ATTACHMENT_UPLOAD: 'alipakia kiambatisho',
+  ATTACHMENT_REMOVE: 'aliondoa kiambatisho',
+  UNIT_CREATE: 'aliunda kipimo',
+  SUBSCRIPTION_CREATE: 'aliunda usajili',
+  AUTH_LOGIN: 'aliingia',
+  AUTH_LOGOUT: 'alitoka',
+  AUTH_REFRESH: 'alisasisha kipindi',
+  AUTH_REFRESH_REUSE: 'aligundua matumizi tena ya kipindi',
+  SHIFT_OPEN: 'alifungua zamu',
+  SHIFT_CLOSE: 'alifunga zamu',
+  NOTE_CREATE: 'aliunda maelezo',
+  NOTE_UPDATE: 'alisasisha maelezo',
+  INVITATION_CREATE: 'alituma mwaliko',
+  INVITATION_ACCEPT: 'alikubali mwaliko',
+  BRANCH_UPDATE: 'alisasisha tawi',
+  REORDER_POINT_UPSERT: 'aliweka kiwango cha kuagiza tena',
+  APPROVAL_POLICY_CREATE: 'aliunda sera ya idhini',
+  APPROVAL_POLICY_UPDATE: 'alisasisha sera ya idhini',
+  APPROVAL_POLICY_ARCHIVE: 'alihifadhi sera ya idhini',
+  OFFLINE_DEVICE_REGISTER: 'alisajili kifaa cha nje ya mtandao',
+  OFFLINE_DEVICE_REVOKE: 'alibatilisha kifaa cha nje ya mtandao',
+  OFFLINE_CONFLICT_RESOLVE: 'alitatua mgogoro wa nje ya mtandao',
+  OFFLINE_ENTRY: 'alienda nje ya mtandao',
+  OFFLINE_EXIT: 'alirudi mtandaoni',
+  OFFLINE_SYNC: 'alisawazisha data ya nje ya mtandao',
+  OFFLINE_ACTION_INGESTED: 'alipokea kitendo cha nje ya mtandao',
+  OFFLINE_DURATION_EXCEEDED: 'alizidi kikomo cha muda wa nje ya mtandao',
+  PRICE_LIST_ITEM_SET: 'aliweka bidhaa ya orodha ya bei',
+  CREDIT_OVERDUE_REMINDER: 'alituma ukumbusho wa deni lililochelewa',
+  BUSINESS_STATUS_UPDATE: 'alisasisha hali ya biashara',
+  BUSINESS_FORCE_LOGOUT: 'alitoa biashara kwa lazima',
+  BUSINESS_PURGE: 'alifuta biashara',
+  BUSINESS_REVIEW_UPDATE: 'alisasisha ukaguzi wa biashara',
+  READ_ONLY_UPDATE: 'alisasisha hali ya kusoma tu',
+  RATE_LIMIT_OVERRIDE: 'alibatilisha kikomo cha kasi',
+  SUBSCRIPTION_UPDATE: 'alisasisha usajili',
+  SUBSCRIPTION_REQUEST_APPROVE: 'alikubali ombi la usajili',
+  SUBSCRIPTION_REQUEST_REJECT: 'alikataa ombi la usajili',
+  ACCESS_REQUEST: 'aliomba ufikiaji wa msaada',
+  EXPORT_ON_EXIT_REQUEST: 'aliomba usafirishaji wa kutoka',
+  EXPORT_CANCEL: 'alighairi usafirishaji',
+  EXPORT_RETRY: 'alirudia usafirishaji',
+  EXPORT_REQUEUE: 'aliweka tena foleni ya usafirishaji',
+  EXPORT_DELIVERED: 'alitoa usafirishaji',
+  PLATFORM_INCIDENT_CREATE: 'aliunda tukio la jukwaa',
+  PLATFORM_INCIDENT_UPDATE: 'alisasisha tukio la jukwaa',
+  PLATFORM_INCIDENT_TRANSITION: 'alibadilisha hali ya tukio la jukwaa',
+  PLATFORM_INCIDENT_NOTE: 'aliongeza maelezo kwenye tukio la jukwaa',
+  PLATFORM_ANNOUNCEMENT_CREATE: 'aliunda tangazo la jukwaa',
+  PLATFORM_ANNOUNCEMENT_END: 'alimaliza tangazo la jukwaa',
+  PLATFORM_ADMIN_PASSWORD_CHANGE: 'alibadilisha nenosiri la msimamizi wa jukwaa',
+};
+
+const LABELS = {
+  en: {
+    at: 'at',
+    success: 'success',
+    failed: 'failed',
+    actor: 'Actor',
+    branch: 'Branch',
+    reason: 'Reason',
+    changes: 'Changes',
+    impact: 'Impact',
+    approval: 'Approval',
+    approvalRequested: 'Approval requested by',
+    approvedBy: 'Approved by',
+    rejectedBy: 'Rejected by',
+    selfApproved: 'Self-approved by',
+    approvalStatus: 'Approval status',
+    offline: 'Offline',
+    offlineQueued: 'queued sync',
+    offlineNo: 'no',
+    failure: 'Failure',
+    item: 'Item',
+    quantity: 'Quantity',
+    amount: 'Amount',
+    countedVsExpected: 'Counted vs expected',
+    stockLevel: 'Stock level',
+    payment: 'Payment',
+    lossReason: 'Loss reason',
+    changed: 'changed',
+    none: 'none',
+    ranImport: 'ran an import',
+    generatedExport: 'generated an export',
+    generatedReport: 'generated a report',
+  },
+  sw: {
+    at: 'katika',
+    success: 'imefanikiwa',
+    failed: 'imeshindwa',
+    actor: 'Mhusika',
+    branch: 'Tawi',
+    reason: 'Sababu',
+    changes: 'Mabadiliko',
+    impact: 'Athari',
+    approval: 'Idhini',
+    approvalRequested: 'Idhini imeombwa na',
+    approvedBy: 'Imekubaliwa na',
+    rejectedBy: 'Imekataliwa na',
+    selfApproved: 'Imejikubaliwa na',
+    approvalStatus: 'Hali ya idhini',
+    offline: 'Nje ya mtandao',
+    offlineQueued: 'inasawazishwa',
+    offlineNo: 'hapana',
+    failure: 'Kushindwa',
+    item: 'Bidhaa',
+    quantity: 'Kiasi',
+    amount: 'Jumla',
+    countedVsExpected: 'Iliyohesabiwa vs inayotarajiwa',
+    stockLevel: 'Kiwango cha stoki',
+    payment: 'Malipo',
+    lossReason: 'Sababu ya hasara',
+    changed: 'imebadilika',
+    none: 'hakuna',
+    ranImport: 'alifanya uingizaji',
+    generatedExport: 'alitoa usafirishaji',
+    generatedReport: 'alitoa ripoti',
+  },
+};
+
+type LocaleKey = keyof typeof LABELS;
+const getLabels = (locale?: string) => LABELS[(locale === 'sw' ? 'sw' : 'en') as LocaleKey];
+const getVerbs = (locale?: string) => locale === 'sw' ? ACTION_VERBS_SW : ACTION_VERBS_EN;
+
 export const buildAuditNarrative = (log: {
   action: string;
   resourceType: string;
@@ -365,15 +545,17 @@ export const buildAuditNarrative = (log: {
   locale?: string;
 }) => {
   const locale = labels?.locale;
-  let verb = ACTION_VERBS[log.action];
+  const l = getLabels(locale);
+  const verbs = getVerbs(locale);
+  let verb = verbs[log.action];
   if (!verb && log.action.startsWith('IMPORT_')) {
-    verb = 'ran an import';
+    verb = l.ranImport;
   }
   if (!verb && log.action.startsWith('EXPORT_')) {
-    verb = 'generated an export';
+    verb = l.generatedExport;
   }
   if (!verb && log.action.startsWith('REPORT_')) {
-    verb = 'generated a report';
+    verb = l.generatedReport;
   }
   if (!verb) {
     verb = log.action.replaceAll('_', ' ').toLowerCase();
@@ -388,48 +570,48 @@ export const buildAuditNarrative = (log: {
   const roleName =
     labels?.roleName ||
     (typeof log.metadata?.roleName === 'string' ? log.metadata.roleName : null);
-  const outcomeText = log.outcome === 'SUCCESS' ? 'success' : 'failed';
+  const outcomeText = log.outcome === 'SUCCESS' ? l.success : l.failed;
   const resource = formatResourceLabel(
     log.resourceType,
     log.resourceId,
     log.metadata,
     labels?.resourceLabel ?? null,
   );
-  const branchClause = branchName ? ` at ${branchName}` : '';
+  const branchClause = branchName ? ` ${l.at} ${branchName}` : '';
   const primary = `${actorName} ${verb} ${resource}${branchClause} (${outcomeText}).`;
-  const actor = `Actor ${actorName}${roleName ? ` • ${roleName}` : ''}`;
-  const context = branchName ? `Branch ${branchName}` : null;
-  const reason = log.reason ? `Reason: ${log.reason}` : null;
-  const diffLines = log.diff ? flattenDiff(log.diff).slice(0, 4) : [];
+  const actor = `${l.actor} ${actorName}${roleName ? ` • ${roleName}` : ''}`;
+  const context = branchName ? `${l.branch} ${branchName}` : null;
+  const reason = log.reason ? `${l.reason}: ${log.reason}` : null;
+  const diffLines = log.diff ? flattenDiff(log.diff, '', l.changed).slice(0, 4) : [];
   const diffSummary =
-    diffLines.length > 0 ? `Changes: ${diffLines.join('; ')}` : null;
-  const impact = extractImpact(log.diff, log.metadata);
+    diffLines.length > 0 ? `${l.changes}: ${diffLines.join('; ')}` : null;
+  const impact = extractImpact(log.diff, log.metadata, l);
   const approval =
     log.action.includes('APPROVAL') && log.metadata?.['approvalId']
-      ? `Approval: ${formatShortId(log.metadata['approvalId'] as string)}`
+      ? `${l.approval}: ${formatShortId(log.metadata['approvalId'] as string)}`
       : null;
   const approvalChain =
     log.action === 'APPROVAL_REQUEST'
-      ? `Approval requested by ${actorName}${log.metadata?.['actionType'] ? ` • ${log.metadata['actionType']}` : ''}`
+      ? `${l.approvalRequested} ${actorName}${log.metadata?.['actionType'] ? ` • ${log.metadata['actionType']}` : ''}`
       : log.action === 'APPROVAL_APPROVE'
-        ? `Approved by ${actorName}`
+        ? `${l.approvedBy} ${actorName}`
         : log.action === 'APPROVAL_REJECT'
-          ? `Rejected by ${actorName}`
+          ? `${l.rejectedBy} ${actorName}`
           : log.action === 'APPROVAL_SELF_APPROVE'
-            ? `Self-approved by ${actorName}`
+            ? `${l.selfApproved} ${actorName}`
             : null;
   const approvalStatus = log.metadata?.['approvalStatus']
-    ? `Approval status: ${log.metadata['approvalStatus']}`
+    ? `${l.approvalStatus}: ${log.metadata['approvalStatus']}`
     : null;
   const offline =
     log.metadata?.['offline'] === true
-      ? `Offline: queued sync`
+      ? `${l.offline}: ${l.offlineQueued}`
     : log.metadata?.['offline'] === false
-        ? 'Offline: no'
+        ? `${l.offline}: ${l.offlineNo}`
         : null;
   const failure =
     log.outcome === 'FAILURE' && log.metadata?.['error']
-      ? `Failure: ${log.metadata['error']}`
+      ? `${l.failure}: ${log.metadata['error']}`
       : null;
   const details = buildMetadataDetails(log.metadata ?? null, locale);
   const severity = classifySeverity({

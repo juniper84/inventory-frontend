@@ -556,12 +556,12 @@ export function PlatformConsole({
   const showAccess = view === 'access';
   const showIntelligence = view === 'intelligence';
   const showAnalytics = view === 'analytics';
-  // Legacy routes + combined view fallthrough
-  const showHealth = view === 'health' || showIntelligence;
-  const showSupport = view === 'support' || showAccess;
-  const showExports = view === 'exports' || showOperations;
-  const showAudit = view === 'audit' || showIntelligence;
-  const showIncidents = view === 'incidents' || showOperations;
+  // These are sub-sections within their parent views (intelligence, access, operations)
+  const showHealth = showIntelligence;
+  const showSupport = showAccess;
+  const showExports = showOperations;
+  const showAudit = showIntelligence;
+  const showIncidents = showOperations;
   const showBusinessDetailPage =
     showBusinesses && Boolean(focusBusinessId || openedBusinessId);
   const [quickActions, setQuickActions] = useState<
@@ -626,6 +626,8 @@ export function PlatformConsole({
     subscriptionRequests,
     subscriptionResponseNotes,
     setSubscriptionResponseNotes,
+    subscriptionApprovalForms,
+    setSubscriptionApprovalForms,
     supportForm,
     setSupportForm,
     supportFilters,
@@ -1676,6 +1678,8 @@ export function PlatformConsole({
         subscriptionRequests={subscriptionRequests}
         subscriptionResponseNotes={subscriptionResponseNotes}
         setSubscriptionResponseNotes={setSubscriptionResponseNotes}
+        subscriptionApprovalForms={subscriptionApprovalForms}
+        setSubscriptionApprovalForms={setSubscriptionApprovalForms}
         withAction={withAction}
         updateSubscriptionRequest={updateSubscriptionRequest}
         actionLoading={actionLoading}

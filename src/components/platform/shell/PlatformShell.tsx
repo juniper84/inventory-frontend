@@ -5,11 +5,32 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import type { CSSProperties, ReactNode } from 'react';
+import {
+  LayoutDashboard,
+  Building2,
+  Settings2,
+  UserCog,
+  Megaphone,
+  BarChart3,
+  Brain,
+  Menu,
+  Settings,
+  LogOut,
+} from 'lucide-react';
 import { PLATFORM_NAV_ITEMS } from '@/components/platform/shell/platform-nav';
-import { clearPlatformSession, getPlatformAccessToken } from '@/lib/auth';
+import {
+  clearPlatformSession,
+  getPlatformAccessToken,
+  getPlatformRefreshToken,
+  decodeJwt,
+} from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
+import { PlatformSearchResults } from './PlatformSearchResults';
+import { PlatformSseIndicator } from './PlatformSseIndicator';
+import { PlatformSettingsPanel } from './PlatformSettingsPanel';
+import { PlatformMobileDrawer } from './PlatformMobileDrawer';
 
-type SearchResult = {
+export type SearchResult = {
   type: 'business' | 'incident' | 'announcement';
   id: string;
   label: string;
@@ -18,71 +39,66 @@ type SearchResult = {
   businessName?: string;
 };
 
-type SearchResultsPayload = {
+export type SearchResultsPayload = {
   businesses: SearchResult[];
   incidents: SearchResult[];
   announcements: SearchResult[];
   query: string;
 };
 
-type PlatformTheme = 'obsidian' | 'neon' | 'midnight' | 'forest' | 'crimson' | 'violet' | 'charcoal';
-const PLATFORM_THEME_KEY = 'nvi.platform.theme';
-const VALID_THEMES: PlatformTheme[] = ['obsidian', 'neon', 'midnight', 'forest', 'crimson', 'violet', 'charcoal'];
+export type PlatformTheme =
+  | 'obsidian'
+  | 'aurora'
+  | 'midnight'
+  | 'cyber'
+  | 'rose'
+  | 'violet'
+  | 'forest'
+  | 'ember'
+  | 'mono';
 
-const THEMES: { key: PlatformTheme; label: string; swatch: string }[] = [
-  { key: 'obsidian', label: 'Obsidian', swatch: '#c9a84c' },
-  { key: 'neon',     label: 'Neon',     swatch: '#ffe566' },
-  { key: 'midnight', label: 'Midnight', swatch: '#4f8ef7' },
-  { key: 'forest',   label: 'Forest',   swatch: '#3dba6a' },
-  { key: 'crimson',  label: 'Crimson',  swatch: '#e05272' },
-  { key: 'violet',   label: 'Violet',   swatch: '#9b6ef0' },
-  { key: 'charcoal', label: 'Charcoal', swatch: '#78a8c8' },
+export type ThemeOption = {
+  key: PlatformTheme;
+  label: string;
+  swatch: string;
+};
+
+const PLATFORM_THEME_KEY = 'nvi.platform.theme';
+
+const VALID_THEMES: PlatformTheme[] = [
+  'obsidian',
+  'aurora',
+  'midnight',
+  'cyber',
+  'rose',
+  'violet',
+  'forest',
+  'ember',
+  'mono',
+];
+
+// Phase 8 curated theme set. Each swatch matches the `--pt-accent` defined in
+// globals.css. Labels are surfaced via t('themeName_*') for localization.
+const THEMES_META: { key: PlatformTheme; swatch: string }[] = [
+  { key: 'obsidian', swatch: '#c9a84c' },
+  { key: 'aurora', swatch: '#2dd4a3' },
+  { key: 'midnight', swatch: '#5a9bff' },
+  { key: 'cyber', swatch: '#22d3ee' },
+  { key: 'rose', swatch: '#f472a6' },
+  { key: 'violet', swatch: '#a47cf0' },
+  { key: 'forest', swatch: '#22c55e' },
+  { key: 'ember', swatch: '#f97316' },
+  { key: 'mono', swatch: '#e5e7eb' },
 ];
 
 const NAV_ICONS: Record<string, ReactNode> = {
-  overview: (
-    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" className="p-nav-icon">
-      <rect x="1" y="1" width="5" height="5" rx="1.2" />
-      <rect x="8" y="1" width="5" height="5" rx="1.2" />
-      <rect x="1" y="8" width="5" height="5" rx="1.2" />
-      <rect x="8" y="8" width="5" height="5" rx="1.2" />
-    </svg>
-  ),
-  businesses: (
-    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" className="p-nav-icon">
-      <path d="M2 13V6l5-4 5 4v7" />
-      <rect x="5" y="8" width="4" height="5" rx="0.8" />
-    </svg>
-  ),
-  operations: (
-    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" className="p-nav-icon">
-      <path d="M1 4h12M1 7h8M1 10h10" strokeLinecap="round" />
-      <circle cx="11" cy="10" r="2" />
-    </svg>
-  ),
-  access: (
-    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" className="p-nav-icon">
-      <circle cx="7" cy="5" r="2.5" />
-      <path d="M2 13c0-2.8 2.2-5 5-5s5 2.2 5 5" strokeLinecap="round" />
-    </svg>
-  ),
-  announcements: (
-    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" className="p-nav-icon">
-      <path d="M1 4.5h12v6a1 1 0 01-1 1H2a1 1 0 01-1-1v-6z" />
-      <path d="M5 4.5V3a2 2 0 014 0v1.5" />
-    </svg>
-  ),
-  analytics: (
-    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" className="p-nav-icon">
-      <path d="M1 11l3.5-4 3 2.5L11 4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  intelligence: (
-    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" className="p-nav-icon">
-      <circle cx="7" cy="7" r="5.5" />
-      <path d="M7 4v3.5l2 1.5" strokeLinecap="round" />
-    </svg>
-  ),
+  overview: <LayoutDashboard size={16} className="p-nav-icon" />,
+  businesses: <Building2 size={16} className="p-nav-icon" />,
+  operations: <Settings2 size={16} className="p-nav-icon" />,
+  access: <UserCog size={16} className="p-nav-icon" />,
+  announcements: <Megaphone size={16} className="p-nav-icon" />,
+  analytics: <BarChart3 size={16} className="p-nav-icon" />,
+  intelligence: <Brain size={16} className="p-nav-icon" />,
 };
 
 export function PlatformShell({
@@ -95,6 +111,7 @@ export function PlatformShell({
   const t = useTranslations('platformShell');
   const pathname = usePathname();
   const router = useRouter();
+
   const [query, setQuery] = useState('');
   const [theme, setTheme] = useState<PlatformTheme>(() => {
     if (typeof window === 'undefined') return 'obsidian';
@@ -104,15 +121,27 @@ export function PlatformShell({
     }
     return 'obsidian';
   });
-  const [searchResults, setSearchResults] = useState<SearchResultsPayload | null>(null);
+  const [searchResults, setSearchResults] =
+    useState<SearchResultsPayload | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [adminEmail, setAdminEmail] = useState<string | null>(null);
   const searchRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const normalizedPath = pathname.startsWith(`${basePath}/`)
     ? pathname.slice(basePath.length + 1).split('/')[0]
     : 'overview';
+
+  // Decode admin email from JWT for the settings panel profile row
+  useEffect(() => {
+    const token = getPlatformAccessToken();
+    if (!token) return;
+    const payload = decodeJwt<{ email?: string; sub?: string }>(token);
+    if (payload?.email) setAdminEmail(payload.email);
+  }, []);
 
   const navItems = useMemo(
     () =>
@@ -125,36 +154,43 @@ export function PlatformShell({
     [t],
   );
 
+  const themes: ThemeOption[] = useMemo(
+    () =>
+      THEMES_META.map((th) => ({
+        key: th.key,
+        swatch: th.swatch,
+        label: t(`themeName_${th.key}`),
+      })),
+    [t],
+  );
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(PLATFORM_THEME_KEY, theme);
   }, [theme]);
 
-  const runSearch = useCallback(
-    async (q: string) => {
-      if (q.trim().length < 2) {
-        setSearchResults(null);
-        setSearchOpen(false);
-        return;
-      }
-      const token = getPlatformAccessToken();
-      if (!token) return;
-      setIsSearching(true);
-      try {
-        const data = await apiFetch<SearchResultsPayload>(
-          `/platform/search?q=${encodeURIComponent(q.trim())}`,
-          { token },
-        );
-        setSearchResults(data);
-        setSearchOpen(true);
-      } catch {
-        // silent — search failures shouldn't interrupt navigation
-      } finally {
-        setIsSearching(false);
-      }
-    },
-    [],
-  );
+  const runSearch = useCallback(async (q: string) => {
+    if (q.trim().length < 2) {
+      setSearchResults(null);
+      setSearchOpen(false);
+      return;
+    }
+    const token = getPlatformAccessToken();
+    if (!token) return;
+    setIsSearching(true);
+    try {
+      const data = await apiFetch<SearchResultsPayload>(
+        `/platform/search?q=${encodeURIComponent(q.trim())}`,
+        { token },
+      );
+      setSearchResults(data);
+      setSearchOpen(true);
+    } catch {
+      // silent — don't interrupt navigation
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -168,7 +204,7 @@ export function PlatformShell({
     debounceRef.current = setTimeout(() => void runSearch(value), 350);
   };
 
-  const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
       setSearchOpen(false);
       setSearchResults(null);
@@ -177,7 +213,6 @@ export function PlatformShell({
     if (e.key !== 'Enter') return;
     const normalized = query.trim().toLowerCase();
     if (!normalized) return;
-    // Try nav match first
     const match = navItems.find(
       (item) =>
         item.label.toLowerCase().includes(normalized) ||
@@ -204,7 +239,7 @@ export function PlatformShell({
     }
   };
 
-  // Close on outside click
+  // Close search dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
@@ -215,17 +250,44 @@ export function PlatformShell({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const totalResults = searchResults
-    ? searchResults.businesses.length +
-      searchResults.incidents.length +
-      searchResults.announcements.length
-    : 0;
-
   const currentSection = navItems.find((i) => i.path === normalizedPath);
 
+  /**
+   * Logout handler — BUG FIX (Phase 8 #6): calls backend before clearing local
+   * session so the refresh token is actually revoked. Previously `clearPlatformSession()`
+   * only wiped localStorage and never hit the server, leaving refresh tokens
+   * valid until expiry.
+   */
+  const handleLogout = async () => {
+    const refreshToken = getPlatformRefreshToken();
+    try {
+      if (refreshToken) {
+        await apiFetch('/platform/auth/logout', {
+          method: 'POST',
+          body: JSON.stringify({ refreshToken }),
+        });
+      }
+    } catch {
+      // If logout fails (network, 500, etc.) still clear local session so the
+      // user isn't stuck signed in. Server-side tokens remain valid in that
+      // edge case but frontend won't send them.
+    } finally {
+      clearPlatformSession();
+      router.push(`${basePath}/login`);
+    }
+  };
+
+  const handleThemeChange = (next: PlatformTheme) => {
+    setTheme(next);
+  };
+
   return (
-    <div className="p-shell nvi-reveal" data-theme={theme} suppressHydrationWarning>
-      {/* Left nav rail */}
+    <div
+      className="p-shell nvi-reveal"
+      data-theme={theme}
+      suppressHydrationWarning
+    >
+      {/* Left nav rail (desktop) */}
       <aside className="p-rail">
         <div className="p-rail-brand">
           <span className="p-rail-brand-eye">{t('brandEyebrow')}</span>
@@ -247,35 +309,28 @@ export function PlatformShell({
         </nav>
 
         <div className="p-rail-footer">
-          <div className="p-theme-row">
-            <span className="p-theme-label">Theme</span>
-            <div className="p-theme-swatches">
-              {THEMES.map((th) => (
-                <button
-                  key={th.key}
-                  type="button"
-                  onClick={() => setTheme(th.key)}
-                  data-active={theme === th.key}
-                  className="p-theme-dot"
-                  title={th.label}
-                  style={{ '--swatch': th.swatch } as CSSProperties}
-                />
-              ))}
-            </div>
-          </div>
+          {/* SSE connection indicator */}
+          <PlatformSseIndicator
+            labels={{
+              connected: t('sseConnected'),
+              reconnecting: t('sseReconnecting'),
+              disconnected: t('sseDisconnected'),
+            }}
+          />
 
+          {/* Settings button (opens slide-in panel with profile + password + theme) */}
           <button
             type="button"
-            onClick={() => {
-              clearPlatformSession();
-              router.push(`${basePath}/login`);
-            }}
+            onClick={() => setSettingsOpen(true)}
             className="p-nav-item"
           >
-            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" className="p-nav-icon">
-              <path d="M5 7h7M9 4.5l2.5 2.5L9 9.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M8 2H2.5A1.5 1.5 0 001 3.5v7A1.5 1.5 0 002.5 12H8" />
-            </svg>
+            <Settings size={14} className="p-nav-icon" />
+            <span className="p-nav-label">{t('settings')}</span>
+          </button>
+
+          {/* Logout */}
+          <button type="button" onClick={handleLogout} className="p-nav-item">
+            <LogOut size={14} className="p-nav-icon" />
             <span className="p-nav-label">{t('logout')}</span>
           </button>
         </div>
@@ -284,99 +339,46 @@ export function PlatformShell({
       {/* Main content */}
       <main className="p-main">
         <div className="p-topbar">
-          <div className="p-search" ref={searchRef} style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setMobileDrawerOpen(true)}
+            className="p-hamburger"
+            aria-label={t('openNav')}
+          >
+            <Menu size={16} />
+          </button>
+
+          <div
+            className="p-search"
+            ref={searchRef}
+            style={{ position: 'relative' }}
+          >
             <input
               value={query}
               onChange={handleSearchChange}
-              onKeyDown={handleSearch}
+              onKeyDown={handleSearchKey}
               onFocus={() => {
-                if (searchResults && totalResults > 0) setSearchOpen(true);
+                if (searchResults && query.trim().length >= 2) setSearchOpen(true);
               }}
-              placeholder={isSearching ? t('searchingPlaceholder') : t('jumpPlaceholder')}
+              placeholder={
+                isSearching ? t('searchingPlaceholder') : t('jumpPlaceholder')
+              }
               className="p-search-input"
             />
-            {searchOpen && searchResults && totalResults > 0 && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 4px)',
-                  left: 0,
-                  right: 0,
-                  zIndex: 50,
-                  background: 'var(--pt-surface)',
-                  border: '1px solid var(--pt-border)',
-                  borderRadius: '6px',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-                  maxHeight: '320px',
-                  overflowY: 'auto',
-                }}
-              >
-                {searchResults.businesses.length > 0 && (
-                  <div>
-                    <p style={{ padding: '6px 10px 4px', fontSize: '9px', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--pt-text-muted)' }}>
-                      {t('searchGroupBusinesses')}
-                    </p>
-                    {searchResults.businesses.map((r) => (
-                      <button
-                        key={r.id}
-                        type="button"
-                        onClick={() => navigateToResult(r)}
-                        style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', fontSize: '12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pt-text)', textAlign: 'left' }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--pt-border)')}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-                      >
-                        <span>{r.label}</span>
-                        <span style={{ fontSize: '10px', color: 'var(--pt-text-muted)', textTransform: 'uppercase' }}>{r.meta}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {searchResults.incidents.length > 0 && (
-                  <div>
-                    <p style={{ padding: '6px 10px 4px', fontSize: '9px', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--pt-text-muted)' }}>
-                      {t('searchGroupIncidents')}
-                    </p>
-                    {searchResults.incidents.map((r) => (
-                      <button
-                        key={r.id}
-                        type="button"
-                        onClick={() => navigateToResult(r)}
-                        style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', fontSize: '12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pt-text)', textAlign: 'left' }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--pt-border)')}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-                      >
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>{r.label}</span>
-                        <span style={{ fontSize: '10px', color: 'var(--pt-text-muted)', flexShrink: 0 }}>{r.meta}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {searchResults.announcements.length > 0 && (
-                  <div>
-                    <p style={{ padding: '6px 10px 4px', fontSize: '9px', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--pt-text-muted)' }}>
-                      {t('searchGroupAnnouncements')}
-                    </p>
-                    {searchResults.announcements.map((r) => (
-                      <button
-                        key={r.id}
-                        type="button"
-                        onClick={() => navigateToResult(r)}
-                        style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', fontSize: '12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pt-text)', textAlign: 'left' }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--pt-border)')}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-                      >
-                        <span>{r.label}</span>
-                        <span style={{ fontSize: '10px', color: 'var(--pt-text-muted)' }}>{r.meta}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {searchOpen && searchResults && query.trim().length >= 2 && (
+              <PlatformSearchResults
+                results={searchResults}
+                query={query}
+                onNavigate={navigateToResult}
+                t={(key) => t(key)}
+              />
             )}
           </div>
           <div className="p-topbar-right">
             {currentSection && (
-              <span className="p-topbar-section">{currentSection.shortLabel}</span>
+              <span className="p-topbar-section">
+                {currentSection.shortLabel}
+              </span>
             )}
           </div>
         </div>
@@ -384,6 +386,35 @@ export function PlatformShell({
         <div className="p-content">{children}</div>
       </main>
 
+      {/* Mobile drawer (hamburger-triggered) */}
+      <PlatformMobileDrawer
+        open={mobileDrawerOpen}
+        onClose={() => setMobileDrawerOpen(false)}
+        basePath={basePath}
+        navItems={navItems}
+        normalizedPath={normalizedPath}
+        navIcons={NAV_ICONS}
+        onLogout={() => {
+          setMobileDrawerOpen(false);
+          void handleLogout();
+        }}
+        onOpenSettings={() => setSettingsOpen(true)}
+        brandEyebrow={t('brandEyebrow')}
+        brandTitle={t('brandTitle')}
+        settingsLabel={t('settings')}
+        logoutLabel={t('logout')}
+      />
+
+      {/* Settings panel (right slide-in) */}
+      <PlatformSettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        theme={theme}
+        onThemeChange={handleThemeChange}
+        themes={themes}
+        adminEmail={adminEmail}
+        t={(key) => t(key)}
+      />
     </div>
   );
 }

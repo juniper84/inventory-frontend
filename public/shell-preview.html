@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shell Redesign Preview — New Vision Inventory</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #050508;
+  color: #e9e7e2;
+  min-height: 100vh;
+}
+
+/* ---- Page layout ---- */
+.page { max-width: 1400px; margin: 0 auto; padding: 40px 20px 80px; }
+.page-title { text-align: center; font-size: 1.5rem; font-weight: 800; color: #f6d37a; letter-spacing: 0.04em; margin-bottom: 6px; }
+.page-sub { text-align: center; font-size: 0.85rem; color: rgba(167,163,160,0.8); margin-bottom: 28px; }
+
+/* ---- Controls ---- */
+.controls { display: flex; justify-content: center; gap: 8px; margin-bottom: 36px; flex-wrap: wrap; }
+.ctrl-btn {
+  padding: 6px 16px; border-radius: 999px; cursor: pointer; font-size: 0.75rem; font-weight: 400;
+  border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); color: rgba(233,231,226,0.6);
+  transition: all 0.2s;
+}
+.ctrl-btn.active, .ctrl-btn:hover {
+  border-color: rgba(246,211,122,0.5); background: rgba(246,211,122,0.12); color: #f6d37a; font-weight: 600;
+}
+.ctrl-note { opacity: 0.5; font-size: 0.65rem; }
+
+/* ---- Concept wrapper ---- */
+.concept { margin-bottom: 48px; }
+.concept-header { text-align: center; margin-bottom: 16px; }
+.concept-label { font-size: 1rem; font-weight: 700; color: #f6d37a; letter-spacing: 0.04em; margin-bottom: 4px; }
+.concept-desc { font-size: 0.75rem; color: rgba(167,163,160,0.7); max-width: 500px; margin: 0 auto; line-height: 1.5; }
+.concept-frame-wrap { display: flex; justify-content: center; overflow: auto; padding-bottom: 8px; }
+
+/* ---- Frames ---- */
+.frame {
+  border-radius: 16px; border: 1px solid rgba(255,215,120,0.12); overflow: hidden;
+  background: #0a0a10; flex-shrink: 0; position: relative;
+}
+
+/* ---- Shared elements ---- */
+.placeholder {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; gap: 12px; color: rgba(167,163,160,0.4); font-size: 0.8rem;
+}
+.placeholder-icon { font-size: 2rem; opacity: 0.4; }
+
+/* Inline wordmark logo for topbar */
+.wm { display: inline-flex; flex-direction: column; align-items: center; line-height: 1; gap: 0; }
+.wm-new { font-size: 0.42rem; font-weight: 300; letter-spacing: 0.5em; color: rgba(239,230,206,0.9); }
+.wm-vision { font-size: 1rem; font-weight: 900; letter-spacing: 0.08em; background: linear-gradient(135deg,#f6d37a,#fff,#e6a23c); background-size: 300% 100%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: wm-shimmer 4s linear infinite; }
+.wm-line { width: 38px; height: 1px; margin: 2px 0; background: linear-gradient(90deg,transparent,#f6d37a,transparent); }
+.wm-inv { font-size: 0.25rem; font-weight: 500; letter-spacing: 0.55em; text-transform: uppercase; color: rgba(167,163,160,0.7); }
+@keyframes wm-shimmer { 0%{background-position:0% 50%} 100%{background-position:300% 50%} }
+
+/* Avatar */
+.av { width: 32px; height: 32px; border-radius: 50%; background: rgba(246,211,122,0.1); border: 1px solid rgba(246,211,122,0.3); display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; color: #f6d37a; flex-shrink: 0; }
+.av-sq { border-radius: 10px; }
+
+/* Nav icon placeholder */
+.ni { width: 16px; height: 16px; border-radius: 4px; background: rgba(167,163,160,0.2); flex-shrink: 0; }
+
+/* ═══════════════════════════════════════
+   CONCEPT 1 — COMMAND CENTER
+   ═══════════════════════════════════════ */
+.c1-layout { display: flex; height: 100%; }
+.c1-sidebar { width: 220px; background: rgba(12,10,6,0.98); border-right: 1px solid rgba(227,178,51,0.15); display: flex; flex-direction: column; flex-shrink: 0; }
+.c1-sidebar--collapsed { width: 56px; }
+.c1-sidebar-nav { flex: 1; overflow-y: auto; padding: 12px 8px; scrollbar-width: none; }
+.c1-section { margin-bottom: 14px; }
+.c1-section-title { font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.3em; color: rgba(227,178,51,0.45); padding: 0 8px; margin-bottom: 4px; font-weight: 600; }
+.c1-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; transition: all 0.15s; color: rgba(233,231,226,0.55); font-size: 0.76rem; position: relative; border: 1px solid transparent; }
+.c1-item:hover { background: rgba(227,178,51,0.08); color: rgba(233,231,226,0.85); }
+.c1-item--active { background: linear-gradient(135deg,rgba(227,178,51,0.15),rgba(45,169,167,0.08)); color: #f6d37a; border-color: rgba(227,178,51,0.2); }
+.c1-dot { width: 6px; height: 6px; border-radius: 50%; background: #f6d37a; box-shadow: 0 0 8px rgba(246,211,122,0.5); margin-left: auto; }
+.c1-sidebar-footer { padding: 12px; border-top: 1px solid rgba(227,178,51,0.12); }
+.c1-user { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; background: rgba(246,211,122,0.05); border: 1px solid rgba(246,211,122,0.08); }
+.c1-user-name { font-size: 0.72rem; font-weight: 600; color: rgba(233,231,226,0.85); }
+.c1-user-role { font-size: 0.55rem; color: rgba(167,163,160,0.6); }
+.c1-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.c1-topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: rgba(22,17,6,0.94); border-bottom: 1px solid rgba(227,178,51,0.18); }
+.c1-topbar--inner { background: transparent; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.c1-topbar-left { display: flex; align-items: center; gap: 12px; }
+.c1-topbar-right { display: flex; align-items: center; gap: 8px; }
+.c1-bc { font-size: 0.7rem; color: rgba(167,163,160,0.6); }
+.c1-btn { padding: 5px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: transparent; color: rgba(233,231,226,0.6); font-size: 0.68rem; cursor: pointer; }
+.c1-btn:hover { border-color: rgba(246,211,122,0.25); color: #f6d37a; }
+.c1-btn--pos { border-color: rgba(246,211,122,0.45); background: linear-gradient(135deg,rgba(246,211,122,0.18),rgba(246,211,122,0.08)); color: #f6d37a; font-weight: 700; letter-spacing: 0.1em; }
+.c1-content { flex: 1; padding: 20px; }
+
+/* Phone concept 1 */
+.c1-phone-topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(22,17,6,0.94); border-bottom: 1px solid rgba(227,178,51,0.15); }
+.c1-hamburger { background: none; border: 1px solid rgba(227,178,51,0.3); color: #f6d37a; border-radius: 6px; padding: 4px 8px; font-size: 0.8rem; cursor: pointer; }
+.c1-bottom { display: flex; border-top: 1px solid rgba(227,178,51,0.12); background: rgba(12,10,6,0.98); padding: 6px 4px 10px; }
+.c1-bot-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: none; color: rgba(167,163,160,0.5); cursor: pointer; padding: 6px 2px; border-radius: 8px; font-family: inherit; }
+.c1-bot-item--active { color: #f6d37a; background: rgba(246,211,122,0.08); }
+.c1-bot-icon { font-size: 0.9rem; }
+.c1-bot-label { font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* ═══════════════════════════════════════
+   CONCEPT 2 — GLASS RAIL
+   ═══════════════════════════════════════ */
+.c2-layout { display: flex; height: 100%; background: radial-gradient(ellipse 600px 500px at 10% 30%,rgba(246,211,122,0.06),transparent), radial-gradient(ellipse 500px 400px at 90% 70%,rgba(45,169,167,0.04),transparent), #0a0a10; }
+.c2-sidebar { width: 230px; margin: 10px; border-radius: 20px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,215,120,0.1); backdrop-filter: blur(20px); display: flex; flex-direction: column; flex-shrink: 0; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+.c2-sidebar--collapsed { width: 64px; margin: 10px 0 10px 10px; }
+.c2-sidebar-nav { flex: 1; overflow-y: auto; padding: 12px 8px; scrollbar-width: none; }
+.c2-section { margin-bottom: 12px; }
+.c2-section-title { font-size: 0.48rem; text-transform: uppercase; letter-spacing: 0.35em; color: rgba(246,211,122,0.35); padding: 0 10px; margin-bottom: 4px; }
+.c2-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 12px; cursor: pointer; transition: all 0.2s; color: rgba(233,231,226,0.5); font-size: 0.76rem; }
+.c2-item:hover { background: rgba(255,255,255,0.04); color: rgba(233,231,226,0.85); }
+.c2-item--active { background: rgba(246,211,122,0.1); color: #f6d37a; box-shadow: 0 0 16px rgba(246,211,122,0.1); }
+.c2-sidebar-footer { padding: 14px; border-top: 1px solid rgba(255,215,120,0.06); display: flex; align-items: center; gap: 10px; justify-content: center; }
+.c2-footer-name { font-size: 0.7rem; font-weight: 600; color: rgba(233,231,226,0.7); }
+.c2-av { width: 34px; height: 34px; border-radius: 50%; background: rgba(246,211,122,0.1); border: 1.5px solid rgba(246,211,122,0.35); display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; color: #f6d37a; flex-shrink: 0; box-shadow: 0 0 12px rgba(246,211,122,0.15); }
+.c2-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.c2-topbar { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; }
+.c2-topbar-right { display: flex; align-items: center; gap: 6px; }
+.c2-bc { font-size: 0.76rem; color: rgba(233,231,226,0.6); font-weight: 500; }
+.c2-pill { padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: rgba(233,231,226,0.6); font-size: 0.66rem; cursor: pointer; transition: all 0.15s; }
+.c2-pill:hover { border-color: rgba(246,211,122,0.3); color: #f6d37a; background: rgba(246,211,122,0.06); }
+.c2-content { flex: 1; padding: 20px; }
+
+/* Phone concept 2 */
+.c2-phone-topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(22,17,6,0.6); backdrop-filter: blur(12px); }
+.c2-phone-center { flex: 1; display: flex; justify-content: center; }
+.c2-bottom { display: flex; border-top: 1px solid rgba(255,215,120,0.08); background: rgba(255,255,255,0.02); backdrop-filter: blur(20px); padding: 6px 4px 10px; }
+.c2-bot-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: none; color: rgba(167,163,160,0.45); cursor: pointer; padding: 6px 2px; border-radius: 10px; font-family: inherit; }
+.c2-bot-item--active { color: #f6d37a; background: rgba(246,211,122,0.08); box-shadow: 0 0 10px rgba(246,211,122,0.08); }
+
+/* ═══════════════════════════════════════
+   CONCEPT 3 — MINIMAL DOCK
+   ═══════════════════════════════════════ */
+.c3-layout { display: flex; height: 100%; }
+.c3-dock { width: 56px; background: rgba(12,10,6,0.98); border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; align-items: center; padding: 14px 0; flex-shrink: 0; }
+.c3-dock-items { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; overflow-y: auto; scrollbar-width: none; padding: 8px 0; }
+.c3-dock-item { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 12px; cursor: pointer; transition: all 0.2s; position: relative; }
+.c3-dock-item:hover { background: rgba(246,211,122,0.08); transform: scale(1.12); }
+.c3-dock-item--active { background: rgba(246,211,122,0.12); box-shadow: 0 0 12px rgba(246,211,122,0.15); }
+.c3-dock-item .ni { background: rgba(167,163,160,0.25); }
+.c3-dock-item--active .ni { background: rgba(246,211,122,0.5); }
+.c3-tooltip { position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%); background: rgba(10,8,4,0.95); border: 1px solid rgba(246,211,122,0.2); padding: 4px 10px; border-radius: 8px; font-size: 0.6rem; color: rgba(233,231,226,0.85); white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.15s; z-index: 10; }
+.c3-dock-item:hover .c3-tooltip { opacity: 1; }
+.c3-dock-bottom { padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 8px; }
+.c3-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.c3-topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.c3-topbar-left { display: flex; align-items: center; gap: 12px; }
+.c3-topbar-right { display: flex; align-items: center; gap: 6px; }
+.c3-content { flex: 1; padding: 20px; }
+
+/* Phone concept 3 */
+.c3-phone-topbar { display: flex; align-items: center; padding: 10px 14px; gap: 10px; }
+.c3-phone-spacer { flex: 1; }
+.c3-phone-bottom { display: flex; justify-content: center; gap: 4px; padding: 8px 16px 14px; background: rgba(12,10,6,0.95); border-top: 1px solid rgba(255,255,255,0.06); }
+.c3-phone-dock { width: 50px; height: 42px; display: flex; align-items: center; justify-content: center; border-radius: 14px; background: none; border: none; color: rgba(167,163,160,0.5); cursor: pointer; transition: all 0.2s; }
+.c3-phone-dock--active { background: rgba(246,211,122,0.1); color: #f6d37a; box-shadow: 0 0 12px rgba(246,211,122,0.12); }
+.c3-phone-dock:hover { transform: scale(1.12); }
+
+/* ═══════════════════════════════════════
+   CONCEPT 4 — PREMIUM SUITE
+   ═══════════════════════════════════════ */
+.c4-layout { display: flex; height: 100%; }
+.c4-sidebar { width: 230px; background: linear-gradient(180deg,rgba(16,13,8,0.99),rgba(10,8,4,0.99)); border-right: 1px solid rgba(227,178,51,0.12); display: flex; flex-direction: column; flex-shrink: 0; }
+.c4-sidebar--collapsed { width: 56px; }
+.c4-sidebar-nav { flex: 1; overflow-y: auto; padding: 8px; scrollbar-width: none; }
+.c4-section { padding: 6px 0; }
+.c4-section-title { font-size: 0.48rem; text-transform: uppercase; letter-spacing: 0.35em; color: rgba(227,178,51,0.4); padding: 0 10px 4px; font-weight: 600; }
+.c4-divider { height: 1px; margin: 2px 12px; background: linear-gradient(90deg,transparent,rgba(227,178,51,0.15),transparent); }
+.c4-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; cursor: pointer; transition: all 0.2s; color: rgba(233,231,226,0.45); font-size: 0.76rem; position: relative; }
+.c4-item:hover { background: rgba(227,178,51,0.06); color: rgba(233,231,226,0.8); }
+.c4-item--active { background: linear-gradient(135deg,rgba(227,178,51,0.12),rgba(45,169,167,0.06)); color: #f6d37a; }
+.c4-active-bar { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 18px; border-radius: 0 3px 3px 0; background: linear-gradient(180deg,#f6d37a,#e6a23c); box-shadow: 0 0 8px rgba(246,211,122,0.4); }
+.c4-sidebar-footer { padding: 12px; border-top: 1px solid rgba(227,178,51,0.08); }
+.c4-footer-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: linear-gradient(135deg,rgba(246,211,122,0.06),rgba(246,211,122,0.02)); border: 1px solid rgba(246,211,122,0.08); }
+.c4-footer-name { font-size: 0.7rem; font-weight: 600; color: rgba(233,231,226,0.8); }
+.c4-footer-plan { font-size: 0.5rem; color: rgba(246,211,122,0.5); text-transform: uppercase; letter-spacing: 0.1em; }
+.c4-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.c4-topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; }
+.c4-topbar-right { display: flex; align-items: center; gap: 8px; }
+.c4-bc { font-size: 0.7rem; color: rgba(167,163,160,0.5); }
+.c4-btn { padding: 6px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); background: transparent; color: rgba(233,231,226,0.55); font-size: 0.68rem; cursor: pointer; transition: all 0.15s; position: relative; }
+.c4-btn:hover { border-color: rgba(246,211,122,0.2); color: #f6d37a; }
+.c4-btn--pos { border-color: rgba(246,211,122,0.4); background: linear-gradient(135deg,rgba(246,211,122,0.15),rgba(246,211,122,0.05)); color: #f6d37a; font-weight: 700; letter-spacing: 0.08em; }
+.c4-content { flex: 1; padding: 20px; }
+
+/* Phone concept 4 */
+.c4-phone-topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(22,17,6,0.94); border-bottom: 1px solid rgba(227,178,51,0.08); }
+.c4-phone-hamburger { background: none; border: 1px solid rgba(227,178,51,0.25); color: #f6d37a; border-radius: 8px; padding: 5px 10px; font-size: 0.8rem; cursor: pointer; }
+.c4-bottom { display: flex; border-top: 1px solid rgba(227,178,51,0.1); background: linear-gradient(180deg,rgba(16,13,8,0.98),rgba(10,8,4,0.99)); padding: 6px 4px 10px; }
+.c4-bot-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: none; color: rgba(167,163,160,0.45); cursor: pointer; padding: 6px 2px; border-radius: 10px; font-family: inherit; }
+.c4-bot-item--active { color: #f6d37a; background: rgba(246,211,122,0.08); }
+
+/* Shared small text */
+.bot-icon { font-size: 0.9rem; }
+.bot-label { font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.notif-badge { position: absolute; top: -3px; right: -3px; background: #f6d37a; color: #000; font-size: 0.45rem; font-weight: 800; width: 13px; height: 13px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <h1 class="page-title">Shell Redesign Preview</h1>
+  <p class="page-sub">4 sidebar + topbar concepts. Toggle viewport to see desktop, tablet, and phone.</p>
+
+  <div class="controls" id="controls">
+    <button class="ctrl-btn active" onclick="setView('desktop')">Desktop <span class="ctrl-note">(1200px)</span></button>
+    <button class="ctrl-btn" onclick="setView('tablet')">Tablet <span class="ctrl-note">(768px)</span></button>
+    <button class="ctrl-btn" onclick="setView('phone')">Phone <span class="ctrl-note">(375px)</span></button>
+  </div>
+
+  <!-- CONCEPT 1 -->
+  <div class="concept">
+    <div class="concept-header">
+      <div class="concept-label">1 — Command Center</div>
+      <div class="concept-desc">Military-precision layout. Structured sections with gold accent borders, compact density. User card at bottom. Breadcrumbs in topbar.</div>
+    </div>
+    <div class="concept-frame-wrap"><div class="frame" id="c1"></div></div>
+  </div>
+
+  <!-- CONCEPT 2 -->
+  <div class="concept">
+    <div class="concept-header">
+      <div class="concept-label">2 — Glass Rail</div>
+      <div class="concept-desc">Floating glass sidebar with rounded corners, backdrop blur, and glow effects. Semi-transparent. Pill-shaped topbar buttons. Soft edges.</div>
+    </div>
+    <div class="concept-frame-wrap"><div class="frame" id="c2"></div></div>
+  </div>
+
+  <!-- CONCEPT 3 -->
+  <div class="concept">
+    <div class="concept-header">
+      <div class="concept-label">3 — Minimal Dock</div>
+      <div class="concept-desc">macOS-inspired narrow icon dock. Ultra-minimal — icons only with tooltips on hover. Wordmark in topbar. Maximizes content area.</div>
+    </div>
+    <div class="concept-frame-wrap"><div class="frame" id="c3"></div></div>
+  </div>
+
+  <!-- CONCEPT 4 -->
+  <div class="concept">
+    <div class="concept-header">
+      <div class="concept-label">4 — Premium Suite</div>
+      <div class="concept-desc">Luxury dashboard with glowing section dividers, gradient active states, gold active bar on selected items. User card at bottom shows plan.</div>
+    </div>
+    <div class="concept-frame-wrap"><div class="frame" id="c4"></div></div>
+  </div>
+</div>
+
+<script>
+const NAV = [
+  { section: 'COMMAND', items: [{ label: 'Dashboard', active: true }] },
+  { section: 'CORE', items: [{ label: 'Settings' }, { label: 'Branches' }, { label: 'Users' }] },
+  { section: 'CATALOG', items: [{ label: 'Products' }, { label: 'Categories' }, { label: 'Customers' }] },
+  { section: 'STOCK', items: [{ label: 'Stock on Hand' }, { label: 'Movements' }, { label: 'Adjustments' }] },
+  { section: 'SALES', items: [{ label: 'POS' }, { label: 'Receipts' }] },
+  { section: 'INSIGHTS', items: [{ label: 'Reports' }, { label: 'Expenses' }, { label: 'Exports' }] },
+];
+const BOTTOM = ['Dashboard', 'POS', 'Stock', 'Alerts', 'Menu'];
+const WM = '<span class="wm"><span class="wm-new">N E W</span><span class="wm-vision">VISION</span><span class="wm-line"></span><span class="wm-inv">INVENTORY</span></span>';
+const PH = '<div class="placeholder"><span class="placeholder-icon">&#128202;</span><span>Dashboard Content</span></div>';
+
+function ni() { return '<span class="ni"></span>'; }
+function av(t) { return `<span class="av">${t||'FK'}</span>`; }
+
+function bot(items, cls, activeCls) {
+  return items.map((l,i) => `<button class="${cls} ${i===0?activeCls:''}"><span class="bot-icon">&#${i===0?'128202':i===1?'128176':i===2?'128203':i===3?'128276':'9776'};</span><span class="bot-label">${l}</span></button>`).join('');
+}
+
+function navItems(items, itemCls, activeCls, showLabel, dotActive) {
+  return items.map(it => {
+    const cls = it.active ? `${itemCls} ${activeCls}` : itemCls;
+    return `<div class="${cls}" title="${it.label}">${ni()}${showLabel?`<span style="flex:1">${it.label}</span>`:''}${it.active && dotActive ? '<span class="c1-dot"></span>' : ''}</div>`;
+  }).join('');
+}
+
+let currentView = 'desktop';
+
+function setView(v) {
+  currentView = v;
+  document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
+  event.target.closest('.ctrl-btn').classList.add('active');
+  render();
+}
+
+function render() {
+  const v = currentView;
+  const isPhone = v === 'phone';
+  const isTablet = v === 'tablet';
+  const w = isPhone ? 375 : isTablet ? 768 : 1200;
+  const h = isPhone ? 720 : 700;
+
+  // C1 — Command Center
+  if (isPhone) {
+    document.getElementById('c1').style.cssText = `width:${w}px;height:${h}px`;
+    document.getElementById('c1').innerHTML = `
+      <div style="display:flex;flex-direction:column;height:100%">
+        <div class="c1-phone-topbar"><button class="c1-hamburger">&#9776;</button>${WM}<div style="display:flex;gap:8px;align-items:center"><span style="width:8px;height:8px;border-radius:50%;background:#f6d37a;box-shadow:0 0 6px rgba(246,211,122,0.6)"></span>${av()}</div></div>
+        <div class="c1-content" style="flex:1">${PH}</div>
+        <div class="c1-bottom">${bot(BOTTOM,'c1-bot-item','c1-bot-item--active')}</div>
+      </div>`;
+  } else {
+    const collapsed = isTablet;
+    document.getElementById('c1').style.cssText = `width:${w}px;height:${h}px`;
+    document.getElementById('c1').innerHTML = `
+      <div class="c1-layout">
+        <aside class="c1-sidebar ${collapsed?'c1-sidebar--collapsed':''}">
+          <div class="c1-sidebar-nav">
+            ${NAV.map(s => `<div class="c1-section">${!collapsed?`<div class="c1-section-title">${s.section}</div>`:''}${navItems(s.items,'c1-item','c1-item--active',!collapsed,!collapsed)}</div>`).join('')}
+          </div>
+          ${!collapsed?`<div class="c1-sidebar-footer"><div class="c1-user">${av()}<div><div class="c1-user-name">Freddie K</div><div class="c1-user-role">System Owner</div></div></div></div>`:''}
+        </aside>
+        <div class="c1-main">
+          <div class="c1-topbar c1-topbar--inner">
+            <div class="c1-topbar-left">${WM}<span class="c1-bc" style="margin-left:16px">Command &gt; Dashboard</span></div>
+            <div class="c1-topbar-right"><button class="c1-btn c1-btn--pos">POS</button><button class="c1-btn">&#8984;K</button><button class="c1-btn" style="position:relative">&#128276;<span class="notif-badge">3</span></button>${av()}</div>
+          </div>
+          <div class="c1-content">${PH}</div>
+        </div>
+      </div>`;
+  }
+
+  // C2 — Glass Rail
+  if (isPhone) {
+    document.getElementById('c2').style.cssText = `width:${w}px;height:${h}px`;
+    document.getElementById('c2').innerHTML = `
+      <div style="display:flex;flex-direction:column;height:100%;background:#0a0a10">
+        <div class="c2-phone-topbar"><button class="c1-hamburger">&#9776;</button><div class="c2-phone-center">${WM}</div>${av()}</div>
+        <div class="c2-content" style="flex:1">${PH}</div>
+        <div class="c2-bottom">${bot(BOTTOM,'c2-bot-item','c2-bot-item--active')}</div>
+      </div>`;
+  } else {
+    const collapsed = isTablet;
+    document.getElementById('c2').style.cssText = `width:${w}px;height:${h}px`;
+    document.getElementById('c2').innerHTML = `
+      <div class="c2-layout">
+        <aside class="c2-sidebar ${collapsed?'c2-sidebar--collapsed':''}">
+          <div class="c2-sidebar-nav" style="padding-top:16px">
+            ${NAV.map(s => `<div class="c2-section">${!collapsed?`<div class="c2-section-title">${s.section}</div>`:''}${navItems(s.items,'c2-item','c2-item--active',!collapsed,false)}</div>`).join('')}
+          </div>
+          <div class="c2-sidebar-footer"><span class="c2-av">FK</span>${!collapsed?'<span class="c2-footer-name">Freddie K</span>':''}</div>
+        </aside>
+        <div class="c2-main">
+          <div class="c2-topbar"><div style="display:flex;align-items:center;gap:14px">${WM}<span class="c2-bc" style="margin-left:8px">Dashboard</span></div><div class="c2-topbar-right"><button class="c2-pill">POS</button><button class="c2-pill">&#8984;K</button><button class="c2-pill">&#128276;</button>${av()}</div></div>
+          <div class="c2-content">${PH}</div>
+        </div>
+      </div>`;
+  }
+
+  // C3 — Minimal Dock
+  if (isPhone) {
+    document.getElementById('c3').style.cssText = `width:${w}px;height:${h}px`;
+    document.getElementById('c3').innerHTML = `
+      <div style="display:flex;flex-direction:column;height:100%">
+        <div class="c3-phone-topbar">${WM}<div class="c3-phone-spacer"></div><button class="c2-pill">&#128276;</button>${av()}</div>
+        <div style="flex:1;padding:20px">${PH}</div>
+        <div class="c3-phone-bottom">${BOTTOM.map((l,i) => `<button class="c3-phone-dock ${i===0?'c3-phone-dock--active':''}">${ni()}</button>`).join('')}</div>
+      </div>`;
+  } else {
+    document.getElementById('c3').style.cssText = `width:${w}px;height:${h}px`;
+    const allItems = NAV.flatMap(s => s.items);
+    document.getElementById('c3').innerHTML = `
+      <div class="c3-layout">
+        <aside class="c3-dock">
+          <div class="c3-dock-items">
+            ${allItems.map(it => `<div class="c3-dock-item ${it.active?'c3-dock-item--active':''}" title="${it.label}">${ni()}<span class="c3-tooltip">${it.label}</span></div>`).join('')}
+          </div>
+          <div class="c3-dock-bottom">${av()}</div>
+        </aside>
+        <div class="c3-main">
+          <div class="c3-topbar"><div class="c3-topbar-left">${WM}</div><div class="c3-topbar-right"><button class="c2-pill">POS</button><button class="c2-pill">&#8984;K</button><button class="c2-pill">&#128276;</button>${av()}</div></div>
+          <div class="c3-content">${PH}</div>
+        </div>
+      </div>`;
+  }
+
+  // C4 — Premium Suite
+  if (isPhone) {
+    document.getElementById('c4').style.cssText = `width:${w}px;height:${h}px`;
+    document.getElementById('c4').innerHTML = `
+      <div style="display:flex;flex-direction:column;height:100%">
+        <div class="c4-phone-topbar"><button class="c4-phone-hamburger">&#9776;</button>${WM}<div style="display:flex;gap:8px;align-items:center">${av()}</div></div>
+        <div class="c4-content" style="flex:1">${PH}</div>
+        <div class="c4-bottom">${bot(BOTTOM,'c4-bot-item','c4-bot-item--active')}</div>
+      </div>`;
+  } else {
+    const collapsed = isTablet;
+    document.getElementById('c4').style.cssText = `width:${w}px;height:${h}px`;
+    document.getElementById('c4').innerHTML = `
+      <div class="c4-layout">
+        <aside class="c4-sidebar ${collapsed?'c4-sidebar--collapsed':''}">
+          <div class="c4-sidebar-nav">
+            ${NAV.map((s,si) => `${si>0?'<div class="c4-divider"></div>':''}<div class="c4-section">${!collapsed?`<div class="c4-section-title">${s.section}</div>`:''}${s.items.map(it => {
+              const cls = it.active ? 'c4-item c4-item--active' : 'c4-item';
+              return `<div class="${cls}" title="${it.label}">${ni()}${!collapsed?`<span style="flex:1">${it.label}</span>`:''}${it.active?'<span class="c4-active-bar"></span>':''}</div>`;
+            }).join('')}</div>`).join('')}
+          </div>
+          ${!collapsed?`<div class="c4-sidebar-footer"><div class="c4-footer-card"><span class="av av-sq">FK</span><div><div class="c4-footer-name">Freddie K</div><div class="c4-footer-plan">Premium Plan</div></div></div></div>`:''}
+        </aside>
+        <div class="c4-main">
+          <div class="c4-topbar"><div style="display:flex;align-items:center;gap:14px">${WM}<span class="c4-bc">Command &gt; Dashboard</span></div><div class="c4-topbar-right"><button class="c4-btn c4-btn--pos">POS</button><button class="c4-btn">&#8984;K</button><button class="c4-btn" style="position:relative">&#128276;<span class="notif-badge">3</span></button></div></div>
+          <div class="c4-content">${PH}</div>
+        </div>
+      </div>`;
+  }
+}
+
+render();
+</script>
+</body>
+</html>

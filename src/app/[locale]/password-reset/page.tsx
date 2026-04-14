@@ -2,15 +2,15 @@
 
 import { useToastState } from '@/lib/app-notifications';
 import { useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
-import { StatusBanner } from '@/components/StatusBanner';
+import { Banner } from '@/components/notifications/Banner';
 
 export default function PasswordResetRequestPage() {
   const t = useTranslations('auth');
+  const locale = useLocale();
   const [email, setEmail] = useState('');
   const [businessId, setBusinessId] = useState('');
   const [businessOptions, setBusinessOptions] = useState<
@@ -64,64 +64,57 @@ export default function PasswordResetRequestPage() {
   };
 
   return (
-    <div className="space-y-6 nvi-reveal">
-      <PremiumPageHeader
-        eyebrow={t('eyebrowRecovery')}
-        title={t('passwordResetTitle')}
-        subtitle={t('passwordResetSubtitle')}
-        badges={
-          <>
-            <span className="nvi-badge">{t('badgeMailHandoff')}</span>
-            <span className="nvi-badge">{businessOptions.length ? t('badgeBusinessRequired') : t('badgeDirect')}</span>
-          </>
-        }
-      />
-
-      <div className="grid gap-3 sm:grid-cols-3 nvi-stagger">
-        <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiEmail')}</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{email.trim() ? t('set') : t('pending')}</p>
-        </article>
-        <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiBusinessOptions')}</p>
-          <p className="mt-1 text-2xl font-semibold text-gold-100">{businessOptions.length}</p>
-        </article>
-        <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiStatus')}</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('resetSending') : t('ready')}</p>
-        </article>
+    <div className="auth-login-inner">
+      <div className="auth-login-topline">
+        <span className="auth-login-pill">{t('passwordResetTitle').toUpperCase()}</span>
       </div>
 
-      <form className="command-card nvi-panel space-y-4 p-4" onSubmit={submit}>
-        <input
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder={t('resetEmailPlaceholder')}
-          type="email"
-          className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
+      <h3>{t('passwordResetTitle')}</h3>
+      <p>{t('passwordResetSubtitle')}</p>
+
+      <form className="auth-login-form" onSubmit={submit}>
+        <div className="auth-login-field">
+          <label htmlFor="email">{t('resetEmailPlaceholder')}</label>
+          <div className="auth-login-control">
+            <input
+              id="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder={t('resetEmailPlaceholder')}
+              type="email"
+            />
+          </div>
+        </div>
+
         {businessOptions.length ? (
-          <SmartSelect
-            instanceId="password-reset-business"
-            value={businessId}
-            onChange={setBusinessId}
-            options={businessOptions}
-            placeholder={t('resetBusinessSelectPlaceholder')}
-            className="nvi-select-container"
-          />
+          <div className="auth-login-field">
+            <label>{t('resetBusinessSelectPlaceholder')}</label>
+            <SmartSelect
+              instanceId="password-reset-business"
+              value={businessId}
+              onChange={setBusinessId}
+              options={businessOptions}
+              placeholder={t('resetBusinessSelectPlaceholder')}
+              className="w-full"
+            />
+          </div>
         ) : null}
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="nvi-cta w-full rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-        >
+
+        <button type="submit" disabled={isSubmitting} className="auth-login-submit nvi-press">
           <span className="inline-flex items-center justify-center gap-2">
             {isSubmitting ? <Spinner variant="ring" size="xs" /> : null}
             {isSubmitting ? t('resetSending') : t('resetSend')}
           </span>
         </button>
-        {message ? <StatusBanner message={message} /> : null}
+
+        {message ? <Banner message={message} /> : null}
       </form>
+
+      <div className="auth-login-foot">
+        <span>
+          <a href={`/${locale}/login`}>{t('signIn')}</a>
+        </span>
+      </div>
     </div>
   );
 }

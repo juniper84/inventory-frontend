@@ -11,6 +11,14 @@ import { SmartSelect } from '@/components/SmartSelect';
 import { normalizePaginated, PaginatedResponse } from '@/lib/pagination';
 import { getPermissionSet } from '@/lib/permissions';
 import { setStoredCurrency, setStoredTimezone, setStoredDateFormat } from '@/lib/business-context';
+import { BrandLogo } from '@/components/BrandLogo';
+import { Card } from '@/components/ui/Card';
+import { TextInput } from '@/components/ui/TextInput';
+import { Textarea } from '@/components/ui/Textarea';
+import { ProgressBar } from '@/components/ui/ProgressBar';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Icon } from '@/components/ui/Icon';
+import { FontScaleSelector } from '@/components/ui/FontScaleSelector';
 
 type Business = { id: string; name: string; defaultLanguage: string };
 
@@ -45,7 +53,13 @@ type Branch = {
 };
 
 type Role = { id: string; name: string };
-type InviteRow = { email: string; roleId: string };
+type InviteRow = {
+  email: string;
+  roleId: string;
+  name: string;
+  phone: string;
+  branchIds: string[];
+};
 
 const getTimezoneOptions = (): string[] => {
   try {
@@ -67,6 +81,16 @@ const getTimezoneOptions = (): string[] => {
   }
 };
 
+const CURRENCY_OPTIONS = [
+  { value: 'TZS', label: 'TZS - Tanzanian Shilling' },
+  { value: 'KES', label: 'KES - Kenyan Shilling' },
+  { value: 'UGX', label: 'UGX - Ugandan Shilling' },
+  { value: 'RWF', label: 'RWF - Rwandan Franc' },
+  { value: 'USD', label: 'USD - US Dollar' },
+  { value: 'EUR', label: 'EUR - Euro' },
+  { value: 'GBP', label: 'GBP - British Pound' },
+  { value: 'ZAR', label: 'ZAR - South African Rand' },
+];
 
 const DEFAULT_ONBOARDING: Required<OnboardingState> = {
   enabled: true,
@@ -75,6 +99,8 @@ const DEFAULT_ONBOARDING: Required<OnboardingState> = {
   branchSetupComplete: false,
   teamSetupSkipped: false,
 };
+
+const EMPTY_INVITE: InviteRow = { email: '', roleId: '', name: '', phone: '', branchIds: [] };
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -93,6 +119,10 @@ export default function OnboardingPage() {
     { label: ot('step2Label'), description: ot('step2Description') },
     { label: ot('step3Label'), description: ot('step3Description') },
     { label: ot('step4Label'), description: ot('step4Description') },
+  ];
+
+  const STEP_ICONS: Array<'Building2' | 'MapPin' | 'Receipt' | 'Users' | 'CircleCheck'> = [
+    'Building2', 'MapPin', 'Receipt', 'Users', 'CircleCheck',
   ];
 
   const permissions = getPermissionSet();
@@ -135,7 +165,7 @@ export default function OnboardingPage() {
 
   // Step 3 — Invite Team
   const [roles, setRoles] = useState<Role[]>([]);
-  const [inviteRows, setInviteRows] = useState<InviteRow[]>([{ email: '', roleId: '' }]);
+  const [inviteRows, setInviteRows] = useState<InviteRow[]>([{ ...EMPTY_INVITE }]);
   const [isSendingInvites, setIsSendingInvites] = useState(false);
 
   // Step 4 — Ready
@@ -431,7 +461,13 @@ export default function OnboardingPage() {
           apiFetch('/users/invite', {
             token,
             method: 'POST',
-            body: JSON.stringify({ email: r.email.trim(), roleId: r.roleId }),
+            body: JSON.stringify({
+              email: r.email.trim(),
+              roleId: r.roleId,
+              name: r.name.trim() || undefined,
+              phone: r.phone.trim() || undefined,
+              branchIds: r.branchIds.length > 0 ? r.branchIds : undefined,
+            }),
           }),
         ),
       );
@@ -443,469 +479,746 @@ export default function OnboardingPage() {
     }
   };
 
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+  const updateInviteRow = (idx: number, patch: Partial<InviteRow>) => {
+    const updated = [...inviteRows];
+    updated[idx] = { ...updated[idx], ...patch };
+    setInviteRows(updated);
+  };
+
+  const toggleInviteBranch = (idx: number, branchId: string) => {
+    const row = inviteRows[idx];
+    const has = row.branchIds.includes(branchId);
+    updateInviteRow(idx, {
+      branchIds: has
+        ? row.branchIds.filter((id) => id !== branchId)
+        : [...row.branchIds, branchId],
+    });
+  };
+
   // ─── Render ──────────────────────────────────────────────────────────────────
   if (isLoading) {
     return <PageSkeleton title={ot('readyMsg1')} />;
   }
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row">
-      {/* Left sidebar — step indicator (desktop only) */}
-      <aside className="hidden md:flex flex-col w-64 shrink-0 border-r border-gold-700/30 bg-black/40 px-6 py-10">
-        <p className="text-[10px] uppercase tracking-[0.28em] text-gold-500 mb-8">Setup</p>
-        {STEP_LABELS.map((s, i) => {
-          const isCompleted = i < step;
-          const isActive = i === step;
-          return (
-            <div key={i} className="flex gap-3 relative">
-              {i < STEP_LABELS.length - 1 && (
-                <span
-                  className="absolute left-3.5 top-7 w-px bg-gold-700/40"
-                  style={{ height: 40 }}
-                />
-              )}
-              <span
-                className={`relative z-10 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition-all ${
-                  isCompleted
-                    ? 'border-gold-400 bg-gold-400 text-black'
-                    : isActive
-                      ? 'border-gold-400 bg-black text-gold-300'
-                      : 'border-gold-700/50 bg-black text-gold-600'
-                }`}
-              >
-                {isCompleted ? (
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={3}
-                    className="w-3.5 h-3.5"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : (
-                  i + 1
+    <div className="min-h-screen flex flex-col lg:flex-row">
+      {/* ── Left sidebar — wizard steps (desktop) ── */}
+      <aside className="hidden lg:flex flex-col w-72 shrink-0 border-r border-[color:var(--border)] bg-black/40 px-6 py-10">
+        <div className="mb-8">
+          <BrandLogo variant="vision" size="sm" />
+        </div>
+
+        <p className="text-[10px] uppercase tracking-[0.28em] text-[color:var(--muted)] mb-6">
+          {ot('sidebarLabel')}
+        </p>
+
+        <nav className="flex flex-col gap-0">
+          {STEP_LABELS.map((s, i) => {
+            const isCompleted = i < step;
+            const isActive = i === step;
+            const iconName = STEP_ICONS[i];
+
+            return (
+              <div key={i} className="flex gap-3 relative">
+                {/* Connector line */}
+                {i < STEP_LABELS.length - 1 && (
+                  <span
+                    className={`absolute left-[15px] top-8 w-px ${
+                      isCompleted ? 'bg-emerald-500/60' : 'bg-[color:var(--border)]'
+                    }`}
+                    style={{ height: 36 }}
+                  />
                 )}
-              </span>
-              <div className="pb-10">
-                <p
-                  className={`text-sm font-semibold leading-tight ${
-                    isActive
-                      ? 'text-gold-100'
-                      : isCompleted
-                        ? 'text-gold-300'
-                        : 'text-gold-600'
-                  }`}
+                {/* Step circle */}
+                <span
+                  className={[
+                    'relative z-10 mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition-all',
+                    isCompleted
+                      ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
+                      : isActive
+                        ? 'border-[color:var(--accent)] bg-black text-[color:var(--accent)]'
+                        : 'border-[color:var(--border)] bg-black text-[color:var(--muted)]',
+                  ].join(' ')}
                 >
-                  {s.label}
-                </p>
-                <p className="text-[11px] text-gold-500 mt-0.5">{s.description}</p>
+                  {isCompleted ? (
+                    <Icon name="Check" size={14} />
+                  ) : (
+                    <Icon name={iconName} size={14} />
+                  )}
+                </span>
+                {/* Label */}
+                <div className="pb-10">
+                  <p
+                    className={`text-sm font-semibold leading-tight ${
+                      isActive
+                        ? 'text-[color:var(--foreground)]'
+                        : isCompleted
+                          ? 'text-emerald-400'
+                          : 'text-[color:var(--muted)]'
+                    }`}
+                  >
+                    {s.label}
+                  </p>
+                  <p className="text-[11px] text-[color:var(--muted)] mt-0.5">{s.description}</p>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </nav>
+
+        {/* Progress at bottom of sidebar */}
+        <div className="mt-auto pt-6">
+          <ProgressBar
+            value={step + 1}
+            max={STEP_LABELS.length}
+            label={ot('progressLabel')}
+            showPercent
+            color="accent"
+            height={6}
+          />
+        </div>
       </aside>
 
-      {/* Main content */}
+      {/* ── Main content ── */}
       <main className="flex-1 px-4 py-8 md:px-10 md:py-10 max-w-2xl mx-auto w-full">
-        {/* Mobile progress bar */}
-        <div className="md:hidden mb-6">
-          <div className="flex justify-between text-[10px] text-gold-500 mb-1.5">
-            <span>
-              Step {step + 1} of {STEP_LABELS.length}
+        {/* Mobile progress */}
+        <div className="lg:hidden mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] text-[color:var(--muted)]">
+              {ot('mobileStepOf', { current: step + 1, total: STEP_LABELS.length })}
             </span>
-            <span>{STEP_LABELS[step]?.label}</span>
+            <span className="text-[11px] font-medium text-[color:var(--foreground)]">
+              {STEP_LABELS[step]?.label}
+            </span>
           </div>
-          <div className="h-1 rounded-full bg-gold-700/30">
-            <div
-              className="h-1 rounded-full bg-gold-400 transition-all duration-500"
-              style={{ width: `${((step + 1) / STEP_LABELS.length) * 100}%` }}
-            />
-          </div>
+          <ProgressBar value={step + 1} max={STEP_LABELS.length} color="accent" height={4} />
         </div>
 
         {/* Error banner */}
-        {error ? (
-          <div className="mb-5 rounded border border-red-500/50 bg-red-950/40 px-4 py-3 text-sm text-red-300 flex items-start gap-2">
-            <span className="mt-0.5 shrink-0">&#9888;</span>
-            <span>{error}</span>
-          </div>
-        ) : null}
-
-        {/* ── Step 0: Business Profile ── */}
-        {step === 0 && (
-          <div className="command-card nvi-panel p-6 space-y-5 nvi-reveal">
-            <div>
-              <h2 className="text-xl font-semibold text-gold-100">{ot('step0Title')}</h2>
-              <p className="text-sm text-gold-400 mt-1">
-                {ot('step0Desc')}
-              </p>
+        {error && (
+          <Card glow={false} className="mb-5 !border-red-500/50 !bg-red-950/30 nvi-slide-in-bottom">
+            <div className="flex items-start gap-2 text-sm text-red-300">
+              <Icon name="TriangleAlert" size={16} className="mt-0.5 shrink-0 text-red-400" />
+              <span>{error}</span>
             </div>
-            <div className="grid gap-4 text-sm text-gold-200">
-              <label className="flex flex-col gap-1.5">
-                {ot('fieldBusinessName')}
-                <input
+          </Card>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════════════
+            Step 0: Business Profile
+           ═══════════════════════════════════════════════════════════════════════ */}
+        {step === 0 && (
+          <div className="nvi-slide-in-bottom">
+            <Card padding="lg">
+              {/* Header */}
+              <div className="flex items-start gap-3 mb-6">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--accent)]/10 border border-[color:var(--accent)]/30">
+                  <Icon name="Building2" size={20} className="text-[color:var(--accent)]" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold text-[color:var(--foreground)]">{ot('step0Title')}</h2>
+                  <p className="text-sm text-[color:var(--muted)] mt-0.5">{ot('step0Desc')}</p>
+                </div>
+              </div>
+
+              {/* Welcome message */}
+              <div className="rounded-xl border border-[color:var(--accent)]/20 bg-[color:var(--accent)]/5 px-4 py-3 mb-6">
+                <p className="text-sm text-[color:var(--foreground)]">{ot('welcomeMessage')}</p>
+              </div>
+
+              {/* Fields */}
+              <div className="grid gap-5">
+                <TextInput
+                  label={ot('fieldBusinessName')}
                   value={profileForm.name}
                   onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
                   placeholder="e.g. Acme Traders Ltd"
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 placeholder:text-gold-600"
                 />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                {ot('fieldTimezone')}
-                <SmartSelect
-                  instanceId="onboarding-timezone"
-                  value={profileForm.timezone}
-                  options={getTimezoneOptions().map((tz) => ({ value: tz, label: tz }))}
-                  onChange={(v) => setProfileForm({ ...profileForm, timezone: v })}
-                />
-              </label>
-            </div>
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={saveBusinessProfile}
-                disabled={isSavingProfile || !profileForm.name.trim()}
-                className="nvi-cta rounded px-5 py-2 text-sm font-semibold text-black disabled:opacity-70"
-              >
-                <span className="inline-flex items-center gap-2">
-                  {isSavingProfile && <Spinner variant="dots" size="xs" />}
-                  {isSavingProfile ? ot('btnSaving') : ot('btnSaveAndContinue')}
-                </span>
-              </button>
-            </div>
-          </div>
-        )}
 
-        {/* ── Step 1: Branch Setup ── */}
-        {step === 1 && (
-          <div className="command-card nvi-panel p-6 space-y-5 nvi-reveal">
-            <div>
-              <h2 className="text-xl font-semibold text-gold-100">{ot('step1Title')}</h2>
-              <p className="text-sm text-gold-400 mt-1">
-                {ot('step1Desc')}
-              </p>
-            </div>
-
-            {branches.length > 0 && (
-              <div className="space-y-2">
-                {branches.map((b) => (
-                  <div
-                    key={b.id}
-                    className="rounded border border-gold-700/30 bg-black/40 px-3 py-2 flex items-start justify-between gap-2"
-                  >
-                    <div>
-                      <p className="text-sm text-gold-100 font-medium">{b.name}</p>
-                      {b.address && <p className="text-xs text-gold-400">{b.address}</p>}
-                      {b.phone && <p className="text-xs text-gold-400">{b.phone}</p>}
-                    </div>
-                    {b.isDefault && (
-                      <span className="shrink-0 rounded border border-gold-500/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-gold-300">
-                        {ot('badgeDefault')}
-                      </span>
-                    )}
+                <div className="grid gap-5 md:grid-cols-2">
+                  <div className="grid gap-1.5">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-gold-300/80 flex items-center gap-1.5">
+                      <Icon name="Globe" size={12} className="text-[color:var(--accent)]" />
+                      {ot('fieldCurrency')}
+                    </label>
+                    <SmartSelect
+                      instanceId="onboarding-currency"
+                      value={profileForm.currency}
+                      options={CURRENCY_OPTIONS}
+                      onChange={(v) => setProfileForm({ ...profileForm, currency: v })}
+                    />
                   </div>
-                ))}
-              </div>
-            )}
 
-            <div className="rounded border border-gold-700/30 bg-black/30 p-4 space-y-3">
-              <p className="text-xs uppercase tracking-[0.24em] text-gold-400">{ot('labelEditBranch')}</p>
-              <SmartSelect
-                instanceId="onboarding-branch-select"
-                value={selectedBranchId}
-                options={branches.map((b) => ({ value: b.id, label: b.name }))}
-                placeholder="Select a branch to edit"
-                onChange={(v) => {
-                  setSelectedBranchId(v);
-                  const sel = branches.find((b) => b.id === v);
-                  setBranchForm({
-                    name: sel?.name ?? '',
-                    address: sel?.address ?? '',
-                    phone: sel?.phone ?? '',
-                  });
-                }}
-              />
-              <div className="grid gap-3 md:grid-cols-3">
-                <input
-                  value={branchForm.name}
-                  onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })}
-                  placeholder={ot('placeholderBranchName')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-                />
-                <input
-                  value={branchForm.address}
-                  onChange={(e) => setBranchForm({ ...branchForm, address: e.target.value })}
-                  placeholder={ot('placeholderAddress')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-                />
-                <input
-                  value={branchForm.phone}
-                  onChange={(e) => setBranchForm({ ...branchForm, phone: e.target.value })}
-                  placeholder={ot('placeholderPhone')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={saveBranchDetails}
-                disabled={isUpdatingBranch || !selectedBranchId || !branchForm.name.trim()}
-                className="nvi-cta rounded px-3 py-2 text-sm font-semibold text-black disabled:opacity-70"
-              >
-                <span className="inline-flex items-center gap-2">
-                  {isUpdatingBranch && <Spinner variant="dots" size="xs" />}
-                  {isUpdatingBranch ? ot('btnSavingBranch') : ot('btnSaveBranchDetails')}
-                </span>
-              </button>
-            </div>
+                  <div className="grid gap-1.5">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-gold-300/80 flex items-center gap-1.5">
+                      <Icon name="Clock" size={12} className="text-[color:var(--accent)]" />
+                      {ot('fieldTimezone')}
+                    </label>
+                    <SmartSelect
+                      instanceId="onboarding-timezone"
+                      value={profileForm.timezone}
+                      options={getTimezoneOptions().map((tz) => ({ value: tz, label: tz }))}
+                      onChange={(v) => setProfileForm({ ...profileForm, timezone: v })}
+                    />
+                  </div>
 
-            <div className="rounded border border-gold-700/30 bg-black/20 p-4 space-y-3">
-              <p className="text-xs uppercase tracking-[0.24em] text-gold-400">
-                {ot('labelAddAnotherBranch')}
-              </p>
-              <div className="grid gap-3 md:grid-cols-3">
-                <input
-                  value={addBranchForm.name}
-                  onChange={(e) => setAddBranchForm({ ...addBranchForm, name: e.target.value })}
-                  placeholder={ot('placeholderBranchName')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-                />
-                <input
-                  value={addBranchForm.address}
-                  onChange={(e) =>
-                    setAddBranchForm({ ...addBranchForm, address: e.target.value })
-                  }
-                  placeholder={ot('placeholderAddress')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-                />
-                <input
-                  value={addBranchForm.phone}
-                  onChange={(e) => setAddBranchForm({ ...addBranchForm, phone: e.target.value })}
-                  placeholder={ot('placeholderPhone')}
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={createBranch}
-                disabled={isCreatingBranch || !addBranchForm.name.trim()}
-                className="nvi-cta rounded px-3 py-2 text-sm font-semibold text-black disabled:opacity-70"
-              >
-                <span className="inline-flex items-center gap-2">
-                  {isCreatingBranch && <Spinner variant="dots" size="xs" />}
-                  {isCreatingBranch ? ot('btnAdding') : ot('btnAddBranch')}
-                </span>
-              </button>
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={completeBranchSetup}
-                disabled={isSavingBranch}
-                className="nvi-cta rounded px-5 py-2 text-sm font-semibold text-black disabled:opacity-70"
-              >
-                <span className="inline-flex items-center gap-2">
-                  {isSavingBranch && <Spinner variant="dots" size="xs" />}
-                  {isSavingBranch ? ot('btnSaving') : ot('btnContinue')}
-                </span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 2: Receipt Setup ── */}
-        {step === 2 && (
-          <div className="command-card nvi-panel p-6 space-y-5 nvi-reveal">
-            <div>
-              <h2 className="text-xl font-semibold text-gold-100">{ot('step2Title')}</h2>
-              <p className="text-sm text-gold-400 mt-1">
-                {ot('step2Desc')}
-              </p>
-            </div>
-            <div className="space-y-4 text-sm text-gold-200">
-              <div className="flex flex-col gap-1.5">
-                <p>{ot('fieldReceiptFormat')}</p>
-                <div className="flex gap-2">
-                  {(['THERMAL', 'A4'] as const).map((tmpl) => (
-                    <button
-                      key={tmpl}
-                      type="button"
-                      onClick={() => setPosForm({ ...posForm, receiptTemplate: tmpl })}
-                      className={`rounded border px-4 py-2 text-sm font-semibold transition-colors ${
-                        posForm.receiptTemplate === tmpl
-                          ? 'border-gold-400 bg-gold-400/10 text-gold-100'
-                          : 'border-gold-700/50 text-gold-500 hover:border-gold-500'
-                      }`}
-                    >
-                      {tmpl === 'THERMAL' ? ot('labelThermalPos') : ot('labelA4Letter')}
-                    </button>
-                  ))}
+                  <div className="grid gap-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gold-300/80">
+                      {ot('displaySizeLabel') || 'Display size'}
+                    </p>
+                    <FontScaleSelector showPreview showHint />
+                  </div>
                 </div>
               </div>
-              <label className="flex flex-col gap-1.5">
-                {ot('fieldReceiptHeader')}{' '}
-                <span className="text-gold-500 text-xs font-normal">
-                  {ot('fieldReceiptHeaderHint')}
-                </span>
-                <textarea
+
+              {/* Action */}
+              <div className="flex justify-end pt-6">
+                <button
+                  type="button"
+                  onClick={saveBusinessProfile}
+                  disabled={isSavingProfile || !profileForm.name.trim()}
+                  className="nvi-press nvi-cta rounded-xl px-6 py-2.5 text-sm font-semibold text-black disabled:opacity-70 inline-flex items-center gap-2"
+                >
+                  {isSavingProfile && <Spinner variant="dots" size="xs" />}
+                  {isSavingProfile ? ot('btnSaving') : ot('btnSaveAndContinue')}
+                  {!isSavingProfile && <Icon name="ChevronRight" size={16} />}
+                </button>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════════════
+            Step 1: Branch Setup
+           ═══════════════════════════════════════════════════════════════════════ */}
+        {step === 1 && (
+          <div className="nvi-slide-in-bottom">
+            <Card padding="lg">
+              {/* Header */}
+              <div className="flex items-start gap-3 mb-6">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--accent)]/10 border border-[color:var(--accent)]/30">
+                  <Icon name="MapPin" size={20} className="text-[color:var(--accent)]" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold text-[color:var(--foreground)]">{ot('step1Title')}</h2>
+                  <p className="text-sm text-[color:var(--muted)] mt-0.5">{ot('step1Desc')}</p>
+                </div>
+              </div>
+
+              {/* Existing branches */}
+              {branches.length > 0 ? (
+                <div className="space-y-2 mb-6 nvi-stagger">
+                  {branches.map((b) => (
+                    <Card key={b.id} glow={false} padding="sm" className="nvi-card-hover">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[color:var(--accent)]/10 mt-0.5">
+                            <Icon name="Building2" size={14} className="text-[color:var(--accent)]" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-[color:var(--foreground)] font-medium">{b.name}</p>
+                            {b.address && (
+                              <p className="text-xs text-[color:var(--muted)] flex items-center gap-1 mt-0.5">
+                                <Icon name="MapPin" size={10} className="shrink-0" />
+                                {b.address}
+                              </p>
+                            )}
+                            {b.phone && (
+                              <p className="text-xs text-[color:var(--muted)] flex items-center gap-1 mt-0.5">
+                                <Icon name="Phone" size={10} className="shrink-0" />
+                                {b.phone}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {b.isDefault && (
+                          <span className="shrink-0 rounded-full border border-emerald-500/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-emerald-400 bg-emerald-500/10">
+                            {ot('badgeDefault')}
+                          </span>
+                        )}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="mb-6">
+                  <EmptyState
+                    icon={<Icon name="Building2" size={32} className="text-[color:var(--muted)]" />}
+                    title={ot('emptyBranchesTitle')}
+                    description={ot('emptyBranchesDesc')}
+                  />
+                </div>
+              )}
+
+              {/* Edit existing branch */}
+              {branches.length > 0 && (
+                <Card glow={false} padding="md" className="mb-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--muted)] mb-3">{ot('labelEditBranch')}</p>
+                  <SmartSelect
+                    instanceId="onboarding-branch-select"
+                    value={selectedBranchId}
+                    options={branches.map((b) => ({ value: b.id, label: b.name }))}
+                    placeholder={ot('placeholderSelectBranch')}
+                    onChange={(v) => {
+                      setSelectedBranchId(v);
+                      const sel = branches.find((b) => b.id === v);
+                      setBranchForm({
+                        name: sel?.name ?? '',
+                        address: sel?.address ?? '',
+                        phone: sel?.phone ?? '',
+                      });
+                    }}
+                  />
+                  <div className="grid gap-3 md:grid-cols-3 mt-3">
+                    <TextInput
+                      label={ot('fieldBranchName')}
+                      value={branchForm.name}
+                      onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })}
+                      placeholder={ot('placeholderBranchName')}
+                    />
+                    <TextInput
+                      label={ot('fieldBranchAddress')}
+                      value={branchForm.address}
+                      onChange={(e) => setBranchForm({ ...branchForm, address: e.target.value })}
+                      placeholder={ot('placeholderAddress')}
+                    />
+                    <TextInput
+                      label={ot('fieldBranchPhone')}
+                      value={branchForm.phone}
+                      onChange={(e) => setBranchForm({ ...branchForm, phone: e.target.value })}
+                      placeholder="+255..."
+                      type="tel"
+                    />
+                  </div>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={saveBranchDetails}
+                      disabled={isUpdatingBranch || !selectedBranchId || !branchForm.name.trim()}
+                      className="nvi-press nvi-cta rounded-xl px-4 py-2 text-sm font-semibold text-black disabled:opacity-70 inline-flex items-center gap-2"
+                    >
+                      {isUpdatingBranch && <Spinner variant="dots" size="xs" />}
+                      {isUpdatingBranch ? ot('btnSavingBranch') : ot('btnSaveBranchDetails')}
+                    </button>
+                  </div>
+                </Card>
+              )}
+
+              {/* Add new branch */}
+              <Card glow={false} padding="md" className="mb-6">
+                <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--muted)] mb-3">
+                  {ot('labelAddAnotherBranch')}
+                </p>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <TextInput
+                    label={ot('fieldBranchName')}
+                    value={addBranchForm.name}
+                    onChange={(e) => setAddBranchForm({ ...addBranchForm, name: e.target.value })}
+                    placeholder={ot('placeholderBranchName')}
+                  />
+                  <TextInput
+                    label={ot('fieldBranchAddress')}
+                    value={addBranchForm.address}
+                    onChange={(e) => setAddBranchForm({ ...addBranchForm, address: e.target.value })}
+                    placeholder={ot('placeholderAddress')}
+                  />
+                  <TextInput
+                    label={ot('fieldBranchPhone')}
+                    value={addBranchForm.phone}
+                    onChange={(e) => setAddBranchForm({ ...addBranchForm, phone: e.target.value })}
+                    placeholder="+255..."
+                    type="tel"
+                  />
+                </div>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={createBranch}
+                    disabled={isCreatingBranch || !addBranchForm.name.trim()}
+                    className="nvi-press rounded-xl border border-[color:var(--accent)]/50 bg-[color:var(--accent)]/10 px-4 py-2 text-sm font-semibold text-[color:var(--accent)] hover:bg-[color:var(--accent)]/20 disabled:opacity-70 inline-flex items-center gap-2 transition-colors"
+                  >
+                    {isCreatingBranch ? (
+                      <Spinner variant="dots" size="xs" />
+                    ) : (
+                      <Icon name="Plus" size={14} />
+                    )}
+                    {isCreatingBranch ? ot('btnAdding') : ot('btnAddBranch')}
+                  </button>
+                </div>
+              </Card>
+
+              {/* Navigation */}
+              <div className="flex justify-between items-center">
+                <button
+                  type="button"
+                  onClick={() => setStep(0)}
+                  className="nvi-press rounded-xl border border-[color:var(--border)] px-4 py-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition-colors inline-flex items-center gap-1.5"
+                >
+                  <Icon name="ChevronLeft" size={14} />
+                  {ot('btnBack')}
+                </button>
+                <button
+                  type="button"
+                  onClick={completeBranchSetup}
+                  disabled={isSavingBranch}
+                  className="nvi-press nvi-cta rounded-xl px-6 py-2.5 text-sm font-semibold text-black disabled:opacity-70 inline-flex items-center gap-2"
+                >
+                  {isSavingBranch && <Spinner variant="dots" size="xs" />}
+                  {isSavingBranch ? ot('btnSaving') : ot('btnContinue')}
+                  {!isSavingBranch && <Icon name="ChevronRight" size={16} />}
+                </button>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════════════
+            Step 2: Receipt Setup
+           ═══════════════════════════════════════════════════════════════════════ */}
+        {step === 2 && (
+          <div className="nvi-slide-in-bottom">
+            <Card padding="lg">
+              {/* Header */}
+              <div className="flex items-start gap-3 mb-6">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--accent)]/10 border border-[color:var(--accent)]/30">
+                  <Icon name="Receipt" size={20} className="text-[color:var(--accent)]" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold text-[color:var(--foreground)]">{ot('step2Title')}</h2>
+                  <p className="text-sm text-[color:var(--muted)] mt-0.5">{ot('step2Desc')}</p>
+                </div>
+              </div>
+
+              <div className="grid gap-5">
+                {/* Template selector */}
+                <div className="grid gap-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gold-300/80">
+                    {ot('fieldReceiptFormat')}
+                  </p>
+                  <div className="flex gap-2">
+                    {(['THERMAL', 'A4'] as const).map((tmpl) => (
+                      <button
+                        key={tmpl}
+                        type="button"
+                        onClick={() => setPosForm({ ...posForm, receiptTemplate: tmpl })}
+                        className={[
+                          'nvi-press rounded-xl border px-5 py-2.5 text-sm font-semibold transition-all',
+                          posForm.receiptTemplate === tmpl
+                            ? 'border-[color:var(--accent)] bg-[color:var(--accent)]/10 text-[color:var(--foreground)]'
+                            : 'border-[color:var(--border)] text-[color:var(--muted)] hover:border-[color:var(--accent)]/50',
+                        ].join(' ')}
+                      >
+                        {tmpl === 'THERMAL' ? ot('labelThermalPos') : ot('labelA4Letter')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Header / footer */}
+                <Textarea
+                  label={`${ot('fieldReceiptHeader')} ${ot('fieldReceiptHeaderHint')}`}
                   value={posForm.receiptHeader}
                   onChange={(e) => setPosForm({ ...posForm, receiptHeader: e.target.value })}
                   rows={2}
                   placeholder="e.g. VAT Registered | TIN 123-456-789"
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 placeholder:text-gold-600 resize-none"
                 />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                {ot('fieldReceiptFooter')}{' '}
-                <span className="text-gold-500 text-xs font-normal">
-                  {ot('fieldReceiptFooterHint')}
-                </span>
-                <input
+                <TextInput
+                  label={`${ot('fieldReceiptFooter')} ${ot('fieldReceiptFooterHint')}`}
                   value={posForm.receiptFooter}
                   onChange={(e) => setPosForm({ ...posForm, receiptFooter: e.target.value })}
                   placeholder="e.g. Thank you for your business!"
-                  className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100 placeholder:text-gold-600"
                 />
-              </label>
-            </div>
-            <div className="flex justify-between items-center pt-2">
-              <button
-                type="button"
-                onClick={() => setStep(3)}
-                className="text-sm text-gold-500 hover:text-gold-300 underline underline-offset-2"
-              >
-                {ot('btnSkipForNow')}
-              </button>
-              <button
-                type="button"
-                onClick={saveReceiptSetup}
-                disabled={isSavingPos}
-                className="nvi-cta rounded px-5 py-2 text-sm font-semibold text-black disabled:opacity-70"
-              >
-                <span className="inline-flex items-center gap-2">
+
+                {/* Mini receipt preview */}
+                <Card glow={false} padding="md" className="!bg-white/[0.03]">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--muted)] mb-3">
+                    {ot('receiptPreviewLabel')}
+                  </p>
+                  <div className="mx-auto max-w-[240px] rounded-lg border border-[color:var(--border)] bg-black/60 px-4 py-4 text-center space-y-2">
+                    <p className="text-[11px] font-bold text-[color:var(--foreground)]">
+                      {profileForm.name || 'Business Name'}
+                    </p>
+                    {posForm.receiptHeader && (
+                      <p className="text-[9px] text-[color:var(--muted)] whitespace-pre-wrap">{posForm.receiptHeader}</p>
+                    )}
+                    <div className="border-t border-dashed border-[color:var(--border)] my-2" />
+                    <div className="text-[10px] text-[color:var(--muted)] space-y-0.5">
+                      <div className="flex justify-between"><span>Item 1</span><span>1,500</span></div>
+                      <div className="flex justify-between"><span>Item 2</span><span>2,000</span></div>
+                    </div>
+                    <div className="border-t border-dashed border-[color:var(--border)] my-2" />
+                    <div className="flex justify-between text-[10px] font-bold text-[color:var(--foreground)]">
+                      <span>Total</span><span>3,500</span>
+                    </div>
+                    {posForm.receiptFooter && (
+                      <>
+                        <div className="border-t border-dashed border-[color:var(--border)] my-2" />
+                        <p className="text-[9px] text-[color:var(--muted)] italic">{posForm.receiptFooter}</p>
+                      </>
+                    )}
+                  </div>
+                </Card>
+              </div>
+
+              {/* Navigation */}
+              <div className="flex justify-between items-center pt-6">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setStep(1)}
+                    className="nvi-press rounded-xl border border-[color:var(--border)] px-4 py-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <Icon name="ChevronLeft" size={14} />
+                    {ot('btnBack')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep(3)}
+                    className="text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)] underline underline-offset-2 transition-colors"
+                  >
+                    {ot('btnSkipForNow')}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={saveReceiptSetup}
+                  disabled={isSavingPos}
+                  className="nvi-press nvi-cta rounded-xl px-6 py-2.5 text-sm font-semibold text-black disabled:opacity-70 inline-flex items-center gap-2"
+                >
                   {isSavingPos && <Spinner variant="dots" size="xs" />}
                   {isSavingPos ? ot('btnSaving') : ot('btnSaveAndContinue')}
-                </span>
-              </button>
-            </div>
+                  {!isSavingPos && <Icon name="ChevronRight" size={16} />}
+                </button>
+              </div>
+            </Card>
           </div>
         )}
 
-        {/* ── Step 3: Invite Team ── */}
+        {/* ═══════════════════════════════════════════════════════════════════════
+            Step 3: Invite Team
+           ═══════════════════════════════════════════════════════════════════════ */}
         {step === 3 && (
-          <div className="command-card nvi-panel p-6 space-y-5 nvi-reveal">
-            <div>
-              <h2 className="text-xl font-semibold text-gold-100">Invite Your Team</h2>
-              <p className="text-sm text-gold-400 mt-1">
-                Send invites to your staff. They will receive an email to set up their account.
-              </p>
-            </div>
-            <div className="space-y-3">
-              {inviteRows.map((row, idx) => (
-                <div key={idx} className="flex gap-2 items-center">
-                  <input
-                    type="email"
-                    value={row.email}
-                    onChange={(e) => {
-                      const updated = [...inviteRows];
-                      updated[idx] = { ...updated[idx], email: e.target.value };
-                      setInviteRows(updated);
-                    }}
-                    placeholder="Email address"
-                    className="flex-1 rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100 placeholder:text-gold-600"
-                  />
-                  <div className="w-44">
-                    <SmartSelect
-                      instanceId={`invite-role-${idx}`}
-                      value={row.roleId}
-                      options={roles.map((r) => ({ value: r.id, label: r.name }))}
-                      placeholder="Role"
-                      onChange={(v) => {
-                        const updated = [...inviteRows];
-                        updated[idx] = { ...updated[idx], roleId: v };
-                        setInviteRows(updated);
-                      }}
-                    />
-                  </div>
-                  {inviteRows.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => setInviteRows(inviteRows.filter((_, i) => i !== idx))}
-                      className="text-gold-600 hover:text-red-400 text-xl leading-none"
-                    >
-                      &times;
-                    </button>
-                  )}
+          <div className="nvi-slide-in-bottom">
+            <Card padding="lg">
+              {/* Header */}
+              <div className="flex items-start gap-3 mb-2">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--accent)]/10 border border-[color:var(--accent)]/30">
+                  <Icon name="Users" size={20} className="text-[color:var(--accent)]" />
                 </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setInviteRows([...inviteRows, { email: '', roleId: '' }])}
-                className="text-sm text-gold-500 hover:text-gold-300"
-              >
-                + Add another
-              </button>
-            </div>
-            <div className="flex justify-between items-center pt-2">
-              <button
-                type="button"
-                onClick={() => setStep(4)}
-                className="text-sm text-gold-500 hover:text-gold-300 underline underline-offset-2"
-              >
-                Skip for now
-              </button>
-              <button
-                type="button"
-                onClick={sendInvites}
-                disabled={isSendingInvites}
-                className="nvi-cta rounded px-5 py-2 text-sm font-semibold text-black disabled:opacity-70"
-              >
-                <span className="inline-flex items-center gap-2">
+                <div>
+                  <h2 className="text-xl font-semibold text-[color:var(--foreground)]">{ot('step3Title')}</h2>
+                  <p className="text-sm text-[color:var(--muted)] mt-0.5">{ot('step3Desc')}</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-[color:var(--muted)] mb-5">{ot('step3Hint')}</p>
+
+              {/* Invite rows */}
+              <div className="space-y-3 nvi-stagger">
+                {inviteRows.map((row, idx) => (
+                  <Card key={idx} glow={false} padding="md" className="nvi-card-hover">
+                    <div className="grid gap-3">
+                      {/* Row 1: Email + Role */}
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="flex items-end gap-1.5">
+                          <div className="flex-1">
+                            <TextInput
+                              label={ot('fieldInviteEmail')}
+                              type="email"
+                              value={row.email}
+                              onChange={(e) => updateInviteRow(idx, { email: e.target.value })}
+                              placeholder={ot('placeholderInviteEmail')}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid gap-1.5">
+                          <label className="text-xs font-semibold uppercase tracking-wide text-gold-300/80 flex items-center gap-1.5">
+                            <Icon name="Shield" size={12} className="text-[color:var(--accent)]" />
+                            {ot('fieldInviteRole')}
+                          </label>
+                          <SmartSelect
+                            instanceId={`invite-role-${idx}`}
+                            value={row.roleId}
+                            options={roles.map((r) => ({ value: r.id, label: r.name }))}
+                            placeholder={ot('placeholderInviteRole')}
+                            onChange={(v) => updateInviteRow(idx, { roleId: v })}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Row 2: Name + Phone (optional) */}
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <TextInput
+                          label={ot('fieldInviteName')}
+                          value={row.name}
+                          onChange={(e) => updateInviteRow(idx, { name: e.target.value })}
+                          placeholder={ot('placeholderInviteName')}
+                        />
+                        <TextInput
+                          label={ot('fieldInvitePhone')}
+                          type="tel"
+                          value={row.phone}
+                          onChange={(e) => updateInviteRow(idx, { phone: e.target.value })}
+                          placeholder="+255..."
+                        />
+                      </div>
+
+                      {/* Row 3: Branch checkboxes (if multiple branches) */}
+                      {branches.length > 1 && (
+                        <div className="grid gap-1.5">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gold-300/80">
+                            {ot('fieldInviteBranches')}
+                          </p>
+                          <p className="text-[11px] text-[color:var(--muted)] -mt-1">{ot('fieldInviteBranchesHint')}</p>
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            {branches.map((b) => {
+                              const isChecked = row.branchIds.includes(b.id);
+                              return (
+                                <label
+                                  key={b.id}
+                                  className={[
+                                    'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs cursor-pointer transition-colors',
+                                    isChecked
+                                      ? 'border-[color:var(--accent)] bg-[color:var(--accent)]/10 text-[color:var(--foreground)]'
+                                      : 'border-[color:var(--border)] text-[color:var(--muted)] hover:border-[color:var(--accent)]/50',
+                                  ].join(' ')}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => toggleInviteBranch(idx, b.id)}
+                                    className="sr-only"
+                                  />
+                                  <Icon name="Building2" size={12} />
+                                  {b.name}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Remove button */}
+                      {inviteRows.length > 1 && (
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setInviteRows(inviteRows.filter((_, i) => i !== idx))}
+                            className="nvi-press rounded-lg px-2 py-1 text-xs text-[color:var(--muted)] hover:text-red-400 transition-colors inline-flex items-center gap-1"
+                          >
+                            <Icon name="Trash2" size={12} />
+                            {ot('btnRemoveInvite')}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Add more */}
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => setInviteRows([...inviteRows, { ...EMPTY_INVITE }])}
+                  className="nvi-press rounded-xl border border-dashed border-[color:var(--border)] px-4 py-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--accent)] hover:border-[color:var(--accent)]/50 transition-colors inline-flex items-center gap-2 w-full justify-center"
+                >
+                  <Icon name="UserPlus" size={14} />
+                  {ot('btnAddInvite')}
+                </button>
+              </div>
+
+              {/* Navigation */}
+              <div className="flex justify-between items-center pt-6">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setStep(2)}
+                    className="nvi-press rounded-xl border border-[color:var(--border)] px-4 py-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <Icon name="ChevronLeft" size={14} />
+                    {ot('btnBack')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep(4)}
+                    className="text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)] underline underline-offset-2 transition-colors"
+                  >
+                    {ot('btnSkipForNow')}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={sendInvites}
+                  disabled={isSendingInvites}
+                  className="nvi-press nvi-cta rounded-xl px-6 py-2.5 text-sm font-semibold text-black disabled:opacity-70 inline-flex items-center gap-2"
+                >
                   {isSendingInvites && <Spinner variant="dots" size="xs" />}
-                  {isSendingInvites ? 'Sending...' : 'Send Invites'}
-                </span>
-              </button>
-            </div>
+                  {isSendingInvites ? ot('btnSendingInvites') : ot('btnSendInvites')}
+                  {!isSendingInvites && <Icon name="ChevronRight" size={16} />}
+                </button>
+              </div>
+            </Card>
           </div>
         )}
 
-        {/* ── Step 4: You're Ready ── */}
+        {/* ═══════════════════════════════════════════════════════════════════════
+            Step 4: You're Ready
+           ═══════════════════════════════════════════════════════════════════════ */}
         {step === 4 && (
-          <div className="flex flex-col items-center justify-center py-20 text-center nvi-reveal">
-            <div
-              className="relative flex items-center justify-center"
-              style={{ width: 160, height: 160 }}
-            >
+          <div className="flex flex-col items-center justify-center py-16 text-center nvi-slide-in-bottom">
+            {/* Animated icon */}
+            <div className="nvi-bounce-in relative flex items-center justify-center mb-8" style={{ width: 160, height: 160 }}>
+              {/* Pulsing rings */}
               {[0, 1, 2].map((i) => (
                 <span
                   key={i}
-                  className="absolute rounded-full border border-gold-400/40 animate-ping"
+                  className="absolute rounded-full border border-emerald-400/30 animate-ping"
                   style={{
                     width: 160 - i * 24,
                     height: 160 - i * 24,
-                    animationDuration: '2s',
-                    animationDelay: `${i * 0.3}s`,
+                    animationDuration: '2.5s',
+                    animationDelay: `${i * 0.4}s`,
                   }}
                 />
               ))}
-              <div className="relative w-16 h-16 rounded-full bg-gold-400/10 border border-gold-400 flex items-center justify-center">
-                <svg
-                  className="w-7 h-7 text-gold-300"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
+              {/* Center icon */}
+              <div className="nvi-float relative w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/60 flex items-center justify-center">
+                <Icon name="CircleCheck" size={36} className="text-emerald-400" />
               </div>
             </div>
-            <h2 className="mt-10 text-2xl font-bold text-gold-100">You&apos;re all set!</h2>
-            <p className="mt-3 text-sm text-gold-400 min-h-[1.5rem]">
+
+            {/* Decorative dots — nvi-stagger */}
+            <div className="flex gap-2 mb-6 nvi-stagger">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span
+                  key={i}
+                  className="w-1.5 h-1.5 rounded-full bg-emerald-400/40"
+                />
+              ))}
+            </div>
+
+            <h2 className="nvi-bounce-in text-2xl font-bold text-[color:var(--foreground)]">
+              {ot('readyTitle')}
+            </h2>
+            <p className="mt-3 text-sm text-[color:var(--muted)] min-h-[1.5rem] transition-all">
               {READY_MESSAGES[readyMsgIndex]}
             </p>
-            <p className="mt-4 text-xs text-gold-600">Redirecting to your dashboard...</p>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (readyTimerRef.current) clearTimeout(readyTimerRef.current);
+                router.replace(base);
+              }}
+              className="nvi-press nvi-cta rounded-xl px-8 py-3 text-sm font-semibold text-black mt-8 inline-flex items-center gap-2"
+            >
+              {ot('btnGoToDashboard')}
+              <Icon name="ArrowRight" size={16} />
+            </button>
+
+            <p className="mt-4 text-xs text-[color:var(--muted)]">{ot('readyRedirecting')}</p>
           </div>
         )}
       </main>

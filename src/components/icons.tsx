@@ -131,6 +131,12 @@ const Icons = {
       <circle cx="12" cy="18" r="1" />
     </svg>
   ),
+  upload: (props: IconProps) => (
+    <svg viewBox="0 0 24 24" className={props.className ?? base} fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M12 16V4M8 8l4-4 4 4" />
+      <path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" />
+    </svg>
+  ),
 };
 
 export function NavIcon({ name, className }: { name: keyof typeof Icons; className?: string }) {

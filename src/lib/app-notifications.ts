@@ -1,4 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { notify } from '@/components/notifications/NotificationProvider';
+
+/**
+ * Deprecation shim — forwards to the new `notify` API.
+ *
+ * These exports are preserved so existing call sites continue to work:
+ *   - pushToast / useToastState / confirmAction / promptAction
+ *   - ToastPayload / ActionNotice / ConfirmPayload / PromptPayload types
+ *
+ * New code should import from '@/components/notifications/NotificationProvider'
+ * and use `notify.success()`, `notify.confirm()`, `useNotify()`, etc.
+ */
 
 export type ToastVariant = 'success' | 'error' | 'warning' | 'info';
 export type ToastChannel = 'toast' | 'banner' | 'modal';
@@ -50,41 +62,12 @@ export type PromptPayload = {
   placeholder?: string;
 };
 
-const TOAST_EVENT = 'nvi-toast';
-const CONFIRM_EVENT = 'nvi-confirm';
-const PROMPT_EVENT = 'nvi-prompt';
-
 const ACTION_VARIANTS: Record<ActionOutcome, ToastVariant> = {
   success: 'success',
   failure: 'error',
   warning: 'warning',
   info: 'info',
 };
-
-const ACTION_CHANNELS: Record<ActionKind, ToastChannel> = {
-  create: 'toast',
-  update: 'toast',
-  delete: 'toast',
-  approve: 'toast',
-  reject: 'toast',
-  export: 'toast',
-  import: 'toast',
-  sync: 'toast',
-  auth: 'toast',
-  load: 'toast',
-  save: 'toast',
-};
-
-const TOAST_DURATION_MS: Record<ToastVariant, number> = {
-  success: 4200,
-  info: 4200,
-  warning: 4200,
-  error: 7000,
-};
-
-function defaultDurationMs(variant: ToastVariant): number {
-  return TOAST_DURATION_MS[variant];
-}
 
 function inferVariant(message: string): ToastVariant {
   const normalized = message.toLowerCase();
@@ -171,57 +154,46 @@ function normalizeToastInput(input: ToastInput): ToastPayload {
   return input;
 }
 
+/** @deprecated Use `notify.success/error/warning/info()` from NotificationProvider. */
 export function pushToast(payload: ToastPayload) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  const resolvedVariant = payload.variant ?? inferVariant(payload.message);
-  const detail: ToastPayload = {
+  const variant = payload.variant ?? inferVariant(payload.message);
+  notify[variant](payload.message, {
     title: payload.title,
-    message: payload.message,
-    variant: resolvedVariant,
-    durationMs: payload.durationMs ?? defaultDurationMs(resolvedVariant),
-  };
-  window.dispatchEvent(new CustomEvent(TOAST_EVENT, { detail }));
+    duration: payload.durationMs,
+  });
 }
 
+/** @deprecated Use `notify.{success|error|warning|info}()` directly. */
 export function notifyAction(payload: ActionNotice) {
   const toast = normalizeToastInput(payload);
   pushToast(toast);
 }
 
+/** @deprecated Use `notify.confirm()`. */
 export function confirmAction(payload: ConfirmPayload): Promise<boolean> {
-  if (typeof window === 'undefined') {
-    return Promise.resolve(false);
-  }
-  return new Promise((resolve) => {
-    window.dispatchEvent(
-      new CustomEvent(CONFIRM_EVENT, {
-        detail: {
-          ...payload,
-          resolver: resolve,
-        },
-      }),
-    );
+  return notify.confirm({
+    title: payload.title,
+    message: payload.message,
+    confirmText: payload.confirmText,
+    cancelText: payload.cancelText,
   });
 }
 
+/** @deprecated Use `notify.prompt()`. */
 export function promptAction(payload: PromptPayload): Promise<string | null> {
-  if (typeof window === 'undefined') {
-    return Promise.resolve(null);
-  }
-  return new Promise((resolve) => {
-    window.dispatchEvent(
-      new CustomEvent(PROMPT_EVENT, {
-        detail: {
-          ...payload,
-          resolver: resolve,
-        },
-      }),
-    );
+  return notify.prompt({
+    title: payload.title,
+    message: payload.message,
+    confirmText: payload.confirmText,
+    cancelText: payload.cancelText,
+    placeholder: payload.placeholder,
   });
 }
 
+/**
+ * @deprecated Use `notify.*()` directly — no need for local state.
+ * Preserved for pages that render a StatusBanner with the message.
+ */
 export function useToastState() {
   const [message, setMessage] = useState<string | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -240,17 +212,17 @@ export function useToastState() {
       return;
     }
     const toast = normalizeToastInput(next);
-    const resolvedVariant = toast.variant ?? inferVariant(toast.message);
-    pushToast({
-      ...toast,
-      variant: resolvedVariant,
+    const variant = toast.variant ?? inferVariant(toast.message);
+    notify[variant](toast.message, {
+      title: toast.title,
+      duration: toast.durationMs,
     });
     setMessage(toast.message);
     if (typeof window !== 'undefined') {
       if (timeoutRef.current) {
         window.clearTimeout(timeoutRef.current);
       }
-      const duration = toast.durationMs ?? defaultDurationMs(resolvedVariant);
+      const duration = toast.durationMs ?? 5000;
       timeoutRef.current = window.setTimeout(() => {
         setMessage(null);
       }, duration);

@@ -6,8 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
-import { StatusBanner } from '@/components/StatusBanner';
+import { Banner } from '@/components/notifications/Banner';
 
 export default function PasswordResetConfirmPage() {
   const t = useTranslations('auth');
@@ -47,67 +46,63 @@ export default function PasswordResetConfirmPage() {
   };
 
   return (
-    <div className="space-y-6 nvi-reveal">
-      <PremiumPageHeader
-        eyebrow={t('eyebrowReset')}
-        title={t('resetConfirmTitle')}
-        subtitle={t('resetConfirmSubtitle')}
-        badges={
-          <>
-            <span className="nvi-badge">{t('badgeTokenVerify')}</span>
-          </>
-        }
-      />
-
-      <div className="grid gap-3 sm:grid-cols-3 nvi-stagger">
-        <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiToken')}</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{token.trim() ? t('set') : t('required')}</p>
-        </article>
-        <article className="command-card nvi-panel p-3 nvi-reveal">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-500">{t('kpiStatus')}</p>
-          <p className="mt-1 text-sm font-semibold text-gold-100">{isSubmitting ? t('resetting') : t('ready')}</p>
-        </article>
+    <div className="auth-login-inner">
+      <div className="auth-login-topline">
+        <span className="auth-login-pill">{t('resetConfirmTitle').toUpperCase()}</span>
       </div>
 
-      <form className="command-card nvi-panel space-y-4 p-4" onSubmit={submit}>
-        <input
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          placeholder={t('resetTokenPlaceholder')}
-          className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-        />
-        <div className="space-y-2">
-          <div className="relative">
+      <h3>{t('resetConfirmTitle')}</h3>
+      <p>{t('resetConfirmSubtitle')}</p>
+
+      <form className="auth-login-form" onSubmit={submit}>
+        <div className="auth-login-field">
+          <label htmlFor="token">{t('resetTokenPlaceholder')}</label>
+          <div className="auth-login-control">
             <input
+              id="token"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              placeholder={t('resetTokenPlaceholder')}
+            />
+          </div>
+        </div>
+
+        <div className="auth-login-field">
+          <label htmlFor="password">{t('resetNewPasswordPlaceholder')}</label>
+          <div className="auth-login-control">
+            <input
+              id="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder={t('resetNewPasswordPlaceholder')}
+              placeholder="••••••••"
               type={showPassword ? 'text' : 'password'}
-              className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 pr-12 text-gold-100"
             />
             <button
               type="button"
               onClick={() => setShowPassword((prev) => !prev)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gold-300"
+              className="auth-login-link"
             >
               {showPassword ? t('hidePassword') : t('showPassword')}
             </button>
           </div>
           <p className="text-xs text-gold-400">{t('passwordRequirements')}</p>
         </div>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="nvi-cta w-full rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-        >
+
+        <button type="submit" disabled={isSubmitting} className="auth-login-submit nvi-press">
           <span className="inline-flex items-center justify-center gap-2">
             {isSubmitting ? <Spinner variant="dots" size="xs" /> : null}
             {isSubmitting ? t('resetting') : t('resetPassword')}
           </span>
         </button>
-        {message ? <StatusBanner message={message} /> : null}
+
+        {message ? <Banner message={message} /> : null}
       </form>
+
+      <div className="auth-login-foot">
+        <span>
+          <a href={`/${locale}/login`}>{t('signIn')}</a>
+        </span>
+      </div>
     </div>
   );
 }

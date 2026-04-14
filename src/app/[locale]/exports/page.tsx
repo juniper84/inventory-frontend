@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocale, useTranslations } from 'next-intl';
-import { confirmAction, useToastState } from '@/lib/app-notifications';
+import { useTranslations } from 'next-intl';
+import { useToastState } from '@/lib/app-notifications';
 import {
   apiFetch,
   buildRequestHeaders,
@@ -15,7 +15,6 @@ import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { PaginationControls } from '@/components/PaginationControls';
-import { StatusBanner } from '@/components/StatusBanner';
 import {
   buildCursorQuery,
   normalizePaginated,
@@ -25,9 +24,20 @@ import { ViewToggle, ViewMode } from '@/components/ViewToggle';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { ListFilters } from '@/components/ListFilters';
 import { useListFilters } from '@/lib/list-filters';
-import { useDebouncedValue } from '@/lib/use-debounced-value';
-import { PremiumPageHeader } from '@/components/PremiumPageHeader';
+
 import { useFormatDate } from '@/lib/business-context';
+import { Banner } from '@/components/notifications/Banner';
+import {
+  StatusBadge,
+  ProgressBar,
+  Card,
+  Icon,
+  PageHeader,
+  EmptyState,
+} from '@/components/ui';
+import { ExportCreateModal } from '@/components/exports/ExportCreateModal';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 type ExportJob = {
   id: string;
@@ -63,24 +73,16 @@ type ExportWorkerStatus = {
   } | null;
 };
 
-type ImportPreview = {
-  validRows: number;
-  invalidRows: number;
-  errors: { row: number; message: string }[];
-  preview: Record<string, unknown>[];
-};
+// ─── Component ──────────────────────────────────────────────────────────────
 
 export default function ExportsPage() {
   const t = useTranslations('exportsPage');
   const common = useTranslations('common');
   const actions = useTranslations('actions');
-  const locale = useLocale();
   const { formatDateTime } = useFormatDate();
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isDownloading, setIsDownloading] = useState<Record<string, boolean>>({});
-  const [isPreviewing, setIsPreviewing] = useState(false);
-  const [isApplying, setIsApplying] = useState(false);
   const [jobs, setJobs] = useState<ExportJob[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -94,13 +96,12 @@ export default function ExportsPage() {
   pageCursorsRef.current = pageCursors;
   const [total, setTotal] = useState<number | null>(null);
   const [exportType, setExportType] = useState('STOCK');
+  const [exportFormat, setExportFormat] = useState('csv');
   const [auditAck, setAuditAck] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [message, setMessage] = useToastState();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState('');
-  const [importType, setImportType] = useState('products');
-  const [importCsv, setImportCsv] = useState('');
-  const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [workerStatus, setWorkerStatus] = useState<ExportWorkerStatus | null>(
     null,
   );
@@ -114,7 +115,10 @@ export default function ExportsPage() {
     to: '',
   });
   const [searchDraft, setSearchDraft] = useState(filters.search);
-  const debouncedSearch = useDebouncedValue(searchDraft, 350);
+
+
+  // ─── Memoized options ───────────────────────────────────────────────────
+
   const exportTypes = useMemo(
     () => [
       { value: 'STOCK', label: t('exportTypes.stock') },
@@ -126,6 +130,15 @@ export default function ExportsPage() {
       { value: 'USERS', label: t('exportTypes.users') },
       { value: 'CUSTOMER_REPORTS', label: t('exportTypes.customerReports') },
       { value: 'AUDIT_LOGS', label: t('exportTypes.auditLogs') },
+      { value: 'EXPORT_ON_EXIT', label: t('exportTypes.fullDataDump') },
+    ],
+    [t],
+  );
+  const exportFormatOptions = useMemo(
+    () => [
+      { value: 'csv', label: t('formatCsv') },
+      { value: 'excel', label: t('formatExcel') },
+      { value: 'pdf', label: t('formatPdf') },
     ],
     [t],
   );
@@ -136,20 +149,6 @@ export default function ExportsPage() {
     ],
     [common, exportTypes],
   );
-  const importTypes = useMemo(
-    () => [
-      { value: 'categories', label: t('importTypes.categories') },
-      { value: 'products', label: t('importTypes.products') },
-      { value: 'opening_stock', label: t('importTypes.openingStock') },
-      { value: 'price_updates', label: t('importTypes.priceUpdates') },
-      { value: 'status_updates', label: t('importTypes.statusUpdates') },
-      { value: 'suppliers', label: t('importTypes.suppliers') },
-      { value: 'branches', label: t('importTypes.branches') },
-      { value: 'users', label: t('importTypes.users') },
-    ],
-    [t],
-  );
-
   const statusOptions = useMemo(
     () => [
       { value: '', label: common('allStatuses') },
@@ -169,15 +168,30 @@ export default function ExportsPage() {
     [branches, common],
   );
 
+  // ─── Derived KPIs ──────────────────────────────────────────────────────
+
+  const activeJobs = useMemo(
+    () => jobs.filter((j) => j.status === 'PENDING' || j.status === 'RUNNING').length,
+    [jobs],
+  );
+  const completedJobs = useMemo(
+    () => jobs.filter((job) => job.status === 'COMPLETED').length,
+    [jobs],
+  );
+  const failedJobs = useMemo(
+    () => jobs.filter((job) => job.status === 'FAILED').length,
+    [jobs],
+  );
+
+  // ─── Search sync ──────────────────────────────────────────────────────
+
   useEffect(() => {
     setSearchDraft(filters.search);
   }, [filters.search]);
 
-  useEffect(() => {
-    if (debouncedSearch !== filters.search) {
-      pushFilters({ search: debouncedSearch });
-    }
-  }, [debouncedSearch, filters.search, pushFilters]);
+
+
+  // ─── Data loaders (unchanged logic) ───────────────────────────────────
 
   const loadReferenceData = useCallback(async () => {
     const token = getAccessToken();
@@ -290,15 +304,8 @@ export default function ExportsPage() {
       setBranchId(activeBranch.id);
     }
   }, [activeBranch?.id, branchId]);
-  const completedJobs = useMemo(
-    () => jobs.filter((job) => job.status === 'COMPLETED').length,
-    [jobs],
-  );
-  const failedJobs = useMemo(
-    () => jobs.filter((job) => job.status === 'FAILED').length,
-    [jobs],
-  );
-  const queuePending = workerStatus?.queue.pending ?? 0;
+
+  // ─── Actions (unchanged logic) ────────────────────────────────────────
 
   const createExport = async () => {
     const token = getAccessToken();
@@ -313,12 +320,18 @@ export default function ExportsPage() {
         method: 'POST',
         body: JSON.stringify({
           type: exportType,
+          format: exportFormat,
           acknowledgement: exportType === 'AUDIT_LOGS' && auditAck ? 'YES' : undefined,
           branchId: resolveBranchId(branchId) || undefined,
         }),
       });
       await loadJobs();
-      setMessage({ action: 'export', outcome: 'success', message: t('created') });
+      setCreateOpen(false);
+      setMessage({
+        action: 'export',
+        outcome: 'success',
+        message: exportType === 'EXPORT_ON_EXIT' ? t('exportOnExitQueued') : t('created'),
+      });
     } catch (err) {
       setMessage({
         action: 'export',
@@ -343,11 +356,11 @@ export default function ExportsPage() {
       headers,
     });
     if (!response.ok) {
-      const message = await getApiErrorMessageFromResponse(
+      const msg = await getApiErrorMessageFromResponse(
         response,
         t('downloadFailed'),
       );
-      setMessage({ action: 'export', outcome: 'failure', message });
+      setMessage({ action: 'export', outcome: 'failure', message: msg });
       setIsDownloading((prev) => ({ ...prev, [jobId]: false }));
       return;
     }
@@ -396,420 +409,387 @@ export default function ExportsPage() {
     setIsDownloading((prev) => ({ ...prev, [jobId]: false }));
   };
 
-  const previewImport = async () => {
-    const token = getAccessToken();
-    if (!token || !importCsv.trim()) {
-      return;
-    }
-    setMessage(null);
-    setIsPreviewing(true);
-    try {
-      const result = await apiFetch<ImportPreview>('/imports/preview', {
-        token,
-        method: 'POST',
-        body: JSON.stringify({ type: importType, csv: importCsv }),
-      });
-      setPreview(result);
-      setMessage({ action: 'import', outcome: 'success', message: t('previewReady') });
-    } catch (err) {
-      setMessage({
-        action: 'import',
-        outcome: 'failure',
-        message: getApiErrorMessage(err, t('previewFailed')),
-      });
-    } finally {
-      setIsPreviewing(false);
-    }
-  };
 
-  const applyImport = async () => {
-    const token = getAccessToken();
-    if (!token || !importCsv.trim()) {
-      return;
-    }
-    const ok = await confirmAction({
-      title: t('applyImportConfirmTitle'),
-      message: t('applyImportConfirmMessage'),
-      confirmText: t('applyImportConfirmButton'),
-    });
-    if (!ok) return;
-    setMessage(null);
-    setIsApplying(true);
-    try {
-      const result = await apiFetch<ImportPreview>('/imports/apply', {
-        token,
-        method: 'POST',
-        body: JSON.stringify({ type: importType, csv: importCsv }),
-      });
-      setPreview(result);
-      setMessage({ action: 'import', outcome: 'success', message: t('applySuccess') });
-    } catch (err) {
-      setMessage({
-        action: 'import',
-        outcome: 'failure',
-        message: getApiErrorMessage(err, t('applyFailed')),
-      });
-    } finally {
-      setIsApplying(false);
-    }
-  };
+  // ─── Loading state ────────────────────────────────────────────────────
 
-  if (isLoading) {
+  if (isLoading && jobs.length === 0) {
     return <PageSkeleton />;
   }
 
+  // ─── Render ───────────────────────────────────────────────────────────
+
   return (
-    <section className="nvi-page">
-      <PremiumPageHeader
+    <section className="nvi-page nvi-stagger">
+
+      {/* ── Hero ── */}
+      <PageHeader
         eyebrow={t('eyebrow')}
         title={t('title')}
         subtitle={t('subtitle')}
         badges={
-          <>
-            <span className="nvi-badge">{t('badgeQueueWatch')}</span>
-            <span className="nvi-badge">{t('badgeImportReady')}</span>
-          </>
+          <span className="nvi-badge">{t('badgeQueueWatch')}</span>
+        }
+        actions={
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="nvi-press inline-flex items-center gap-1.5 rounded-xl bg-[var(--nvi-accent)] px-3 py-2 text-xs font-semibold text-black"
+          >
+            <Icon name="Plus" size={14} />
+            {t('createExport')}
+          </button>
         }
       />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 nvi-stagger">
-        <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiVisibleJobs')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{jobs.length}</p>
-        </article>
-        <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiCompleted')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{completedJobs}</p>
-        </article>
-        <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiFailed')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{failedJobs}</p>
-        </article>
-        <article className="command-card nvi-panel p-4 nvi-reveal">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-gold-400">{t('kpiQueuePending')}</p>
-          <p className="mt-2 text-3xl font-semibold text-gold-100">{queuePending}</p>
-        </article>
+
+      {/* ── KPI strip ── */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        {/* Active jobs */}
+        <div className="group relative overflow-hidden rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/[0.06] to-transparent p-4 transition-all hover:border-amber-500/30 hover:shadow-[0_0_24px_-6px_rgba(245,158,11,0.15)]">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 ring-1 ring-amber-500/20">
+              <Icon name="Loader" size={20} className="text-amber-400" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-amber-400/70">{t('kpiActiveJobs')}</p>
+              <p className="text-2xl font-bold tabular-nums text-amber-300">{activeJobs}</p>
+            </div>
+          </div>
+        </div>
+        {/* Completed */}
+        <div className="group relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.06] to-transparent p-4 transition-all hover:border-emerald-500/30 hover:shadow-[0_0_24px_-6px_rgba(16,185,129,0.15)]">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/20">
+              <Icon name="CircleCheck" size={20} className="text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-emerald-400/70">{t('kpiCompleted')}</p>
+              <p className="text-2xl font-bold tabular-nums text-emerald-300">{completedJobs}</p>
+            </div>
+          </div>
+        </div>
+        {/* Failed */}
+        <div className="group relative overflow-hidden rounded-2xl border border-red-500/20 bg-gradient-to-br from-red-500/[0.06] to-transparent p-4 transition-all hover:border-red-500/30 hover:shadow-[0_0_24px_-6px_rgba(239,68,68,0.15)]">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500/10 ring-1 ring-red-500/20">
+              <Icon name="CircleX" size={20} className="text-red-400" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-red-400/70">{t('kpiFailed')}</p>
+              <p className="text-2xl font-bold tabular-nums text-red-300">{failedJobs}</p>
+            </div>
+          </div>
+        </div>
       </div>
-      {message ? <StatusBanner message={message} /> : null}
+
+      {/* ── Status banner ── */}
+      {message ? <Banner severity={message.outcome === 'success' ? 'success' : message.outcome === 'failure' ? 'error' : 'info'} message={message.message} onDismiss={() => setMessage(null)} /> : null}
+
+      {/* ── Worker status ── */}
       {workerStatus ? (
-        <div className="command-card nvi-panel p-4 text-sm text-gold-200 nvi-reveal">
-          <p className="text-gold-100 font-semibold">{t('workerTitle')}</p>
-          <p>
-            {t('workerStatus')}:{' '}
-            <span className="text-gold-100">
-              {workerStatus.enabled ? t('workerEnabled') : t('workerDisabled')}
-            </span>{' '}
-            • {t('workerInterval', { seconds: Math.round(workerStatus.intervalMs / 1000) })} •{' '}
-            {t('workerMaxAttempts', { count: workerStatus.maxAttempts })}
-          </p>
-          <p>
-            {t('queueLabel', {
-              pending: workerStatus.queue.pending,
-              running: workerStatus.queue.running,
-              failed: workerStatus.queue.failed,
-            })}
-          </p>
+        <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/60 px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <Icon name="Activity" size={14} className="text-[color:var(--muted)]" />
+            <span className="text-xs font-medium text-[color:var(--foreground)]">{t('workerTitle')}</span>
+          </div>
+          <span className="h-3.5 w-px bg-[color:var(--border)]" />
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${workerStatus.enabled ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20' : 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${workerStatus.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+            {workerStatus.enabled ? t('workerEnabled') : t('workerDisabled')}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-amber-500/20">
+              {workerStatus.queue.pending} pending
+            </span>
+            <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-400 ring-1 ring-blue-500/20">
+              {workerStatus.queue.running} running
+            </span>
+            {workerStatus.queue.failed > 0 ? (
+              <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-400 ring-1 ring-red-500/20">
+                {workerStatus.queue.failed} failed
+              </span>
+            ) : null}
+          </div>
           {workerStatus.lastJob ? (
-            <p className="text-xs text-gold-400">
-              {t('lastJob', {
-                type: workerStatus.lastJob.type,
-                status: workerStatus.lastJob.status,
-                date: formatDateTime(workerStatus.lastJob.createdAt),
-              })}
-            </p>
+            <>
+              <span className="h-3.5 w-px bg-[color:var(--border)]" />
+              <span className="text-[10px] text-[color:var(--muted)]">
+                {t('lastJob', {
+                  type: workerStatus.lastJob.type,
+                  status: workerStatus.lastJob.status,
+                  date: formatDateTime(workerStatus.lastJob.createdAt),
+                })}
+              </span>
+            </>
           ) : null}
         </div>
       ) : null}
 
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('createExport')}</h3>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-[220px]">
-            <SmartSelect
-              instanceId="exports-create-type"
-              value={exportType}
-              onChange={setExportType}
-              options={exportTypes}
-              className="nvi-select-container"
-            />
-          </div>
-          <div className="min-w-[220px]">
-            <SmartSelect
-              instanceId="exports-create-branch"
-              value={branchId}
-              onChange={(value) => setBranchId(value)}
-              options={branches.map((branch) => ({
-                value: branch.id,
-                label: branch.name,
-              }))}
-              placeholder={common('branch')}
-              isClearable
-              className="nvi-select-container"
-            />
-          </div>
-          {exportType === 'AUDIT_LOGS' ? (
-            <label className="flex items-center gap-2 text-xs text-gold-200">
-              <input
-                type="checkbox"
-                checked={auditAck}
-                onChange={(event) => setAuditAck(event.target.checked)}
-              />
-              {t('auditAck')}
-            </label>
-          ) : null}
-          <button
-            type="button"
-            onClick={createExport}
-            className="nvi-cta inline-flex items-center gap-2 rounded px-4 py-2 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isCreating}
-          >
-            {isCreating ? <Spinner size="xs" variant="orbit" /> : null}
-            {isCreating ? t('running') : t('runExport')}
-          </button>
-        </div>
+      {/* ══════════════════════════════════════════════════════════════════
+          SECTION 2 — Export Jobs
+         ══════════════════════════════════════════════════════════════════ */}
+      <div className="mt-2">
+        <h2 className="text-xs font-bold uppercase tracking-[0.3em] text-[color:var(--muted)]">{t('sectionJobs')}</h2>
       </div>
-
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-lg font-semibold text-gold-100">{t('exportJobs')}</h3>
-          <ViewToggle
-            value={viewMode}
-            onChange={setViewMode}
-            labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
-          />
-        </div>
-        <ListFilters
-          searchValue={searchDraft}
-          onSearchChange={setSearchDraft}
-          onSearchSubmit={() => pushFilters({ search: searchDraft })}
-          onReset={() => resetFilters()}
-          isLoading={isLoading}
-          showAdvanced={showAdvanced}
-          onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-        >
-          <SmartSelect
-            instanceId="exports-filter-status"
-            value={filters.status}
-            onChange={(value) => pushFilters({ status: value })}
-            options={statusOptions}
-            placeholder={common('status')}
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            instanceId="exports-filter-type"
-            value={filters.type}
-            onChange={(value) => pushFilters({ type: value })}
-            options={typeOptions}
-            placeholder={common('type')}
-            className="nvi-select-container"
-          />
-          <SmartSelect
-            instanceId="exports-filter-branch"
-            value={filters.branchId}
-            onChange={(value) => pushFilters({ branchId: value })}
-            options={branchOptions}
-            placeholder={common('branch')}
-            className="nvi-select-container"
-          />
-          <DatePickerInput
-            value={filters.from}
-            onChange={(value) => pushFilters({ from: value })}
-            placeholder={common('fromDate')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-          <DatePickerInput
-            value={filters.to}
-            onChange={(value) => pushFilters({ to: value })}
-            placeholder={common('toDate')}
-            className="rounded border border-gold-700/50 bg-black px-3 py-2 text-gold-100"
-          />
-        </ListFilters>
-        {viewMode === 'table' ? (
-          !jobs.length ? (
-            <StatusBanner message={t('noJobs')} />
-          ) : (
-            <div className="overflow-auto text-sm text-gold-200">
-              <table className="min-w-[720px] w-full text-left text-sm text-gold-100">
-                <thead className="text-xs uppercase text-gold-400">
-                  <tr>
-                    <th className="px-3 py-2">{t('typeLabel')}</th>
-                    <th className="px-3 py-2">{t('statusLabel')}</th>
-                    <th className="px-3 py-2">{t('createdAt')}</th>
-                    <th className="px-3 py-2">{t('completedAt')}</th>
-                    <th className="px-3 py-2">{t('attachmentsLabel')}</th>
-                    <th className="px-3 py-2">{t('actionsLabel')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.map((job) => (
-                    <tr key={job.id} className="border-t border-gold-700/20">
-                      <td className="px-3 py-2 font-semibold">{job.type}</td>
-                      <td className="px-3 py-2">{job.status}</td>
-                      <td className="px-3 py-2">
-                        {formatDateTime(job.createdAt)}
-                      </td>
-                      <td className="px-3 py-2">
-                        {job.completedAt
-                          ? formatDateTime(job.completedAt)
-                          : t('notCompleted')}
-                      </td>
-                      <td className="px-3 py-2">
-                        {job.metadata?.attachments?.length ?? 0}
-                      </td>
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => downloadJob(job.id, job.metadata?.filename)}
-                          className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-                          disabled={isDownloading[job.id]}
-                        >
-                          {isDownloading[job.id] ? (
-                            <Spinner size="xs" variant="dots" />
-                          ) : null}
-                          {isDownloading[job.id] ? t('downloading') : actions('download')}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      <Card padding="lg">
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20">
+                <Icon name="ListOrdered" size={20} className="text-blue-400" />
+              </div>
+              <h3 className="text-base font-bold text-[color:var(--foreground)]">{t('exportJobs')}</h3>
             </div>
-          )
-        ) : (
-          <div className="space-y-2 text-sm text-gold-200">
-            {jobs.map((job) => (
-              <div
-                key={job.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded border border-gold-700/40 bg-black/40 px-3 py-2"
-              >
-                <div>
-                  <p className="text-gold-100">
-                    {job.type} • {job.status}
-                  </p>
-                  <p className="text-xs text-gold-400">
-                    {formatDateTime(job.createdAt)}
-                  </p>
-                  {job.metadata?.attachments?.length ? (
-                    <div className="text-xs text-gold-300">
-                      <p>
-                        {t('attachmentsBundled', {
-                          count: job.metadata.attachments.length,
-                        })}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {job.metadata.attachments.slice(0, 3).map((file) => (
-                          <a
-                            key={file.url}
-                            href={file.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="underline underline-offset-4"
+            <ViewToggle
+              value={viewMode}
+              onChange={setViewMode}
+              labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
+            />
+          </div>
+
+          <ListFilters
+            searchValue={searchDraft}
+            onSearchChange={setSearchDraft}
+            onSearchSubmit={() => pushFilters({ search: searchDraft })}
+            onReset={() => resetFilters()}
+            isLoading={isLoading}
+            showAdvanced={showAdvanced}
+            onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+          >
+            <SmartSelect
+              instanceId="exports-filter-status"
+              value={filters.status}
+              onChange={(value) => pushFilters({ status: value })}
+              options={statusOptions}
+              placeholder={common('status')}
+              className="nvi-select-container"
+            />
+            <SmartSelect
+              instanceId="exports-filter-type"
+              value={filters.type}
+              onChange={(value) => pushFilters({ type: value })}
+              options={typeOptions}
+              placeholder={common('type')}
+              className="nvi-select-container"
+            />
+            <SmartSelect
+              instanceId="exports-filter-branch"
+              value={filters.branchId}
+              onChange={(value) => pushFilters({ branchId: value })}
+              options={branchOptions}
+              placeholder={common('branch')}
+              className="nvi-select-container"
+            />
+            <DatePickerInput
+              value={filters.from}
+              onChange={(value) => pushFilters({ from: value })}
+              placeholder={common('fromDate')}
+              className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-[color:var(--foreground)]"
+            />
+            <DatePickerInput
+              value={filters.to}
+              onChange={(value) => pushFilters({ to: value })}
+              placeholder={common('toDate')}
+              className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-[color:var(--foreground)]"
+            />
+          </ListFilters>
+
+          {/* Table view */}
+          {viewMode === 'table' ? (
+            !jobs.length ? (
+              <EmptyState
+                icon={<Icon name="FileX" size={32} className="text-[color:var(--muted)]" />}
+                title={t('noJobs')}
+                description={t('noJobsHint')}
+              />
+            ) : (
+              <div className="overflow-auto text-sm">
+                <table className="min-w-[720px] w-full text-left text-sm text-[color:var(--foreground)]">
+                  <thead className="text-xs uppercase text-[color:var(--muted)]">
+                    <tr>
+                      <th className="px-3 py-2">{t('typeLabel')}</th>
+                      <th className="px-3 py-2">{t('statusLabel')}</th>
+                      <th className="px-3 py-2">{t('createdAt')}</th>
+                      <th className="px-3 py-2">{t('completedAt')}</th>
+                      <th className="px-3 py-2">{t('attachmentsLabel')}</th>
+                      <th className="px-3 py-2">{t('actionsLabel')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jobs.map((job) => (
+                      <tr key={job.id} className="border-t border-[color:var(--border)]">
+                        <td className="px-3 py-2"><StatusBadge status={job.type} size="xs" /></td>
+                        <td className="px-3 py-2"><StatusBadge status={job.status} size="xs" /></td>
+                        <td className="px-3 py-2 text-xs text-[color:var(--muted)]">
+                          {formatDateTime(job.createdAt)}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-[color:var(--muted)]">
+                          {job.completedAt
+                            ? formatDateTime(job.completedAt)
+                            : t('notCompleted')}
+                        </td>
+                        <td className="px-3 py-2 text-xs">
+                          {job.metadata?.attachments?.length ?? 0}
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => downloadJob(job.id, job.metadata?.filename)}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-[color:var(--border)] px-2.5 py-1 text-xs text-[color:var(--foreground)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--accent)] disabled:cursor-not-allowed disabled:opacity-70"
+                            disabled={isDownloading[job.id]}
                           >
-                            {file.filename}
-                          </a>
-                        ))}
-                        {job.metadata.attachments.length > 3 ? (
-                          <span>
-                            {t('attachmentsMore', {
-                              count: job.metadata.attachments.length - 3,
-                            })}
-                          </span>
+                            {isDownloading[job.id] ? (
+                              <Spinner size="xs" variant="dots" />
+                            ) : (
+                              <Icon name="Download" size={12} />
+                            )}
+                            {isDownloading[job.id] ? t('downloading') : actions('download')}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : (
+            /* Card view */
+            <div className="space-y-2">
+              {jobs.map((job) => {
+                const statusStyles: Record<string, { border: string; iconBg: string; iconColor: string; icon: 'Clock' | 'Loader' | 'CircleCheck' | 'CircleX' }> = {
+                  PENDING:   { border: 'border-l-amber-400', iconBg: 'bg-amber-500/10 ring-1 ring-amber-500/20', iconColor: 'text-amber-400', icon: 'Clock' },
+                  RUNNING:   { border: 'border-l-blue-400', iconBg: 'bg-blue-500/10 ring-1 ring-blue-500/20', iconColor: 'text-blue-400', icon: 'Loader' },
+                  COMPLETED: { border: 'border-l-emerald-400', iconBg: 'bg-emerald-500/10 ring-1 ring-emerald-500/20', iconColor: 'text-emerald-400', icon: 'CircleCheck' },
+                  FAILED:    { border: 'border-l-red-400', iconBg: 'bg-red-500/10 ring-1 ring-red-500/20', iconColor: 'text-red-400', icon: 'CircleX' },
+                };
+                const st = statusStyles[job.status] ?? statusStyles.PENDING;
+                return (
+                  <div
+                    key={job.id}
+                    className={`flex flex-wrap items-center gap-4 rounded-xl border border-[color:var(--border)] border-l-[3px] ${st.border} bg-[color:var(--surface)] px-4 py-3 transition-all hover:shadow-md hover:shadow-black/5`}
+                  >
+                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${st.iconBg}`}>
+                      <Icon name={st.icon} size={16} className={st.iconColor} />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={job.type} size="xs" />
+                        <StatusBadge status={job.status} size="xs" />
+                        {(job.status === 'PENDING' || job.status === 'RUNNING') ? (
+                          <Spinner size="xs" variant="dots" />
                         ) : null}
                       </div>
+                      <p className="text-[11px] text-[color:var(--muted)]">
+                        {formatDateTime(job.createdAt)}
+                        {job.status === 'FAILED' ? (
+                          <span className="ml-2 text-red-400">{t('statusLabel')}: {job.status}</span>
+                        ) : null}
+                      </p>
+                      {job.status === 'RUNNING' ? (
+                        <ProgressBar value={50} max={100} color="blue" height={4} />
+                      ) : null}
+                      {job.metadata?.attachments?.length ? (
+                        <div className="text-xs text-[color:var(--muted)]">
+                          <p>
+                            {t('attachmentsBundled', {
+                              count: job.metadata.attachments.length,
+                            })}
+                          </p>
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            {job.metadata.attachments.slice(0, 3).map((file, idx) => (
+                              <a
+                                key={`${file.url}-${idx}`}
+                                href={file.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline underline-offset-4 hover:text-[color:var(--accent)]"
+                              >
+                                {file.filename}
+                              </a>
+                            ))}
+                            {job.metadata.attachments.length > 3 ? (
+                              <span>
+                                {t('attachmentsMore', {
+                                  count: job.metadata.attachments.length - 3,
+                                })}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => downloadJob(job.id, job.metadata?.filename)}
-                  className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-1 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-                  disabled={isDownloading[job.id]}
-                >
-                  {isDownloading[job.id] ? <Spinner size="xs" variant="dots" /> : null}
-                  {isDownloading[job.id] ? t('downloading') : actions('download')}
-                </button>
-              </div>
-            ))}
-            {!jobs.length ? <StatusBanner message={t('noJobs')} /> : null}
-          </div>
-        )}
-        <PaginationControls
-          page={page}
-          pageSize={pageSize}
-          total={total}
-          itemCount={jobs.length}
-          availablePages={Object.keys(pageCursors).map(Number)}
-          hasNext={Boolean(nextCursor)}
-          hasPrev={page > 1}
-          isLoading={isLoading}
-          onPageChange={(nextPage) => loadJobs(nextPage)}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(1);
-            setPageCursors({ 1: null });
-            setTotal(null);
-            loadJobs(1, size);
-          }}
-        />
-      </div>
-
-      <div className="command-card nvi-panel p-6 space-y-3 nvi-reveal">
-        <h3 className="text-lg font-semibold text-gold-100">{t('importPreview')}</h3>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-[220px]">
-            <SmartSelect
-              instanceId="exports-import-type"
-              value={importType}
-              onChange={setImportType}
-              options={importTypes}
-              className="nvi-select-container"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={previewImport}
-            className="inline-flex items-center gap-2 rounded border border-gold-700/50 px-3 py-2 text-xs text-gold-100 disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isPreviewing}
-          >
-            {isPreviewing ? <Spinner size="xs" variant="grid" /> : null}
-            {isPreviewing ? t('previewing') : t('previewImport')}
-          </button>
-          <button
-            type="button"
-            onClick={applyImport}
-            className="nvi-cta inline-flex items-center gap-2 rounded px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isApplying}
-          >
-            {isApplying ? <Spinner size="xs" variant="pulse" /> : null}
-            {isApplying ? t('applying') : t('applyImport')}
-          </button>
-        </div>
-        <textarea
-          value={importCsv}
-          onChange={(event) => setImportCsv(event.target.value)}
-          rows={6}
-          placeholder={t('csvPlaceholder')}
-          className="w-full rounded border border-gold-700/50 bg-black px-3 py-2 text-sm text-gold-100"
-        />
-        {preview ? (
-          <div className="space-y-2 text-sm text-gold-200">
-            <p>
-              {t('previewCounts', {
-                valid: preview.validRows,
-                invalid: preview.invalidRows,
-              })}
-            </p>
-            {preview.errors.length ? (
-              <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
-                {preview.errors.map((err) => (
-                  <div key={`${err.row}-${err.message}`}>
-                    {t('previewRowError', { row: err.row, message: err.message })}
+                    {job.status === 'COMPLETED' ? (
+                      <button
+                        type="button"
+                        onClick={() => downloadJob(job.id, job.metadata?.filename)}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400 ring-1 ring-emerald-500/20 transition-all hover:bg-emerald-500/20 hover:ring-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-70"
+                        disabled={isDownloading[job.id]}
+                      >
+                        {isDownloading[job.id] ? <Spinner size="xs" variant="dots" /> : <Icon name="Download" size={14} />}
+                        {isDownloading[job.id] ? t('downloading') : actions('download')}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => downloadJob(job.id, job.metadata?.filename)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[color:var(--border)] px-3 py-2 text-xs text-[color:var(--foreground)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--accent)] disabled:cursor-not-allowed disabled:opacity-70"
+                        disabled={isDownloading[job.id]}
+                      >
+                        {isDownloading[job.id] ? <Spinner size="xs" variant="dots" /> : <Icon name="Download" size={14} />}
+                        {isDownloading[job.id] ? t('downloading') : actions('download')}
+                      </button>
+                    )}
                   </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+                );
+              })}
+              {!jobs.length ? (
+                <EmptyState
+                  icon={<Icon name="FileX" size={32} className="text-[color:var(--muted)]" />}
+                  title={t('noJobs')}
+                  description={t('noJobsHint')}
+                />
+              ) : null}
+            </div>
+          )}
+
+          <PaginationControls
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            itemCount={jobs.length}
+            availablePages={Object.keys(pageCursors).map(Number)}
+            hasNext={Boolean(nextCursor)}
+            hasPrev={page > 1}
+            isLoading={isLoading}
+            onPageChange={(nextPage) => loadJobs(nextPage)}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+              setPageCursors({ 1: null });
+              setTotal(null);
+              loadJobs(1, size);
+            }}
+          />
+        </div>
+      </Card>
+
+      <ExportCreateModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        exportType={exportType}
+        onExportTypeChange={setExportType}
+        exportTypes={exportTypes}
+        exportFormat={exportFormat}
+        onExportFormatChange={setExportFormat}
+        exportFormatOptions={exportFormatOptions}
+        branchId={branchId}
+        onBranchIdChange={setBranchId}
+        branches={branches}
+        auditAck={auditAck}
+        onAuditAckChange={setAuditAck}
+        onSubmit={createExport}
+        isCreating={isCreating}
+      />
+
     </section>
   );
 }
