@@ -9,6 +9,7 @@ type Action = {
   onClick: () => void;
   disabled?: boolean;
   variant?: 'default' | 'danger' | 'success';
+  className?: string;
 };
 
 type ActionButtonsProps = {
@@ -43,7 +44,7 @@ export function ActionButtons({
           aria-label={action.label}
           className={`${padding} rounded-md border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             variantStyles[action.variant ?? 'default']
-          }`}
+          } ${action.className ?? ''}`}
         >
           <span className={iconSize}>{action.icon}</span>
         </button>
