@@ -41,7 +41,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { notify } from '@/components/notifications/NotificationProvider';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { Spinner } from '@/components/Spinner';
@@ -1098,7 +1098,7 @@ export default function NotesPage() {
         </Card>
       </div>
 
-      {message ? <Banner message={message} /> : null}
+      {message ? <Banner message={messageText(message)} /> : null}
 
       {/* ─── Filters ─── */}
       <Card padding="md">

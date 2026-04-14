@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useBranchScope } from '@/lib/use-branch-scope';
@@ -731,7 +731,7 @@ export default function StockMovementsPage() {
       banner={
         message ? (
           <Banner
-            message={message}
+            message={messageText(message)}
             severity="info"
             onDismiss={() => setMessage(null)}
           />

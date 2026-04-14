@@ -82,7 +82,7 @@ type CategoryStyle = {
   bg: string;
   text: string;
   iconBg: string;
-  icon: 'Package' | 'Truck' | 'Zap' | 'House' | 'Users' | 'ArrowLeftRight' | 'CircleHelp' | 'Tag';
+  icon: 'Package' | 'Truck' | 'Zap' | 'House' | 'Users' | 'ArrowLeftRight' | 'CircleQuestionMark' | 'Tag';
 };
 
 const CATEGORY_STYLES: Record<string, CategoryStyle> = {
@@ -93,7 +93,7 @@ const CATEGORY_STYLES: Record<string, CategoryStyle> = {
   PAYROLL:      { bg: 'bg-emerald-500/15', text: 'text-emerald-300', iconBg: 'bg-emerald-500/10', icon: 'Users' },
   TRANSFER_FEE: { bg: 'bg-cyan-500/15',   text: 'text-cyan-300',    iconBg: 'bg-cyan-500/10',    icon: 'ArrowLeftRight' },
   STOCK_COST:   { bg: 'bg-orange-500/15',  text: 'text-orange-300',  iconBg: 'bg-orange-500/10',  icon: 'Package' },
-  OTHER:        { bg: 'bg-white/[0.04]',   text: 'text-zinc-400',    iconBg: 'bg-white/[0.04]',   icon: 'CircleHelp' },
+  OTHER:        { bg: 'bg-white/[0.04]',   text: 'text-zinc-400',    iconBg: 'bg-white/[0.04]',   icon: 'CircleQuestionMark' },
 };
 
 function getCategoryStyle(category: string): CategoryStyle {

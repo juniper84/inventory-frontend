@@ -81,7 +81,7 @@ function reasonIcon(reason?: string | null): React.ReactNode {
     case 'RETURN_NOT_LOGGED':
       return <Icon name="Search" size={14} className="text-emerald-400" />;
     default:
-      return <Icon name="CircleHelp" size={14} className="text-gold-500/60" />;
+      return <Icon name="CircleQuestionMark" size={14} className="text-gold-500/60" />;
   }
 }
 

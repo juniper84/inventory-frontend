@@ -482,7 +482,7 @@ export default function ExportsPage() {
       </div>
 
       {/* ── Status banner ── */}
-      {message ? <Banner severity={message.outcome === 'success' ? 'success' : message.outcome === 'failure' ? 'error' : 'info'} message={message.message} onDismiss={() => setMessage(null)} /> : null}
+      {message ? <Banner severity={typeof message === 'string' ? 'info' : message.outcome === 'success' ? 'success' : message.outcome === 'failure' ? 'error' : 'info'} message={typeof message === 'string' ? message : message.message} onDismiss={() => setMessage(null)} /> : null}
 
       {/* ── Worker status ── */}
       {workerStatus ? (

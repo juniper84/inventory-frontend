@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { promptAction, useToastState } from '@/lib/app-notifications';
+import { promptAction, useToastState, messageText } from '@/lib/app-notifications';
 import JsBarcode from 'jsbarcode';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -961,7 +961,7 @@ export default function VariantsPage() {
           </div>
         }
         isLoading={isLoading}
-        banner={message ? <Banner message={message} /> : null}
+        banner={message ? <Banner message={messageText(message)} /> : null}
         kpis={
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 nvi-stagger">
             {(

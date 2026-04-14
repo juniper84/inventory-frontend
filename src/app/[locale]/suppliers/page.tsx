@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
@@ -639,7 +639,7 @@ export default function SuppliersPage() {
                     <ProgressBar
                       value={perf.data.completedOrders}
                       max={perf.data.totalOrders || 1}
-                      color={perf.data.completionRate >= 0.8 ? 'green' : perf.data.completionRate >= 0.5 ? 'yellow' : 'red'}
+                      color={perf.data.completionRate >= 0.8 ? 'green' : perf.data.completionRate >= 0.5 ? 'amber' : 'red'}
                       height={6}
                       label={t('completionRate')}
                       showPercent
@@ -819,7 +819,7 @@ export default function SuppliersPage() {
                         <ProgressBar
                           value={perf.data.completedOrders}
                           max={perf.data.totalOrders || 1}
-                          color={perf.data.completionRate >= 0.8 ? 'green' : perf.data.completionRate >= 0.5 ? 'yellow' : 'red'}
+                          color={perf.data.completionRate >= 0.8 ? 'green' : perf.data.completionRate >= 0.5 ? 'amber' : 'red'}
                           height={5}
                           className="flex-1"
                         />
@@ -924,7 +924,7 @@ export default function SuppliersPage() {
           />
         </div>
       }
-      banner={message ? <Banner message={message} /> : null}
+      banner={message ? <Banner message={messageText(message)} /> : null}
       kpis={kpiStrip}
       filters={filterBar}
       viewMode={viewMode}

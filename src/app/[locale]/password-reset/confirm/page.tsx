@@ -1,6 +1,6 @@
 'use client';
 
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
@@ -95,7 +95,7 @@ export default function PasswordResetConfirmPage() {
           </span>
         </button>
 
-        {message ? <Banner message={message} /> : null}
+        {message ? <Banner message={messageText(message)} /> : null}
       </form>
 
       <div className="auth-login-foot">

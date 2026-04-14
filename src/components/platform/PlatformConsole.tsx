@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { decodeJwt, getPlatformAccessToken } from '@/lib/auth';
 import { formatEntityLabel } from '@/lib/display';
@@ -1303,7 +1303,7 @@ export function PlatformConsole({
 
   return (
     <div className="space-y-10">
-      <PlatformConsoleHeader t={t} message={message} />
+      <PlatformConsoleHeader t={t} message={message == null ? null : messageText(message)} />
 
       {showOperations && (
         <div className="nvi-reveal">

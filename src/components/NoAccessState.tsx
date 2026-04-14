@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
-import { promptAction, useToastState } from '@/lib/app-notifications';
+import { promptAction, useToastState, messageText } from '@/lib/app-notifications';
 import { StatusBanner } from '@/components/StatusBanner';
 
 type NoAccessStateProps = {
@@ -77,7 +77,7 @@ export function NoAccessState({ permission, path }: NoAccessStateProps) {
           {isSubmitting ? t('requesting') : t('requestAction')}
         </button>
       </div>
-      {message ? <StatusBanner message={message} /> : null}
+      {message ? <StatusBanner message={messageText(message)} /> : null}
     </div>
   );
 }

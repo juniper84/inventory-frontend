@@ -1,6 +1,6 @@
 'use client';
 
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -107,7 +107,7 @@ export default function PasswordResetRequestPage() {
           </span>
         </button>
 
-        {message ? <Banner message={message} /> : null}
+        {message ? <Banner message={messageText(message)} /> : null}
       </form>
 
       <div className="auth-login-foot">

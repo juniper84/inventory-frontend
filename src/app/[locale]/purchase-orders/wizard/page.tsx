@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { useBranchScope } from '@/lib/use-branch-scope';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { Spinner } from '@/components/Spinner';
 import { SmartSelect } from '@/components/SmartSelect';
 import { AsyncSmartSelect } from '@/components/AsyncSmartSelect';
@@ -418,7 +418,7 @@ export default function PurchaseOrderWizardPage() {
 
       {message ? (
         <Banner
-          message={message}
+          message={messageText(message)}
           severity="info"
           onDismiss={() => setMessage(null)}
         />

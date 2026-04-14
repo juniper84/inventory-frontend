@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import {
@@ -1636,7 +1636,7 @@ export default function PosPage() {
   const statusStrip = (
     <>
       {message ? (
-        <div className="shrink-0"><Banner message={message} /></div>
+        <div className="shrink-0"><Banner message={messageText(message)} /></div>
       ) : null}
       {branchSelectionRequired ? (
         <div className="shrink-0"><Banner message={t('branchSelectRequired')} severity="warning" /></div>

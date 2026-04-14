@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { notify } from '@/components/notifications/NotificationProvider';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -427,7 +427,7 @@ export default function PriceListsPage() {
   // ─── Banner ───────────────────────────────────────────────────────────
 
   const bannerNode = message ? (
-    <Banner message={message} onDismiss={() => setMessage(null)} />
+    <Banner message={messageText(message)} onDismiss={() => setMessage(null)} />
   ) : null;
 
   // ─── KPI strip ────────────────────────────────────────────────────────

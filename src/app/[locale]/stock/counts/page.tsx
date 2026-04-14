@@ -842,7 +842,7 @@ export default function StockCountsPage() {
           />
         </div>
       }
-      banner={message ? <Banner message={message.message} severity={message.outcome === 'failure' ? 'error' : 'success'} onDismiss={() => setMessage(null)} /> : null}
+      banner={message ? <Banner message={typeof message === 'string' ? message : message.message} severity={typeof message === 'string' ? 'info' : message.outcome === 'failure' ? 'error' : 'success'} onDismiss={() => setMessage(null)} /> : null}
       kpis={kpiStrip}
       beforeContent={createForm}
       viewMode={viewMode}

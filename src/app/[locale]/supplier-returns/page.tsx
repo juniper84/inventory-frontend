@@ -573,7 +573,7 @@ export default function SupplierReturnsPage() {
       emptyDescription={t('subtitle')}
       banner={
         <>
-          {message ? <Banner message={message.message ?? ''} severity={message.outcome === 'failure' ? 'error' : 'success'} onDismiss={() => setMessage(null)} /> : null}
+          {message ? <Banner message={typeof message === 'string' ? message : message.message ?? ''} severity={typeof message === 'string' ? 'info' : message.outcome === 'failure' ? 'error' : 'success'} onDismiss={() => setMessage(null)} /> : null}
           {approvalNotice ? (
             <Card padding="sm" className="border-[var(--nvi-gold)]/40 bg-[var(--nvi-gold)]/5 nvi-slide-in-bottom">
               <div className="flex items-start gap-2">

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { getOfflineCache } from '@/lib/offline-store';
@@ -831,7 +831,7 @@ export default function ReceivingPage() {
   /* ─── Banner ─── */
   const bannerNode = message ? (
     <Banner
-      message={message}
+      message={messageText(message)}
       severity="info"
       onDismiss={() => setMessage(null)}
     />

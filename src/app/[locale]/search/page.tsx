@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
@@ -365,7 +365,7 @@ export default function SearchPage() {
         </article>
       </div>
 
-      {message ? <Banner message={message} /> : null}
+      {message ? <Banner message={messageText(message)} /> : null}
 
       {/* ── Hero Search Bar ── */}
       <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-5 py-6">

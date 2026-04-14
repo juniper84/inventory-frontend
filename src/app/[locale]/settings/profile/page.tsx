@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken, getStoredUser } from '@/lib/auth';
-import { useToastState, getVariantFromMessage } from '@/lib/app-notifications';
+import { useToastState, getVariantFromMessage, messageText } from '@/lib/app-notifications';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { SmartSelect } from '@/components/SmartSelect';
 import { getPermissionSet } from '@/lib/permissions';
@@ -362,8 +362,8 @@ export default function ProfilePage() {
 
       {message ? (
         <Banner
-          message={message}
-          severity={getVariantFromMessage(message)}
+          message={messageText(message)}
+          severity={getVariantFromMessage(messageText(message))}
         />
       ) : null}
 

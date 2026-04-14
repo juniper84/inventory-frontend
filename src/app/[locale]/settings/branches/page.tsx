@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
@@ -836,7 +836,7 @@ export default function BranchesPage() {
           labels={{ cards: actions('viewCards'), table: actions('viewTable') }}
         />
       }
-      banner={message ? <Banner message={message} /> : null}
+      banner={message ? <Banner message={messageText(message)} /> : null}
       kpis={kpiStrip}
       filters={filterBar}
       beforeContent={createForm}

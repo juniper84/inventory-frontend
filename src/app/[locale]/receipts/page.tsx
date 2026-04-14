@@ -722,8 +722,8 @@ export default function ReceiptsPage() {
   // ─── Banner ──────────────────────────────────────────────────────────────
   const bannerNode = message ? (
     <Banner
-      message={message.message}
-      severity={message.outcome === 'success' ? 'success' : message.outcome === 'warning' ? 'warning' : 'error'}
+      message={typeof message === 'string' ? message : message.message}
+      severity={typeof message === 'string' ? 'info' : message.outcome === 'success' ? 'success' : message.outcome === 'warning' ? 'warning' : 'error'}
       onDismiss={() => setMessage(null)}
     />
   ) : null;

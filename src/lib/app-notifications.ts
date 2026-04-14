@@ -191,11 +191,21 @@ export function promptAction(payload: PromptPayload): Promise<string | null> {
 }
 
 /**
+ * Extract the display string from a useToastState message value.
+ * Accepts the shim's `ActionNotice | string | null` state and always
+ * returns a plain string (empty string if no message).
+ */
+export function messageText(m: ActionNotice | string | null | undefined): string {
+  if (!m) return '';
+  return typeof m === 'string' ? m : m.message;
+}
+
+/**
  * @deprecated Use `notify.*()` directly — no need for local state.
  * Preserved for pages that render a StatusBanner with the message.
  */
 export function useToastState() {
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<ActionNotice | string | null>(null);
   const timeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -217,7 +227,16 @@ export function useToastState() {
       title: toast.title,
       duration: toast.durationMs,
     });
-    setMessage(toast.message);
+    if (
+      typeof next === 'object' &&
+      next !== null &&
+      'action' in next &&
+      'outcome' in next
+    ) {
+      setMessage(next as ActionNotice);
+    } else {
+      setMessage(toast.message);
+    }
     if (typeof window !== 'undefined') {
       if (timeoutRef.current) {
         window.clearTimeout(timeoutRef.current);

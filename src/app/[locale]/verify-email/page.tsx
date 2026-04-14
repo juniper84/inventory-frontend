@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
@@ -175,7 +175,7 @@ export default function VerifyEmailPage() {
           </span>
         </button>
 
-        {message ? <Banner message={message} /> : null}
+        {message ? <Banner message={messageText(message)} /> : null}
       </form>
 
       <div className="auth-login-foot">

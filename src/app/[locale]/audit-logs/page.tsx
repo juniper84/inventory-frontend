@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { Spinner } from '@/components/Spinner';
@@ -2026,7 +2026,7 @@ export default function AuditLogsPage() {
           labels={{ cards: t('viewCards'), table: t('viewTable'), timeline: t('viewTimeline') }}
         />
       }
-      banner={message ? <Banner message={message} /> : null}
+      banner={message ? <Banner message={messageText(message)} /> : null}
       kpis={kpiStrip}
       filters={filtersSection}
       beforeContent={activityByUserSection}

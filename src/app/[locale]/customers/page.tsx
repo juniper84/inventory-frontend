@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { useToastState } from '@/lib/app-notifications';
+import { useToastState, messageText } from '@/lib/app-notifications';
 import { notify } from '@/components/notifications/NotificationProvider';
 import { apiFetch, getApiErrorMessage } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
@@ -481,7 +481,7 @@ export default function CustomersPage() {
   // ─── Banner for message ─────────────────────────────────────────────────
   const bannerNode = message ? (
     <Banner
-      message={message}
+      message={messageText(message)}
       onDismiss={() => setMessage(null)}
     />
   ) : null;
